@@ -1,0 +1,18 @@
+# 可选：仅在本机没有 MySQL 时用来快速起库。已有内网数据库则不必使用此文件。
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: online_report
+      MYSQL_USER: report_app
+      MYSQL_PASSWORD: report_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+
+volumes:
+  mysql_data:

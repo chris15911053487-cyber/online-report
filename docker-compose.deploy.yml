@@ -1,0 +1,29 @@
+# 云服务器部署：构建并运行 online-report 服务端。
+#
+# 敏感配置（JWT、DB 密码等）不要写在本文件；仅通过 env_file 注入。
+# 默认读取项目内 server/.env；生产推荐单独文件，例如 /etc/online-report/app.env：
+#   export DEPLOY_ENV_FILE=/etc/online-report/app.env
+#   docker compose -f docker-compose.deploy.yml up -d --build
+#
+# 数据库为外部 SQL Server 时，在 env 文件中将 DB_HOST 设为实际地址
+#（不要用 127.0.0.1，容器内 localhost 指向容器自身）。
+#
+# 使用方式（在项目根目录）：
+#   cp server/.env.example server/.env
+#   # 编辑 env 文件：PORT、NODE_ENV、JWT_SECRET、DB_* 等
+#   docker compose -f docker-compose.deploy.yml up -d --build
+#
+# 查看日志：docker compose -f docker-compose.deploy.yml logs -f
+
+services:
+  app:
+    image: online-report:1.0
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: online-report-app
+    ports:
+      - "${APP_PUBLISH_PORT:-3000}:3000"
+    env_file:
+      - ${DEPLOY_ENV_FILE:-./server/.env}
+    restart: unless-stopped

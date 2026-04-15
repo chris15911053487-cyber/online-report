@@ -1,0 +1,9 @@
+{
+  "name": "online-report",
+  "private": true,
+  "scripts": {
+    "start": "npm run start --prefix server",
+    "dev": "npm run dev --prefix server",
+    "init-db": "npm run init-db --prefix server"
+  }
+}

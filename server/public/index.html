@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f172a" />
+    <title>生产报工</title>
+    <link rel="stylesheet" href="/css/app.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <button type="button" class="btn-back" id="btn-back" hidden aria-label="返回">←</button>
+      <h1 class="topbar-title" id="page-title">生产报工</h1>
+    </header>
+
+    <main class="main">
+      <section id="view-login" class="view">
+        <p class="hint">请使用管理员分配的账号登录</p>
+        <form id="form-login" class="card" autocomplete="on">
+          <label class="field">
+            <span>用户名</span>
+            <input name="username" type="text" required autocomplete="username" />
+          </label>
+          <label class="field">
+            <span>密码</span>
+            <input name="password" type="password" required autocomplete="current-password" />
+          </label>
+          <p class="err" id="login-err" hidden></p>
+          <button type="submit" class="btn-primary">登录</button>
+        </form>
+      </section>
+
+      <!-- 底部四页签：目录内为动态菜单网格 -->
+      <section id="view-catalog" class="view" hidden>
+        <div id="catalog-grid" class="catalog-grid" aria-label="应用目录"></div>
+        <p id="catalog-empty" class="empty catalog-empty" hidden>暂无可用菜单</p>
+      </section>
+
+      <section id="view-favorites" class="view" hidden>
+        <p class="placeholder-page">常用功能将显示在这里</p>
+      </section>
+
+      <section id="view-messages" class="view" hidden>
+        <p class="placeholder-page">消息将显示在这里</p>
+      </section>
+
+      <section id="view-tab-settings" class="view" hidden>
+        <div class="card settings-card">
+          <p class="settings-line"><span class="settings-k">姓名</span> <span id="settings-display-name">—</span></p>
+          <p class="settings-line"><span class="settings-k">账号</span> <span id="settings-username">—</span></p>
+          <p class="settings-line"><span class="settings-k">角色</span> <span id="settings-role">—</span></p>
+        </div>
+        <button type="button" class="btn-primary" id="btn-settings-logout">退出登录</button>
+      </section>
+
+      <section id="view-owor" class="view" hidden>
+        <p class="pull-hint" id="owor-pull-hint">下拉刷新</p>
+        <p class="owor-subtitle">SAP 物料主数据 · OITM（最近 30 条）</p>
+        <div id="owor-table-panel" class="owor-table-panel"></div>
+        <div class="owor-list-wrap" id="owor-list-wrap">
+          <div id="owor-list" class="owor-list"></div>
+        </div>
+        <p id="owor-empty" class="empty" hidden>暂无数据</p>
+        <p id="owor-err" class="err" hidden></p>
+      </section>
+
+      <section id="view-orders" class="view" hidden>
+        <p class="pull-hint" id="pull-hint" hidden>下拉刷新</p>
+        <ul id="order-list" class="order-list"></ul>
+        <p id="orders-empty" class="empty" hidden>暂无生产订单</p>
+      </section>
+
+      <section id="view-menu-settings" class="view" hidden>
+        <p class="hint">配置目录中的菜单及可见角色。普通用户仅能看到勾选了「普通用户」的项。</p>
+        <div id="menu-admin-list" class="menu-admin-list"></div>
+        <form id="form-add-menu" class="card">
+          <h2 class="section-title">添加菜单</h2>
+          <label class="field">
+            <span>名称</span>
+            <input name="label" type="text" required maxlength="128" placeholder="例如：生产订单" />
+          </label>
+          <label class="field">
+            <span>路由标识</span>
+            <input
+              name="routeKey"
+              type="text"
+              required
+              maxlength="64"
+              pattern="[a-z][a-z0-9\-]*"
+              title="小写字母开头，仅含小写字母、数字、短横线"
+              placeholder="orders"
+            />
+          </label>
+          <label class="field">
+            <span>图标（可选）</span>
+            <input name="icon" type="text" maxlength="32" placeholder="📋" />
+          </label>
+          <label class="field">
+            <span>排序</span>
+            <input name="sortOrder" type="number" step="1" value="100" />
+          </label>
+          <label class="field row-inline">
+            <input name="enabled" type="checkbox" checked />
+            <span>启用</span>
+          </label>
+          <div class="field">
+            <span>可见角色</span>
+            <label class="row-inline"><input type="checkbox" name="roleAdmin" /> 管理员</label>
+            <label class="row-inline"><input type="checkbox" name="roleOperator" checked /> 普通用户</label>
+          </div>
+          <label class="field">
+            <span>菜单类型</span>
+            <select name="menuKind">
+              <option value="builtin">内置页面</option>
+              <option value="report">可配置报表（SQL）</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>SQL 模板（仅报表；SELECT 或 EXEC 过程；参数用 @名称，与下方 JSON 一致）</span>
+            <textarea name="queryTemplate" rows="4" placeholder="留空（内置）"></textarea>
+          </label>
+          <label class="field">
+            <span>查询条件 JSON（仅报表）</span>
+            <textarea name="filterSchema" rows="3" placeholder='例如：[{"name":"status","label":"状态","type":"string","required":false}]'></textarea>
+          </label>
+          <label class="field">
+            <span>行详情 SQL（仅报表；须含主键参数，默认 @detailKey；可与列表共用筛选参数）</span>
+            <textarea name="detailQueryTemplate" rows="3" placeholder="留空表示不启用行点击查看详情"></textarea>
+          </label>
+          <label class="field">
+            <span>行主键列名（与列表结果列名一致）</span>
+            <input name="detailKeyColumn" type="text" maxlength="256" placeholder="例如 DocEntry" />
+          </label>
+          <label class="field">
+            <span>详情 SQL 主键参数名（默认 detailKey）</span>
+            <input name="detailKeyParam" type="text" maxlength="128" placeholder="detailKey" />
+          </label>
+          <label class="field">
+            <span>行主键类型</span>
+            <select name="detailKeyType">
+              <option value="string">string</option>
+              <option value="int">int</option>
+              <option value="decimal">decimal</option>
+              <option value="date">date</option>
+              <option value="datetime">datetime</option>
+              <option value="bool">bool</option>
+            </select>
+          </label>
+          <p class="err" id="menu-add-err" hidden></p>
+          <button type="submit" class="btn-primary">添加</button>
+        </form>
+      </section>
+
+      <section id="view-dynamic-report" class="view" hidden>
+        <p class="dynamic-report-title hint" id="dynamic-report-title">报表</p>
+        <div id="dynamic-report-form-wrap" class="card"></div>
+        <p class="err" id="dynamic-report-err" hidden></p>
+        <div id="dynamic-report-table-wrap" class="owor-table-panel"></div>
+      </section>
+
+      <section id="view-report-row-detail" class="view" hidden>
+        <div id="report-row-detail-body" class="report-row-detail-page"></div>
+      </section>
+
+      <section id="view-detail" class="view" hidden>
+        <div class="card detail-head" id="detail-head"></div>
+        <form id="form-report" class="card">
+          <h2 class="section-title">提交报工</h2>
+          <div id="op-wrap" class="field" hidden>
+            <span>工序</span>
+            <div id="op-chips" class="chips"></div>
+          </div>
+          <label class="field">
+            <span>良品数量</span>
+            <input name="goodQty" type="number" inputmode="decimal" step="any" min="0" required placeholder="必填" />
+          </label>
+          <label class="field">
+            <span>不良数量</span>
+            <input name="scrapQty" type="number" inputmode="decimal" step="any" min="0" value="0" />
+          </label>
+          <label class="field">
+            <span>备注</span>
+            <textarea name="remark" rows="3" placeholder="选填"></textarea>
+          </label>
+          <p class="err" id="report-err" hidden></p>
+          <button type="submit" class="btn-primary">提交报工</button>
+        </form>
+        <div class="card">
+          <h2 class="section-title">最近报工</h2>
+          <ul id="report-list" class="report-list"></ul>
+          <p id="reports-empty" class="empty muted" hidden>暂无记录</p>
+        </div>
+      </section>
+    </main>
+
+    <nav id="bottom-nav" class="bottom-nav" hidden aria-label="主导航">
+      <button type="button" class="bottom-nav-item" data-root-tab="catalog" aria-current="page" aria-label="目录">
+        <span class="bottom-nav-glyph" aria-hidden="true">▦</span>
+        <span class="bottom-nav-label">目录</span>
+      </button>
+      <button type="button" class="bottom-nav-item" data-root-tab="favorites" aria-label="常用">
+        <span class="bottom-nav-glyph bottom-nav-glyph--star" aria-hidden="true">★</span>
+        <span class="bottom-nav-label">常用</span>
+      </button>
+      <button type="button" class="bottom-nav-item" data-root-tab="messages" aria-label="消息">
+        <span class="bottom-nav-glyph bottom-nav-glyph--msg" aria-hidden="true">💬</span>
+        <span class="bottom-nav-label">消息</span>
+      </button>
+      <button type="button" class="bottom-nav-item" data-root-tab="settings" aria-label="设置">
+        <span class="bottom-nav-glyph bottom-nav-glyph--gear" aria-hidden="true">⚙</span>
+        <span class="bottom-nav-label">设置</span>
+      </button>
+    </nav>
+
+    <div class="toast" id="toast" hidden role="status"></div>
+
+    <div id="report-overlay" class="report-overlay" hidden aria-modal="true" role="dialog" aria-labelledby="report-overlay-title">
+      <button type="button" class="report-overlay-backdrop" id="report-overlay-backdrop" tabindex="-1" aria-label="关闭"></button>
+      <div class="report-overlay-card card">
+        <div class="report-overlay-header">
+          <h2 class="report-overlay-title" id="report-overlay-title">详情</h2>
+          <button type="button" class="report-overlay-close" id="report-overlay-close" aria-label="关闭">×</button>
+        </div>
+        <div class="report-overlay-body" id="report-overlay-body"></div>
+      </div>
+    </div>
+
+    <script src="/js/app.js"></script>
+  </body>
+</html>

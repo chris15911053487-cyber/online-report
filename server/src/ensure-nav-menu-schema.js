@@ -1,0 +1,53 @@
+const fs = require('fs');
+const path = require('path');
+
+const SQL_PATH = path.join(__dirname, '..', 'sql', 'migrate-nav-menu-items-only.sql');
+const SQL_REPORT_COLS_PATH = path.join(
+  __dirname,
+  '..',
+  'sql',
+  'migrate-nav-menu-report-columns.sql'
+);
+const SQL_DETAIL_COLS_PATH = path.join(
+  __dirname,
+  '..',
+  'sql',
+  'migrate-nav-menu-detail-columns.sql'
+);
+
+/**
+ * 启动时自动执行 migrate-nav-menu-items-only.sql（需账号有建表权限）。
+ * 设置 AUTO_CREATE_NAV_MENU_TABLE=false 可关闭。
+ */
+async function ensureNavMenuSchema(getPool, log) {
+  if (process.env.AUTO_CREATE_NAV_MENU_TABLE === 'false') {
+    log?.info?.('[nav_menu_items] 跳过自动建表（AUTO_CREATE_NAV_MENU_TABLE=false）');
+    return;
+  }
+
+  const warn = (msg, err) => {
+    if (log && typeof log.warn === 'function') {
+      log.warn(err, msg);
+    } else {
+      console.warn(msg, err || '');
+    }
+  };
+
+  try {
+    const pool = await getPool();
+    const sqlText = fs.readFileSync(SQL_PATH, 'utf8');
+    await pool.request().query(sqlText);
+    const sqlReportCols = fs.readFileSync(SQL_REPORT_COLS_PATH, 'utf8');
+    await pool.request().query(sqlReportCols);
+    const sqlDetailCols = fs.readFileSync(SQL_DETAIL_COLS_PATH, 'utf8');
+    await pool.request().query(sqlDetailCols);
+    log?.info?.('[nav_menu_items] 已检查/创建表结构与默认数据（含报表扩展列）');
+  } catch (err) {
+    warn(
+      '[nav_menu_items] 自动建表失败：请用有 DDL 权限的账号连接，或手动在目标库执行 sql/migrate-nav-menu-items-only.sql',
+      err
+    );
+  }
+}
+
+module.exports = ensureNavMenuSchema;

@@ -1,0 +1,19 @@
+{
+  "name": "online-report-server",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "init-db": "node scripts/init-db.js"
+  },
+  "dependencies": {
+    "@fastify/cors": "^9.0.1",
+    "@fastify/static": "^7.0.4",
+    "@fastify/jwt": "^8.0.0",
+    "dotenv": "^16.4.5",
+    "fastify": "^4.28.1",
+    "mssql": "^11.0.1"
+  }
+}

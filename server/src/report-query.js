@@ -1,0 +1,765 @@
+const { sql } = require('./db');
+
+const RESERVED_ROUTE_KEYS = new Set(['orders', 'menu-settings']);
+
+const DANGEROUS_SQL_PATTERN =
+  /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|MERGE|GRANT|REVOKE|DENY)\b/i;
+
+/** @returns {number} */
+function getReportMaxRows() {
+  const n = Number(process.env.REPORT_MAX_ROWS ?? 2000);
+  if (!Number.isFinite(n) || n < 1) return 2000;
+  return Math.min(Math.trunc(n), 50000);
+}
+
+/** @returns {number} */
+function getReportQueryTimeoutMs() {
+  const n = Number(process.env.REPORT_QUERY_TIMEOUT_MS ?? 60000);
+  if (!Number.isFinite(n) || n < 1000) return 60000;
+  return Math.min(Math.trunc(n), 600000);
+}
+
+/** 单页最大条数上限（与 REPORT_MAX_ROWS 取 min） */
+function getReportMaxPageSize() {
+  return Math.min(500, getReportMaxRows());
+}
+
+/**
+ * @param {unknown} pageRaw
+ * @param {unknown} pageSizeRaw
+ * @returns {{ page: number, pageSize: number }}
+ * 省略 page / pageSize 时：page=1、pageSize=REPORT_MAX_ROWS（兼容旧客户端一次取满页上限）。
+ */
+function normalizeReportPaging(pageRaw, pageSizeRaw) {
+  const maxRows = getReportMaxRows();
+  const maxPageSize = getReportMaxPageSize();
+  const pageMissing = pageRaw === undefined || pageRaw === null || pageRaw === '';
+  const pageSizeMissing =
+    pageSizeRaw === undefined || pageSizeRaw === null || pageSizeRaw === '';
+
+  let page = 1;
+  let pageSize = maxRows;
+
+  if (!pageMissing) {
+    page = Math.trunc(Number(pageRaw));
+    if (!Number.isFinite(page) || page < 1) {
+      const err = new Error('page 须为不小于 1 的整数');
+      err.code = 'REPORT_BAD_PAGING';
+      throw err;
+    }
+  }
+  if (!pageSizeMissing) {
+    pageSize = Math.trunc(Number(pageSizeRaw));
+    if (!Number.isFinite(pageSize) || pageSize < 1) {
+      const err = new Error('pageSize 须为不小于 1 的整数');
+      err.code = 'REPORT_BAD_PAGING';
+      throw err;
+    }
+    if (pageSize > maxPageSize) {
+      const err = new Error(`pageSize 不能超过 ${maxPageSize}`);
+      err.code = 'REPORT_BAD_PAGING';
+      throw err;
+    }
+  }
+
+  return { page, pageSize };
+}
+
+function normalizeTemplate(s) {
+  return String(s || '')
+    .trim()
+    .replace(/;+\s*$/g, '');
+}
+
+/**
+ * @param {string} text
+ * @returns {'select'|'exec'|null}
+ */
+function detectTemplateKind(text) {
+  const t = normalizeTemplate(text);
+  if (!t) return null;
+  if (/^\s*(EXEC|EXECUTE)\s+/i.test(t)) return 'exec';
+  if (/^\s*WITH\s+/i.test(t)) return 'select';
+  if (/^\s*SELECT\s+/i.test(t)) return 'select';
+  return null;
+}
+
+function validateSingleStatement(t) {
+  const normalized = normalizeTemplate(t);
+  const parts = normalized
+    .split(';')
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+  if (parts.length > 1) {
+    return { ok: false, error: '不允许多条语句（请勿使用分号连接多条 SQL）' };
+  }
+  return { ok: true, statement: parts[0] || normalized };
+}
+
+function validateNoDynamicExec(t) {
+  if (/\bEXEC(UTE)?\s*\(/i.test(t)) {
+    return { ok: false, error: '不允许 EXEC(...) 动态 SQL' };
+  }
+  if (/\bsp_executesql\b/i.test(t)) {
+    return { ok: false, error: '不允许使用 sp_executesql' };
+  }
+  return { ok: true };
+}
+
+function validateSelectTemplate(t) {
+  const st = normalizeTemplate(t);
+  if (!/^\s*(WITH\s|SELECT\s)/i.test(st)) {
+    return { ok: false, error: 'SELECT 模板须以 SELECT 或 WITH 开头' };
+  }
+  if (DANGEROUS_SQL_PATTERN.test(st)) {
+    return { ok: false, error: 'SELECT 模板中不允许包含 INSERT/UPDATE/DELETE/DROP 等关键字' };
+  }
+  return { ok: true };
+}
+
+function validateExecTemplate(t) {
+  const st = normalizeTemplate(t);
+  const m = st.match(/^\s*(EXEC|EXECUTE)\s+(.+)$/is);
+  if (!m) {
+    return { ok: false, error: '存储过程模板须以 EXEC 或 EXECUTE 开头' };
+  }
+  const rest = m[2].trim();
+  if (!/^[\w\[\].]+/.test(rest)) {
+    return { ok: false, error: '无法解析存储过程名称' };
+  }
+  if (DANGEROUS_SQL_PATTERN.test(st)) {
+    return { ok: false, error: 'EXEC 模板中含不允许的关键字' };
+  }
+  return { ok: true };
+}
+
+/**
+ * @param {string} sqlText
+ * @returns {Set<string>}
+ */
+function extractParamNames(sqlText) {
+  const set = new Set();
+  const re = /@([a-zA-Z_][a-zA-Z0-9_]*)/g;
+  let m;
+  while ((m = re.exec(sqlText)) !== null) {
+    const name = m[1];
+    if (name.startsWith('_')) continue;
+    set.add(name);
+  }
+  return set;
+}
+
+/**
+ * @param {string} jsonStr
+ * @returns {{ ok: true, fields: object[] } | { ok: false, error: string }}
+ */
+function parseFilterSchemaJson(jsonStr) {
+  let parsed;
+  try {
+    parsed = typeof jsonStr === 'string' ? JSON.parse(jsonStr) : jsonStr;
+  } catch {
+    return { ok: false, error: 'filterSchema 不是合法 JSON' };
+  }
+  if (!Array.isArray(parsed)) {
+    return { ok: false, error: 'filterSchema 须为 JSON 数组' };
+  }
+  const fields = [];
+  const seen = new Set();
+  for (const raw of parsed) {
+    if (!raw || typeof raw !== 'object') {
+      return { ok: false, error: 'filterSchema 数组项须为对象' };
+    }
+    const name = String(raw.name || '').trim();
+    const label = String(raw.label || '').trim().slice(0, 128);
+    const type = String(raw.type || 'string').toLowerCase();
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
+      return { ok: false, error: `无效参数名: ${name}` };
+    }
+    if (name.startsWith('_')) {
+      return { ok: false, error: '参数名不能以 _ 开头' };
+    }
+    if (seen.has(name)) {
+      return { ok: false, error: `重复参数名: ${name}` };
+    }
+    seen.add(name);
+    const allowedTypes = new Set(['string', 'int', 'decimal', 'date', 'datetime', 'bool']);
+    if (!allowedTypes.has(type)) {
+      return { ok: false, error: `不支持的条件类型: ${type}` };
+    }
+    fields.push({
+      name,
+      label: label || name,
+      type,
+      required: raw.required === true,
+      maxLength:
+        typeof raw.maxLength === 'number' && Number.isFinite(raw.maxLength)
+          ? Math.min(Math.trunc(raw.maxLength), 4000)
+          : type === 'string'
+            ? 4000
+            : undefined,
+    });
+  }
+  return { ok: true, fields };
+}
+
+/**
+ * 行详情 SQL：参数须包含主键参数 @detailKeyParam，其余参数须来自列表查询的 filterSchema。
+ * @param {object[]} filterFields
+ * @param {{ detailQueryTemplate?: string|null, detailKeyColumn?: string|null, detailKeyParam?: string|null, detailKeyType?: string|null }} cfg
+ */
+function validateReportDetailAttachment(filterFields, cfg) {
+  const dqRaw = cfg.detailQueryTemplate != null ? String(cfg.detailQueryTemplate) : '';
+  const dkcRaw = cfg.detailKeyColumn != null ? String(cfg.detailKeyColumn).trim() : '';
+  const dkpRaw = cfg.detailKeyParam != null ? String(cfg.detailKeyParam).trim() : '';
+  const dkp = dkpRaw || 'detailKey';
+  const dktRaw = cfg.detailKeyType != null ? String(cfg.detailKeyType).trim().toLowerCase() : 'string';
+
+  const dq = normalizeTemplate(dqRaw);
+  const dkc = dkcRaw.trim();
+
+  if (!dq && !dkc) {
+    return {
+      ok: true,
+      detailNormalizedTemplate: null,
+      detailKeyColumn: '',
+      detailKeyParam: dkp,
+      detailKeyType: 'string',
+    };
+  }
+  if (dq && !dkc) {
+    return {
+      ok: false,
+      error: '已填写行详情 SQL 时须同时填写「主键列名」（与列表结果列名一致）',
+    };
+  }
+  if (!dq && dkc) {
+    return { ok: false, error: '填写了主键列名时须同时配置行详情 SQL' };
+  }
+
+  if (!dkc || dkc.length > 256) {
+    return { ok: false, error: '主键列名长度须为 1～256' };
+  }
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(dkp)) {
+    return {
+      ok: false,
+      error: '详情参数名须为字母/数字/下划线，且以字母或下划线开头',
+    };
+  }
+  const allowedDetailTypes = new Set(['string', 'int', 'decimal', 'date', 'datetime', 'bool']);
+  if (!allowedDetailTypes.has(dktRaw)) {
+    return { ok: false, error: '行主键类型须为 string / int / decimal / date / datetime / bool' };
+  }
+
+  const single = validateSingleStatement(dq);
+  if (!single.ok) return single;
+  const dyn = validateNoDynamicExec(single.statement);
+  if (!dyn.ok) return dyn;
+  const kind = detectTemplateKind(single.statement);
+  if (!kind) {
+    return { ok: false, error: '行详情 SQL 须为 SELECT / WITH…SELECT 或 EXEC 存储过程' };
+  }
+  if (kind === 'select') {
+    const vs = validateSelectTemplate(single.statement);
+    if (!vs.ok) return vs;
+  } else {
+    const ve = validateExecTemplate(single.statement);
+    if (!ve.ok) return ve;
+  }
+
+  const filterNames = new Set(filterFields.map((f) => f.name));
+  if (filterNames.has(dkp)) {
+    return {
+      ok: false,
+      error: `详情参数名 @${dkp} 不能与查询条件 JSON 中的参数名重复，请改用如 detailKey`,
+    };
+  }
+
+  const templateParams = extractParamNames(single.statement);
+  for (const name of templateParams) {
+    if (name === dkp) continue;
+    if (!filterNames.has(name)) {
+      return {
+        ok: false,
+        error: `行详情 SQL 中的 @${name} 须在查询条件 JSON 中声明（主键请使用 @${dkp}）`,
+      };
+    }
+  }
+  if (!templateParams.has(dkp)) {
+    return {
+      ok: false,
+      error: `行详情 SQL 须包含主键参数 @${dkp}（与「详情参数名」一致）`,
+    };
+  }
+
+  return {
+    ok: true,
+    detailNormalizedTemplate: single.statement,
+    detailKeyColumn: dkc,
+    detailKeyParam: dkp,
+    detailKeyType: dktRaw,
+  };
+}
+
+/**
+ * @param {{ menuKind: string, routeKey: string, queryTemplate: string|null|undefined, filterSchema: unknown, detailQueryTemplate?: string|null, detailKeyColumn?: string|null, detailKeyParam?: string|null, detailKeyType?: string|null }} cfg
+ */
+function validateReportMenuConfig(cfg) {
+  const menuKind = String(cfg.menuKind || 'builtin').toLowerCase();
+  const routeKey = String(cfg.routeKey || '')
+    .trim()
+    .toLowerCase();
+  const qt = cfg.queryTemplate != null ? String(cfg.queryTemplate) : '';
+  const fsRaw =
+    cfg.filterSchema != null
+      ? typeof cfg.filterSchema === 'string'
+        ? cfg.filterSchema
+        : JSON.stringify(cfg.filterSchema)
+      : '[]';
+
+  if (menuKind !== 'builtin' && menuKind !== 'report') {
+    return { ok: false, error: 'menuKind 须为 builtin 或 report' };
+  }
+
+  if (RESERVED_ROUTE_KEYS.has(routeKey) && menuKind === 'report') {
+    return { ok: false, error: '内置路由不可配置为报表类型' };
+  }
+
+  if (menuKind === 'builtin') {
+    if (qt.trim()) {
+      return { ok: false, error: '内置菜单不应填写 SQL 模板' };
+    }
+    const fs = parseFilterSchemaJson(fsRaw);
+    if (!fs.ok) return fs;
+    if (fs.fields.length > 0) {
+      return { ok: false, error: '内置菜单不应填写查询条件 schema' };
+    }
+    return { ok: true, menuKind, filterFields: [] };
+  }
+
+  const template = normalizeTemplate(qt);
+  if (!template) {
+    return { ok: false, error: '报表菜单请填写 SQL 模板' };
+  }
+
+  const single = validateSingleStatement(template);
+  if (!single.ok) return single;
+  const dyn = validateNoDynamicExec(single.statement);
+  if (!dyn.ok) return dyn;
+
+  const kind = detectTemplateKind(single.statement);
+  if (!kind) {
+    return { ok: false, error: '模板须为 SELECT / WITH…SELECT 或 EXEC 存储过程' };
+  }
+
+  if (kind === 'select') {
+    const vs = validateSelectTemplate(single.statement);
+    if (!vs.ok) return vs;
+  } else {
+    const ve = validateExecTemplate(single.statement);
+    if (!ve.ok) return ve;
+  }
+
+  const fs = parseFilterSchemaJson(fsRaw);
+  if (!fs.ok) return fs;
+
+  const templateParams = extractParamNames(single.statement);
+  for (const name of templateParams) {
+    const found = fs.fields.some((f) => f.name === name);
+    if (!found) {
+      return {
+        ok: false,
+        error: `SQL 中的参数 @${name} 须在 filterSchema 中声明`,
+      };
+    }
+  }
+  for (const f of fs.fields) {
+    if (!templateParams.has(f.name)) {
+      return {
+        ok: false,
+        error: `filterSchema 中的参数 ${f.name} 须在 SQL 模板中使用 @${f.name}`,
+      };
+    }
+  }
+
+  const detailPart = validateReportDetailAttachment(fs.fields, cfg);
+  if (!detailPart.ok) return detailPart;
+
+  return {
+    ok: true,
+    menuKind: 'report',
+    templateKind: kind,
+    normalizedTemplate: single.statement,
+    filterFields: fs.fields,
+    detailNormalizedTemplate: detailPart.detailNormalizedTemplate,
+    detailKeyColumn: detailPart.detailKeyColumn,
+    detailKeyParam: detailPart.detailKeyParam,
+    detailKeyType: detailPart.detailKeyType,
+  };
+}
+
+/**
+ * @param {object} field
+ * @param {unknown} raw
+ */
+function coerceValue(field, raw) {
+  if (raw === undefined || raw === null || raw === '') {
+    return null;
+  }
+  switch (field.type) {
+    case 'string': {
+      let s = String(raw);
+      if (field.maxLength) s = s.slice(0, field.maxLength);
+      return s;
+    }
+    case 'int': {
+      const n = parseInt(String(raw), 10);
+      if (!Number.isFinite(n)) return null;
+      return n;
+    }
+    case 'decimal': {
+      const n = Number(raw);
+      if (!Number.isFinite(n)) return null;
+      return n;
+    }
+    case 'date': {
+      const s = String(raw).trim();
+      if (!s) return null;
+      const d = new Date(s);
+      if (Number.isNaN(d.getTime())) return null;
+      return s.length <= 10 ? s : d.toISOString().slice(0, 10);
+    }
+    case 'datetime': {
+      const s = String(raw).trim();
+      if (!s) return null;
+      const d = new Date(s);
+      if (Number.isNaN(d.getTime())) return null;
+      return d;
+    }
+    case 'bool': {
+      if (typeof raw === 'boolean') return raw;
+      const s = String(raw).toLowerCase();
+      if (s === '1' || s === 'true' || s === 'yes') return true;
+      if (s === '0' || s === 'false' || s === 'no') return false;
+      return null;
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * @param {import('mssql').Request} req
+ * @param {object} field
+ * @param {unknown} value
+ */
+/**
+ * 校验 filter 参数并绑定到 request（不含分页占位符）。
+ * @param {import('mssql').Request} request
+ * @param {object[]} schemaFields
+ * @param {object} body
+ */
+function bindReportFilterParams(request, schemaFields, body) {
+  const params = body && typeof body === 'object' ? body : {};
+  for (const field of schemaFields) {
+    const raw = params[field.name];
+    const empty = raw === undefined || raw === null || raw === '';
+    if (empty && field.required) {
+      const err = new Error(`缺少必填参数: ${field.label || field.name}`);
+      err.code = 'REPORT_PARAM_REQUIRED';
+      throw err;
+    }
+    let val = null;
+    if (!empty) {
+      val = coerceValue(field, raw);
+      if (val === null) {
+        const err = new Error(`参数无效: ${field.label || field.name}`);
+        err.code = 'REPORT_PARAM_INVALID';
+        throw err;
+      }
+    }
+    bindInput(request, field, val);
+  }
+}
+
+function bindInput(req, field, value) {
+  if (value === null) {
+    switch (field.type) {
+      case 'string':
+        req.input(field.name, sql.NVarChar(4000), null);
+        break;
+      case 'int':
+        req.input(field.name, sql.Int, null);
+        break;
+      case 'decimal':
+        req.input(field.name, sql.Decimal(18, 4), null);
+        break;
+      case 'date':
+        req.input(field.name, sql.Date, null);
+        break;
+      case 'datetime':
+        req.input(field.name, sql.DateTime2, null);
+        break;
+      case 'bool':
+        req.input(field.name, sql.Bit, null);
+        break;
+      default:
+        req.input(field.name, sql.NVarChar(4000), null);
+    }
+    return;
+  }
+  switch (field.type) {
+    case 'string':
+      req.input(field.name, sql.NVarChar(field.maxLength || 4000), value);
+      break;
+    case 'int':
+      req.input(field.name, sql.Int, value);
+      break;
+    case 'decimal':
+      req.input(field.name, sql.Decimal(18, 4), value);
+      break;
+    case 'date': {
+      const d = new Date(value + (String(value).length <= 10 ? 'T00:00:00' : ''));
+      req.input(field.name, sql.Date, d);
+      break;
+    }
+    case 'datetime':
+      req.input(field.name, sql.DateTime2, value instanceof Date ? value : new Date(value));
+      break;
+    case 'bool':
+      req.input(field.name, sql.Bit, value ? 1 : 0);
+      break;
+    default:
+      req.input(field.name, sql.NVarChar(4000), String(value));
+  }
+}
+
+/**
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {object} opts
+ */
+async function executeReportQuery(pool, opts) {
+  const {
+    templateKind,
+    sqlTemplate,
+    schemaFields,
+    params,
+    timeoutMs = getReportQueryTimeoutMs(),
+    maxRows = getReportMaxRows(),
+    page: pageOpt,
+    pageSize: pageSizeOpt,
+  } = opts;
+
+  const body = params && typeof params === 'object' ? params : {};
+  const { page, pageSize } = normalizeReportPaging(pageOpt, pageSizeOpt);
+
+  try {
+    if (templateKind === 'select') {
+      const countReq = pool.request();
+      countReq.timeout = timeoutMs;
+      bindReportFilterParams(countReq, schemaFields, body);
+      const countSql = `SELECT COUNT(1) AS __report_cnt FROM (${sqlTemplate}) AS __report_sub`;
+      const countResult = await countReq.query(countSql);
+      const cntRow = countResult.recordset && countResult.recordset[0];
+      const rawCnt =
+        cntRow &&
+        (cntRow.__report_cnt ??
+          cntRow.__report_CNT ??
+          (typeof cntRow === 'object' ? Object.values(cntRow)[0] : undefined));
+      let totalRowCount =
+        typeof rawCnt === 'bigint' ? Number(rawCnt) : Number(rawCnt);
+      if (!Number.isFinite(totalRowCount) || totalRowCount < 0) {
+        totalRowCount = 0;
+      }
+      totalRowCount = Math.trunc(totalRowCount);
+
+      const offset = (page - 1) * pageSize;
+      const dataReq = pool.request();
+      dataReq.timeout = timeoutMs;
+      bindReportFilterParams(dataReq, schemaFields, body);
+      dataReq.input('__reportOffset', sql.Int, offset);
+      dataReq.input('__reportPageSize', sql.Int, pageSize);
+      const dataSql = `SELECT * FROM (${sqlTemplate}) AS __report_sub
+        ORDER BY (SELECT NULL)
+        OFFSET @__reportOffset ROWS FETCH NEXT @__reportPageSize ROWS ONLY`;
+      const result = await dataReq.query(dataSql);
+      const rows = result.recordset || [];
+      const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+      return {
+        columns,
+        rows,
+        truncated: false,
+        totalRowCount,
+        page,
+        pageSize,
+        clientSidePaging: false,
+      };
+    }
+
+    const request = pool.request();
+    request.timeout = timeoutMs;
+    bindReportFilterParams(request, schemaFields, body);
+    const result = await request.query(sqlTemplate);
+    let rows =
+      result.recordset && result.recordset.length
+        ? result.recordset
+        : (result.recordsets && result.recordsets[0]) || [];
+    let truncated = false;
+    if (rows.length > maxRows) {
+      truncated = true;
+      rows = rows.slice(0, maxRows);
+    }
+    const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+    const totalRowCount = rows.length;
+    return {
+      columns,
+      rows,
+      truncated,
+      totalRowCount,
+      page: 1,
+      pageSize,
+      clientSidePaging: true,
+    };
+  } catch (err) {
+    if (
+      err &&
+      (err.code === 'REPORT_PARAM_REQUIRED' ||
+        err.code === 'REPORT_PARAM_INVALID' ||
+        err.code === 'REPORT_BAD_PAGING')
+    ) {
+      throw err;
+    }
+    const msg = String(err?.message || err);
+    const code = err?.code;
+    if (
+      code === 'ETIMEOUT' ||
+      /timeout/i.test(msg) ||
+      /Query timeout/i.test(msg)
+    ) {
+      const e = new Error('查询超时，请缩小条件或联系管理员');
+      e.code = 'REPORT_QUERY_TIMEOUT';
+      e.cause = err;
+      throw e;
+    }
+    throw err;
+  }
+}
+
+/**
+ * 行详情查询：绑定列表筛选条件 + 主键参数后执行详情 SQL（无分页，结果条数受 REPORT_MAX_ROWS 限制）。
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {object} opts
+ */
+async function executeReportDetailQuery(pool, opts) {
+  const {
+    templateKind,
+    sqlTemplate,
+    schemaFields,
+    params,
+    detailKeyParam,
+    detailKeyRaw,
+    detailKeyType,
+    timeoutMs = getReportQueryTimeoutMs(),
+    maxRows = getReportMaxRows(),
+  } = opts;
+
+  const dkp = String(detailKeyParam || 'detailKey').trim() || 'detailKey';
+  const dkt = String(detailKeyType || 'string').toLowerCase();
+  const dkField = {
+    name: dkp,
+    type: dkt,
+    required: true,
+    label: dkp,
+    maxLength: dkt === 'string' ? 4000 : undefined,
+  };
+
+  const body = params && typeof params === 'object' ? params : {};
+  const empty =
+    detailKeyRaw === undefined || detailKeyRaw === null || detailKeyRaw === '';
+  if (empty) {
+    const err = new Error('缺少行主键 detailKey');
+    err.code = 'REPORT_DETAIL_KEY_MISSING';
+    throw err;
+  }
+  const val = coerceValue(dkField, detailKeyRaw);
+  if (val === null) {
+    const err = new Error('行主键无效');
+    err.code = 'REPORT_PARAM_INVALID';
+    throw err;
+  }
+
+  try {
+    if (templateKind === 'select') {
+      const dataReq = pool.request();
+      dataReq.timeout = timeoutMs;
+      bindReportFilterParams(dataReq, schemaFields, body);
+      bindInput(dataReq, dkField, val);
+      const cap = Math.min(Math.max(1, maxRows), 50000);
+      dataReq.input('__reportDetailCap', sql.Int, cap);
+      const dataSql = `SELECT TOP (@__reportDetailCap) * FROM (${sqlTemplate}) AS __report_sub`;
+      const result = await dataReq.query(dataSql);
+      const rows = result.recordset || [];
+      const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+      return {
+        columns,
+        rows,
+        truncated: false,
+        totalRowCount: rows.length,
+      };
+    }
+
+    const request = pool.request();
+    request.timeout = timeoutMs;
+    bindReportFilterParams(request, schemaFields, body);
+    bindInput(request, dkField, val);
+    const result = await request.query(sqlTemplate);
+    let rows =
+      result.recordset && result.recordset.length
+        ? result.recordset
+        : (result.recordsets && result.recordsets[0]) || [];
+    let truncated = false;
+    if (rows.length > maxRows) {
+      truncated = true;
+      rows = rows.slice(0, maxRows);
+    }
+    const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+    const totalRowCount = rows.length;
+    return { columns, rows, truncated, totalRowCount };
+  } catch (err) {
+    if (
+      err &&
+      (err.code === 'REPORT_PARAM_REQUIRED' ||
+        err.code === 'REPORT_PARAM_INVALID' ||
+        err.code === 'REPORT_DETAIL_KEY_MISSING')
+    ) {
+      throw err;
+    }
+    const msg = String(err?.message || err);
+    const code = err?.code;
+    if (
+      code === 'ETIMEOUT' ||
+      /timeout/i.test(msg) ||
+      /Query timeout/i.test(msg)
+    ) {
+      const e = new Error('查询超时，请缩小条件或联系管理员');
+      e.code = 'REPORT_QUERY_TIMEOUT';
+      e.cause = err;
+      throw e;
+    }
+    throw err;
+  }
+}
+
+module.exports = {
+  getReportMaxRows,
+  getReportMaxPageSize,
+  getReportQueryTimeoutMs,
+  normalizeReportPaging,
+  RESERVED_ROUTE_KEYS,
+  normalizeTemplate,
+  detectTemplateKind,
+  parseFilterSchemaJson,
+  validateReportMenuConfig,
+  extractParamNames,
+  executeReportQuery,
+  executeReportDetailQuery,
+};
