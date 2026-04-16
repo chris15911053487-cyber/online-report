@@ -169,6 +169,11 @@
     reportOverlayTitle: document.getElementById('report-overlay-title'),
     reportOverlayBody: document.getElementById('report-overlay-body'),
     reportOverlayClose: document.getElementById('report-overlay-close'),
+    workRegistration: document.getElementById('view-work-registration'),
+    workRegHead: document.getElementById('work-reg-head'),
+    workRegToolbar: document.getElementById('work-reg-toolbar'),
+    workRegLines: document.getElementById('work-reg-lines'),
+    workRegErr: document.getElementById('work-reg-err'),
   };
 
   var state = {
@@ -193,6 +198,12 @@
     reportServerRows: null,
     reportLastColumns: [],
     dynamicReportRowDetail: { enabled: false, keyColumn: '' },
+    proSignMode: false,
+    proSignMenu: null,
+    workRegBatchId: null,
+    workRegPollTimer: null,
+    workRegUiTimer: null,
+    workRegSnapshot: null,
   };
 
   function statusLabel(s) {
@@ -228,6 +239,7 @@
     else if (v === 'orders') title = '报工订单';
     else if (v === 'menu-settings') title = '菜单设置';
     else if (v === 'dynamic-report') title = state.dynamicReportLabel || '报表';
+    else if (v === 'work-registration') title = '报工登记';
     else if (v === 'report-row-detail') title = '行详情';
     else if (v === 'detail') title = '订单报工';
     el.title.textContent = title;
@@ -255,6 +267,7 @@
     el.dynamicReport.hidden = v !== 'dynamic-report';
     el.reportRowDetail.hidden = v !== 'report-row-detail';
     el.detail.hidden = v !== 'detail';
+    if (el.workRegistration) el.workRegistration.hidden = v !== 'work-registration';
 
     el.btnBack.hidden = v === 'login' || v === 'root';
 
@@ -329,6 +342,10 @@
         break;
       }
     }
+    if (key === 'pro-sign' && found) {
+      goProSignList(found);
+      return;
+    }
     if (found && found.menuKind === 'report') {
       goDynamicReport(found);
       return;
@@ -336,7 +353,354 @@
     showToast('该菜单页面尚未接入');
   }
 
+  function goProSignList(menu) {
+    clearWorkRegTimers();
+    state.proSignMode = true;
+    state.proSignMenu = menu;
+    state.viewName = 'dynamic-report';
+    state.dynamicReportRouteKey = 'pro-sign';
+    state.dynamicReportLabel = (menu && menu.label) || '生产报工';
+    state.dynamicReportFilterSchema =
+      menu && menu.menuKind === 'report' ? menu.filterSchema || [] : [];
+    state.dynamicReportRowDetail = { enabled: false, keyColumn: '' };
+    state.reportPage = 1;
+    state.reportPageSize = 50;
+    state.reportTotalRowCount = 0;
+    state.reportTruncated = false;
+    state.reportClientSidePaging = false;
+    state.reportClientRowsBuffer = null;
+    state.reportServerRows = null;
+    state.reportLastColumns = [];
+    if (el.dynamicReportErr) {
+      el.dynamicReportErr.hidden = true;
+      el.dynamicReportErr.textContent = '';
+    }
+    if (el.dynamicReportTableWrap) el.dynamicReportTableWrap.innerHTML = '';
+    applyUI();
+    if (el.dynamicReportTitle) el.dynamicReportTitle.textContent = state.dynamicReportLabel;
+    renderDynamicReportForm();
+  }
+
+  function clearWorkRegTimers() {
+    if (state.workRegPollTimer) {
+      clearInterval(state.workRegPollTimer);
+      state.workRegPollTimer = null;
+    }
+    if (state.workRegUiTimer) {
+      clearInterval(state.workRegUiTimer);
+      state.workRegUiTimer = null;
+    }
+  }
+
+  function pad2(n) {
+    return n < 10 ? '0' + n : String(n);
+  }
+
+  function formatDuration(totalSec) {
+    var s = Math.max(0, Math.floor(Number(totalSec) || 0));
+    var h = Math.floor(s / 3600);
+    var m = Math.floor((s % 3600) / 60);
+    var sec = s % 60;
+    if (h > 0) return h + ':' + pad2(m) + ':' + pad2(sec);
+    return m + ':' + pad2(sec);
+  }
+
+  function proSignBatchStatusLabel(st) {
+    var map = {
+      pending: '待接单',
+      received: '已接单',
+      in_progress: '进行中',
+      paused: '已暂停',
+      completed: '已完工',
+    };
+    return map[st] || st || '—';
+  }
+
+  function goWorkRegistration(batchId) {
+    clearWorkRegTimers();
+    state.proSignMode = false;
+    state.viewName = 'work-registration';
+    state.workRegBatchId = batchId;
+    state.workRegSnapshot = null;
+    applyUI();
+    window.scrollTo(0, 0);
+    if (el.workRegErr) {
+      el.workRegErr.hidden = true;
+      el.workRegErr.textContent = '';
+    }
+    loadWorkRegistration(batchId);
+  }
+
+  function loadWorkRegistration(batchId) {
+    if (!el.workRegHead) return;
+    el.workRegHead.innerHTML = '<p class="muted" style="text-align:center">加载中…</p>';
+    if (el.workRegToolbar) el.workRegToolbar.innerHTML = '';
+    if (el.workRegLines) el.workRegLines.innerHTML = '';
+    apiFetch('/pro-sign/batches/' + batchId)
+      .then(function (data) {
+        state.workRegSnapshot = data;
+        renderWorkRegistrationUI(data);
+        startWorkRegistrationPolling(batchId);
+      })
+      .catch(function (err) {
+        if (el.workRegHead)
+          el.workRegHead.innerHTML = '<p class="err">' + (err.message || '加载失败') + '</p>';
+        if (err.status === 401) goLogin();
+      });
+  }
+
+  function renderWorkRegistrationUI(data) {
+    var batch = data.batch || {};
+    var lines = data.lines || [];
+    var st = batch.status || '';
+
+    if (el.workRegHead) {
+      el.workRegHead.innerHTML =
+        '<h2 class="section-title">报工登记</h2>' +
+        '<p class="work-reg-meta">账号：<strong>' +
+        (state.username || '—') +
+        '</strong></p>' +
+        '<p class="work-reg-meta">状态：<span class="work-reg-status">' +
+        proSignBatchStatusLabel(st) +
+        '</span></p>' +
+        '<p class="work-reg-meta">累计工时：<span id="work-reg-duration">' +
+        formatDuration(batch.displayWorkingSeconds) +
+        '</span>（计时含暂停前有效时间）</p>' +
+        (batch.pauseReason
+          ? '<p class="work-reg-pause-reason">暂停原因：' +
+            String(batch.pauseReason).replace(/</g, '&lt;') +
+            '</p>'
+          : '');
+    }
+
+    if (el.workRegToolbar) {
+      el.workRegToolbar.innerHTML = '';
+      el.workRegToolbar.className = 'work-reg-toolbar';
+
+      function addBtn(label, cls, onTap) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = cls || 'btn-primary';
+        b.textContent = label;
+        bindTap(b, onTap);
+        el.workRegToolbar.appendChild(b);
+      }
+
+      if (st === 'pending') {
+        addBtn('接单开工', 'btn-primary', function () {
+          apiFetch('/pro-sign/batches/' + state.workRegBatchId + '/accept', { method: 'POST', body: '{}' })
+            .then(function () {
+              showToast('已开始');
+              loadWorkRegistration(state.workRegBatchId);
+            })
+            .catch(function (e) {
+              showToast(e.message || '失败');
+            });
+        });
+      }
+      if (st === 'in_progress') {
+        addBtn('暂停', 'btn-secondary', function () {
+          var reason = window.prompt('请填写暂停原因（必填）');
+          if (reason == null || !String(reason).trim()) {
+            showToast('已取消');
+            return;
+          }
+          apiFetch('/pro-sign/batches/' + state.workRegBatchId + '/pause', {
+            method: 'POST',
+            body: JSON.stringify({ reason: String(reason).trim() }),
+          })
+            .then(function () {
+              showToast('已暂停');
+              loadWorkRegistration(state.workRegBatchId);
+            })
+            .catch(function (e) {
+              showToast(e.message || '失败');
+            });
+        });
+      }
+      if (st === 'paused') {
+        addBtn('继续开工', 'btn-primary', function () {
+          apiFetch('/pro-sign/batches/' + state.workRegBatchId + '/resume', { method: 'POST', body: '{}' })
+            .then(function () {
+              showToast('已继续');
+              loadWorkRegistration(state.workRegBatchId);
+            })
+            .catch(function (e) {
+              showToast(e.message || '失败');
+            });
+        });
+      }
+      if (st === 'in_progress' || st === 'paused') {
+        addBtn('提交报工', 'btn-primary', function () {
+          submitWorkRegistration();
+        });
+      }
+    }
+
+    if (el.workRegLines) {
+      var table = document.createElement('table');
+      table.className = 'owor-data-table work-reg-lines-table';
+      var thead = document.createElement('thead');
+      var trh = document.createElement('tr');
+      ['订单', '工序', '良品', '不良', '备注']
+        .forEach(function (h) {
+          var th = document.createElement('th');
+          th.textContent = h;
+          trh.appendChild(th);
+        });
+      thead.appendChild(trh);
+      var tbody = document.createElement('tbody');
+      lines.forEach(function (line) {
+        var tr = document.createElement('tr');
+        tr.dataset.lineId = String(line.lineId);
+        var tdOrder = document.createElement('td');
+        tdOrder.textContent =
+          (line.orderNo || '') + ' · ' + (line.productName || '');
+        var tdOp = document.createElement('td');
+        tdOp.textContent = (line.seqNo != null ? line.seqNo + '. ' : '') + (line.operationName || '');
+        var tdGood = document.createElement('td');
+        var inGood = document.createElement('input');
+        inGood.type = 'number';
+        inGood.step = 'any';
+        inGood.min = '0';
+        inGood.className = 'work-reg-qty';
+        inGood.name = 'good';
+        inGood.disabled = st === 'completed';
+        tdGood.appendChild(inGood);
+        var tdScrap = document.createElement('td');
+        var inScrap = document.createElement('input');
+        inScrap.type = 'number';
+        inScrap.step = 'any';
+        inScrap.min = '0';
+        inScrap.value = '0';
+        inScrap.className = 'work-reg-qty';
+        inScrap.name = 'scrap';
+        inScrap.disabled = st === 'completed';
+        tdScrap.appendChild(inScrap);
+        var tdRm = document.createElement('td');
+        var inRm = document.createElement('input');
+        inRm.type = 'text';
+        inRm.className = 'work-reg-remark';
+        inRm.name = 'remark';
+        inRm.disabled = st === 'completed';
+        tdRm.appendChild(inRm);
+        tr.appendChild(tdOrder);
+        tr.appendChild(tdOp);
+        tr.appendChild(tdGood);
+        tr.appendChild(tdScrap);
+        tr.appendChild(tdRm);
+        tbody.appendChild(tr);
+      });
+      table.appendChild(thead);
+      table.appendChild(tbody);
+      el.workRegLines.innerHTML = '';
+      el.workRegLines.appendChild(table);
+      if (st === 'completed') {
+        var done = document.createElement('p');
+        done.className = 'muted';
+        done.style.marginTop = '12px';
+        done.textContent = '该批次已提交完工。';
+        el.workRegLines.appendChild(done);
+      }
+    }
+
+    var durEl = document.getElementById('work-reg-duration');
+    if (durEl && batch.displayWorkingSeconds != null) {
+      durEl.textContent = formatDuration(batch.displayWorkingSeconds);
+    }
+  }
+
+  function startWorkRegistrationPolling(batchId) {
+    clearWorkRegTimers();
+    state.workRegPollTimer = setInterval(function () {
+      apiFetch('/pro-sign/batches/' + batchId)
+        .then(function (data) {
+          state.workRegSnapshot = data;
+          var batch = data.batch || {};
+          var durEl = document.getElementById('work-reg-duration');
+          if (durEl) durEl.textContent = formatDuration(batch.displayWorkingSeconds);
+          var stEl = document.querySelector('.work-reg-status');
+          if (stEl) stEl.textContent = proSignBatchStatusLabel(batch.status);
+        })
+        .catch(function () {});
+    }, 5000);
+    state.workRegUiTimer = setInterval(function () {
+      var snap = state.workRegSnapshot;
+      if (!snap || !snap.batch) return;
+      var b = snap.batch;
+      var sec = Number(b.displayWorkingSeconds) || 0;
+      if (b.status === 'in_progress' && b.lastActiveAt) {
+        var t0 = new Date(b.lastActiveAt).getTime();
+        if (!Number.isNaN(t0)) {
+          var base = Number(b.totalWorkingSeconds) || 0;
+          sec = base + Math.max(0, Math.floor((Date.now() - t0) / 1000));
+        }
+      }
+      var durEl = document.getElementById('work-reg-duration');
+      if (durEl) durEl.textContent = formatDuration(sec);
+    }, 1000);
+  }
+
+  function submitWorkRegistration() {
+    if (!el.workRegLines || !state.workRegBatchId) return;
+    var rows = el.workRegLines.querySelectorAll('tbody tr');
+    var lines = [];
+    for (var i = 0; i < rows.length; i++) {
+      var tr = rows[i];
+      var lid = tr.dataset.lineId;
+      if (!lid) continue;
+      var goodEl = tr.querySelector('input[name="good"]');
+      var scrapEl = tr.querySelector('input[name="scrap"]');
+      var rmEl = tr.querySelector('input[name="remark"]');
+      var good = parseFloat(goodEl && goodEl.value);
+      var scrap = parseFloat((scrapEl && scrapEl.value) || '0');
+      if (!isFinite(good) || good < 0) {
+        showToast('请填写有效的良品数量');
+        return;
+      }
+      if (!isFinite(scrap) || scrap < 0) {
+        showToast('请填写有效的不良数量');
+        return;
+      }
+      lines.push({
+        lineId: Number(lid),
+        goodQty: good,
+        scrapQty: scrap,
+        remark: (rmEl && rmEl.value) || '',
+      });
+    }
+    if (lines.length === 0) {
+      showToast('无明细行');
+      return;
+    }
+    var anyQty = false;
+    for (var j = 0; j < lines.length; j++) {
+      if (lines[j].goodQty + lines[j].scrapQty > 0) {
+        anyQty = true;
+        break;
+      }
+    }
+    if (!anyQty) {
+      showToast('请至少填写一行数量（良品或不良）');
+      return;
+    }
+    apiFetch('/pro-sign/batches/' + state.workRegBatchId + '/submit', {
+      method: 'POST',
+      body: JSON.stringify({ lines: lines }),
+    })
+      .then(function () {
+        showToast('报工已提交');
+        clearWorkRegTimers();
+        goProSignList(state.proSignMenu || { label: '生产报工', menuKind: 'report', filterSchema: [] });
+      })
+      .catch(function (e) {
+        showToast(e.message || '提交失败');
+      });
+  }
+
   function goDynamicReport(menu) {
+    state.proSignMode = false;
+    state.proSignMenu = null;
     state.viewName = 'dynamic-report';
     state.dynamicReportRouteKey = menu.routeKey;
     state.dynamicReportLabel = menu.label || '报表';
@@ -457,7 +821,8 @@
       page: state.reportPage,
       pageSize: state.reportPageSize,
     };
-    apiFetchReport('/reports/run', {
+    var reportPath = state.proSignMode ? '/pro-sign/run-list' : '/reports/run';
+    apiFetchReport(reportPath, {
       method: 'POST',
       body: JSON.stringify(body),
     })
@@ -685,11 +1050,67 @@
       return;
     }
 
+    if (state.proSignMode) {
+      var toolbar = document.createElement('div');
+      toolbar.className = 'pro-sign-toolbar card';
+      var hint = document.createElement('p');
+      hint.className = 'hint';
+      hint.style.marginBottom = '10px';
+      hint.textContent =
+        '勾选一行或多行工序明细，点击「合并报工」进入登记界面。列表 SQL 须返回 orderId、operationId 列（可配置报表中别名一致即可）。';
+      var btnMerge = document.createElement('button');
+      btnMerge.type = 'button';
+      btnMerge.className = 'btn-primary';
+      btnMerge.textContent = '合并报工';
+      bindTap(btnMerge, function () {
+        var selected = [];
+        wrap.querySelectorAll('tbody input.pro-sign-row-cb:checked').forEach(function (cb) {
+          var orderId = cb.dataset.orderId;
+          var opId = cb.dataset.opId;
+          if (!orderId || !opId) return;
+          selected.push({ orderId: Number(orderId), operationId: Number(opId) });
+        });
+        if (selected.length === 0) {
+          showToast('请先勾选至少一行');
+          return;
+        }
+        apiFetch('/pro-sign/batches', {
+          method: 'POST',
+          body: JSON.stringify({ lines: selected }),
+        })
+          .then(function (d) {
+            goWorkRegistration(d.batchId);
+          })
+          .catch(function (e) {
+            showToast(e.message || '创建失败');
+          });
+      });
+      toolbar.appendChild(hint);
+      toolbar.appendChild(btnMerge);
+      wrap.appendChild(toolbar);
+    }
+
     var table = document.createElement('table');
     table.className = 'owor-data-table dynamic-report-grid';
     var thead = document.createElement('thead');
     var trh = document.createElement('tr');
     var cols = columns.length ? columns : Object.keys(rows[0] || {});
+
+    if (state.proSignMode) {
+      var thCheck = document.createElement('th');
+      thCheck.className = 'pro-sign-th-check';
+      var selAll = document.createElement('input');
+      selAll.type = 'checkbox';
+      selAll.setAttribute('aria-label', '全选本页');
+      selAll.addEventListener('change', function () {
+        wrap.querySelectorAll('tbody input.pro-sign-row-cb').forEach(function (cb) {
+          cb.checked = selAll.checked;
+        });
+      });
+      thCheck.appendChild(selAll);
+      trh.appendChild(thCheck);
+    }
+
     cols.forEach(function (c) {
       var th = document.createElement('th');
       th.textContent = c;
@@ -697,10 +1118,26 @@
     });
     thead.appendChild(trh);
     var tbody = document.createElement('tbody');
-    var rowDetailOn = state.dynamicReportRowDetail.enabled;
+    var rowDetailOn = state.dynamicReportRowDetail.enabled && !state.proSignMode;
     var keyCol = state.dynamicReportRowDetail.keyColumn;
     rows.forEach(function (row) {
       var tr = document.createElement('tr');
+      if (state.proSignMode) {
+        var tdCheck = document.createElement('td');
+        tdCheck.className = 'pro-sign-td-check';
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'pro-sign-row-cb';
+        var oid = getRowValueForColumn(row, 'orderId');
+        var opid = getRowValueForColumn(row, 'operationId');
+        cb.dataset.orderId = oid != null && oid !== '' ? String(oid) : '';
+        cb.dataset.opId = opid != null && opid !== '' ? String(opid) : '';
+        cb.addEventListener('click', function (e) {
+          e.stopPropagation();
+        });
+        tdCheck.appendChild(cb);
+        tr.appendChild(tdCheck);
+      }
       if (rowDetailOn) {
         tr.className = 'report-row-clickable';
         tr.addEventListener('click', function (e) {
@@ -878,6 +1315,11 @@
   }
 
   function goLogin() {
+    clearWorkRegTimers();
+    state.proSignMode = false;
+    state.proSignMenu = null;
+    state.workRegBatchId = null;
+    state.workRegSnapshot = null;
     setToken(null);
     state.navMenus = [];
     state.userRole = 'operator';
@@ -1488,6 +1930,19 @@
       state.viewName = 'dynamic-report';
       applyUI();
       window.scrollTo(0, 0);
+    } else if (state.viewName === 'work-registration') {
+      clearWorkRegTimers();
+      goProSignList(
+        state.proSignMenu || {
+          label: '生产报工',
+          menuKind: 'report',
+          filterSchema: [],
+        }
+      );
+    } else if (state.viewName === 'dynamic-report' && state.proSignMode) {
+      state.proSignMode = false;
+      state.proSignMenu = null;
+      goRoot('catalog');
     } else if (
       state.viewName === 'owor' ||
       state.viewName === 'orders' ||

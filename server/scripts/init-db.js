@@ -28,8 +28,14 @@ async function main() {
 
   const schemaPath = path.join(__dirname, '..', 'sql', 'schema-mssql.sql');
   const seedPath = path.join(__dirname, '..', 'sql', 'seed-mssql.sql');
+  const migrateReportCols = path.join(__dirname, '..', 'sql', 'migrate-nav-menu-report-columns.sql');
+  const migrateDetailCols = path.join(__dirname, '..', 'sql', 'migrate-nav-menu-detail-columns.sql');
+  const migrateXBatch = path.join(__dirname, '..', 'sql', 'migrate-x-report-batch.sql');
 
   await pool.request().query(fs.readFileSync(schemaPath, 'utf8'));
+  await pool.request().query(fs.readFileSync(migrateReportCols, 'utf8'));
+  await pool.request().query(fs.readFileSync(migrateDetailCols, 'utf8'));
+  await pool.request().query(fs.readFileSync(migrateXBatch, 'utf8'));
   await pool.request().query(fs.readFileSync(seedPath, 'utf8'));
 
   const ord = await pool.request().query(

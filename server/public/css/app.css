@@ -1001,3 +1001,100 @@ body.has-bottom-nav .main {
     padding: 24px;
   }
 }
+
+/* 生产报工登记：列表工具条与勾选列 */
+.pro-sign-toolbar {
+  margin-bottom: 12px;
+}
+
+.pro-sign-toolbar .btn-primary {
+  width: 100%;
+  max-width: 280px;
+}
+
+.pro-sign-th-check,
+.pro-sign-td-check {
+  width: 44px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.pro-sign-td-check input[type='checkbox'] {
+  width: 20px;
+  height: 20px;
+}
+
+/* 报工登记页 */
+.work-reg-head .section-title {
+  margin-top: 0;
+}
+
+.work-reg-meta {
+  margin: 8px 0 0;
+  font-size: 14px;
+  color: #64748b;
+}
+
+.work-reg-status {
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.app-dark .work-reg-status {
+  color: #f1f5f9;
+}
+
+.work-reg-pause-reason {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  font-size: 14px;
+  color: #92400e;
+  background: #fffbeb;
+  border-radius: 8px;
+  border: 1px solid #fde68a;
+}
+
+.work-reg-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.work-reg-toolbar .btn-primary,
+.work-reg-toolbar .btn-secondary {
+  min-height: 44px;
+}
+
+.work-reg-lines-card {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.work-reg-lines-table {
+  min-width: 100%;
+}
+
+.work-reg-lines-table th,
+.work-reg-lines-table td {
+  font-size: 14px;
+  vertical-align: middle;
+}
+
+.work-reg-qty {
+  width: 100%;
+  max-width: 7rem;
+  min-height: 40px;
+  padding: 6px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.work-reg-remark {
+  width: 100%;
+  min-width: 6rem;
+  min-height: 40px;
+  padding: 6px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}

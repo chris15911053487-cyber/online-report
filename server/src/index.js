@@ -9,6 +9,7 @@ const authRoutes = require('./routes/auth');
 const ordersRoutes = require('./routes/orders');
 const menusRoutes = require('./routes/menus');
 const reportsRoutes = require('./routes/reports');
+const proSignRoutes = require('./routes/pro-sign');
 const registerOworRoutes = require('./routes/owor');
 const { getPool } = require('./db');
 const ensureNavMenuSchema = require('./ensure-nav-menu-schema');
@@ -51,6 +52,7 @@ async function build() {
   await fastify.register(ordersRoutes);
   await fastify.register(menusRoutes);
   await fastify.register(reportsRoutes);
+  await fastify.register(proSignRoutes);
   registerOworRoutes(fastify);
 
   fastify.get('/health', async () => ({ ok: true, ts: new Date().toISOString() }));

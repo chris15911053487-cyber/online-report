@@ -6,6 +6,7 @@ Web 与移动端共用的报工系统：Node.js（Fastify）提供 API 与静态
 
 - **认证与角色**：登录使用表 `OUSR` 校验密码，签发 JWT；角色分为 `admin`（菜单管理、全部导航）与 `operator`（按菜单权限过滤）。
 - **Web 前端**（`server/public/`，单页应用 + `app.js`）：登录后底部导航为 **目录 / 收藏 / 消息 / 设置**；**生产订单**列表与详情、工序与历史报工、提交报工（`POST /orders/:id/report`）；**可配置报表**支持条件表单、分页、行级详情（`POST /reports/run`、`POST /reports/detail`）；管理员可进入 **菜单设置**，维护 `nav_menu_items`（含可配置报表的 SQL 模板与筛选 JSON）。另有 **OWOR** 等按导航配置的视图。
+- **生产报工登记（`pro-sign`）**：目录中 `route_key` 为 `pro-sign` 的菜单进入专用流程——列表数据来自可配置报表 SQL（或内置默认订单+工序列表）；支持多选明细 **合并报工**，进入 **报工登记** 界面：接单开工、暂停（必填原因）、继续、按行提交良品/不良并写入 `work_reports`（可关联 `batch_line_id`）。批次与计时时长落在 **`X_` 前缀表**（与业务库其他表区分），详见下文「生产报工登记」。
 - **交互细节**：报表请求使用较长客户端超时（与 `REPORT_QUERY_TIMEOUT_MS` 配合）；主要按钮使用 Pointer/touch 兼容的点击绑定，便于移动端与桌面调试。
 - **移动端**：`mobile/` 通过 `EXPO_PUBLIC_API_URL` 指向同一套 API，与 Web 共用后端。
 
@@ -42,6 +43,13 @@ npm run init-db
 | GET | `/owor` | OWOR 相关数据（需 JWT） |
 | POST | `/reports/run` | 执行可配置报表主查询 |
 | POST | `/reports/detail` | 可配置报表行详情 |
+| POST | `/pro-sign/run-list` | 生产报工登记列表（与报表类似；`routeKey` 固定为 `pro-sign`，见下文） |
+| POST | `/pro-sign/batches` | 创建报工批次（Body：`lines: [{ orderId, operationId }]`） |
+| GET | `/pro-sign/batches/:id` | 批次详情、明细行、累计工时等 |
+| POST | `/pro-sign/batches/:id/accept` | 接单开工 |
+| POST | `/pro-sign/batches/:id/pause` | 暂停（Body：`{ "reason": "..." }`） |
+| POST | `/pro-sign/batches/:id/resume` | 继续开工 |
+| POST | `/pro-sign/batches/:id/submit` | 提交报工（Body：`lines: [{ lineId, goodQty, scrapQty, remark }]`） |
 | GET / POST / PATCH / DELETE | `/admin/menus`、`/admin/menus/:id` | 菜单增删改（仅 `admin`） |
 
 ## 环境要求
@@ -89,6 +97,30 @@ npm run init-db
 ```
 
 导航菜单表 `nav_menu_items` 可在启动时自动创建；若无建表权限，可关闭对应选项并手动执行 `server/sql/migrate-nav-menu-items-only.sql`（见 `.env.example` 注释）。若库中表已存在但缺少报表相关列，请执行 `server/sql/migrate-nav-menu-report-columns.sql`（启动时 `ensure-nav-menu-schema` 也会尝试执行）。
+
+**报工批次表（`X_` 前缀）**：`server/sql/migrate-x-report-batch.sql` 会创建 `X_report_batch`、`X_report_batch_line`、`X_task_logs`，并为 `work_reports` 增加可空列 `batch_line_id`（外键指向 `X_report_batch_line`，删除明细行时置空）。应用启动时 `ensure-nav-menu-schema` 会尝试执行该脚本；`npm run init-db` 也会在种子数据之前执行报表列迁移与本脚本，以便 `seed-mssql.sql` 能写入 `pro-sign` 菜单等与报表相关的列。
+
+### 生产报工登记（菜单 `route_key`: `pro-sign`）
+
+- **菜单配置**：在 **菜单设置** 中新增或维护一条菜单，`路由标识` 必须为 **`pro-sign`**（小写）。  
+  - 将 **菜单类型** 设为 **可配置报表（SQL）** 时：列表 SQL 与筛选 JSON 的约定与普通报表相同（`POST /pro-sign/run-list` 内部会按 `nav_menu_items` 中该路由的配置执行查询，参数绑定方式与 `/reports/run` 一致）。  
+  - 列表结果集中 **必须包含列名 `orderId` 与 `operationId`**（与 `production_orders.id`、`order_operations.id` 对应），供前端多选合并与创建批次使用。  
+  - 若暂时使用 **内置页面** 类型：列表走服务端内置默认 SQL（可选 `orderNo` 模糊条件），无需在菜单中填写 SQL。
+- **Web 流程**：目录进入该菜单 → 查询条件 + 表格 → 勾选一行或多行 → **合并报工** → **报工登记** 页：接单开工 → 可暂停（填写原因）→ 继续 → 按行填写数量与备注后 **提交报工**（写入 `work_reports` 并更新订单已报数量；批次标记完工）。
+- **列表接口**：`POST /pro-sign/run-list` 的请求体与 `POST /reports/run` 相同（`params`、`page`、`pageSize`），其中 **`routeKey` 必须为 `pro-sign`**；权限与菜单可见性与可配置报表一致（按 `nav_menu_items` 中该路由的 `roles_json` 等）。
+- **移动端**：当前 Web 已接入；`mobile/` 客户端若需同等能力，需自行调用上述 `/pro-sign/*` 接口并实现页面。
+- **种子数据**：`seed-mssql.sql` 在已存在报表相关列、且库中尚无 `pro-sign` 菜单时，会尝试插入一条示例「生产报工登记」菜单（可随后在菜单设置中修改 SQL）。
+
+示例列表 SQL（节选，须与 filterSchema 中 `@参数名` 一致）：
+
+```sql
+SELECT po.id AS orderId, oo.id AS operationId, po.order_no AS orderNo, ...
+FROM dbo.production_orders po
+INNER JOIN dbo.order_operations oo ON oo.order_id = po.id
+WHERE (@orderNo IS NULL OR po.order_no LIKE N'%' + @orderNo + N'%')
+```
+
+示例 `filterSchema`：`[{"name":"orderNo","label":"订单号","type":"string","required":false,"maxLength":64}]`。
 
 ### 可配置报表（菜单里配 SQL）
 
