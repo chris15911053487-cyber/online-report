@@ -4,7 +4,7 @@ Web 与移动端共用的报工系统：Node.js（Fastify）提供 API 与静态
 
 ## 功能概览
 
-- **认证与角色**：登录使用表 `OUSR` 校验密码，签发 JWT；角色分为 `admin`（菜单管理、全部导航）与 `operator`（按菜单权限过滤）。
+- **认证与角色**：登录使用表 `OUSR`：用户名为 `USER_CODE`，密码与列 **`MobileIMEI`** 做常量时间比对（与 `POST /auth/login` 的 `password` 字段对应）；校验通过后签发 JWT。角色分为 `admin`（菜单管理、全部导航）与 `operator`（按菜单权限过滤）。
 - **Web 前端**（`server/public/`，单页应用 + `app.js`）：登录后底部导航为 **目录 / 收藏 / 消息 / 设置**；**生产订单**列表与详情、工序与历史报工、提交报工（`POST /orders/:id/report`）；**可配置报表**支持条件表单、分页、行级详情（`POST /reports/run`、`POST /reports/detail`）、以及 **列表列英文名与中文表头映射**（数据行仍为英文列名，便于对接外部系统）。管理员可进入 **菜单设置**，维护 `nav_menu_items`（SQL 模板、筛选 JSON、列标题映射等）。另有 **OWOR** 等按导航配置的视图。
 - **生产报工登记（`pro-sign`）**：目录中 `route_key` 为 `pro-sign` 的菜单进入专用流程——列表数据来自可配置报表 SQL（或内置默认订单+工序列表）；支持多选明细 **合并报工**，进入 **报工登记** 界面：接单开工、暂停（必填原因）、继续、按行提交良品/不良并写入 `work_reports`（可关联 `batch_line_id`）。批次与计时时长落在 **`X_` 前缀表**（与业务库其他表区分），详见下文「生产报工登记」。
 - **交互细节**：报表请求使用较长客户端超时（与 `REPORT_QUERY_TIMEOUT_MS` 配合）；主要按钮使用 Pointer/touch 兼容的点击绑定，便于移动端与桌面调试。
@@ -34,7 +34,7 @@ npm run init-db
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/health` | 健康检查 |
-| POST | `/auth/login` | 登录，返回 JWT |
+| POST | `/auth/login` | 登录（Body：`username` = `OUSR.USER_CODE`，`password` = 与 `OUSR.MobileIMEI` 比对），返回 JWT |
 | GET | `/auth/me` | 当前用户（需 JWT） |
 | GET | `/menus` | 当前角色可见的导航菜单（报表类含 `filterSchema`、`columnLabels` 等） |
 | GET | `/orders` | 生产订单列表（可选 `?status=`） |
@@ -55,7 +55,7 @@ npm run init-db
 ## 环境要求
 
 - **Node.js** 18+（建议 20，与 Docker 镜像一致）
-- **SQL Server**（生产/开发库；登录依赖表 `OUSR`）
+- **SQL Server**（生产/开发库；登录依赖表 `OUSR`，需含 `USER_CODE`、`MobileIMEI` 等列）
 - 可选：Docker（用于部署或本地起 MySQL，见下文）
 
 ## 服务端：本地运行
@@ -80,6 +80,7 @@ npm run dev
 
 详见 `server/.env.example`。要点：
 
+- **OUSR 登录**：库表 `OUSR` 须存在 **`MobileIMEI`** 列（与登录密码比对）；若列名与 SAP/定制库不一致，需改服务端 `server/src/routes/auth.js` 中的查询列名。
 - **DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_NAME**：SQL Server 连接；密码含 `#` 等字符时请用双引号包裹。
 - **JWT_SECRET**：生产环境务必改为足够长的随机串。
 - **ADMIN_USER_CODES**：管理员 OUSR 用户代码（逗号分隔），用于菜单管理等接口。
@@ -212,6 +213,10 @@ EXPO_PUBLIC_API_URL=http://你的电脑或服务器IP:3000
 ```
 
 详见 `mobile/app.config.js` 内注释。
+
+## CI（GitHub Actions）
+
+推送或向 `main` / `master` 提 PR 时，工作流 `.github/workflows/ci.yml` 会在 `server/` 下执行 `npm ci` 并对 `src/index.js` 做 `node --check` 语法检查。
 
 ## 许可证
 
