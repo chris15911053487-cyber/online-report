@@ -203,6 +203,44 @@ function parseFilterSchemaJson(jsonStr) {
 }
 
 /**
+ * 列表结果列英文名 -> 界面表头中文（数据行 key 仍为英文列名）。
+ * @param {unknown} raw
+ * @returns {{ ok: true, labels: Record<string, string> } | { ok: false, error: string }}
+ */
+function parseColumnLabelsJson(raw) {
+  let parsed;
+  try {
+    if (raw === undefined || raw === null || raw === '') {
+      parsed = {};
+    } else if (typeof raw === 'string') {
+      parsed = JSON.parse(raw);
+    } else {
+      parsed = raw;
+    }
+  } catch {
+    return { ok: false, error: 'columnLabels 不是合法 JSON' };
+  }
+  if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { ok: false, error: 'columnLabels 须为 JSON 对象（英文列名 -> 显示标题）' };
+  }
+  /** @type {Record<string, string>} */
+  const labels = {};
+  for (const [k, v] of Object.entries(parsed)) {
+    const key = String(k || '').trim();
+    if (!key) continue;
+    if (key.length > 256) {
+      return { ok: false, error: 'columnLabels 键过长' };
+    }
+    const label = String(v != null ? v : '')
+      .trim()
+      .slice(0, 128);
+    if (!label) continue;
+    labels[key] = label;
+  }
+  return { ok: true, labels };
+}
+
+/**
  * 行详情 SQL：参数须包含主键参数 @detailKeyParam，其余参数须来自列表查询的 filterSchema。
  * @param {object[]} filterFields
  * @param {{ detailQueryTemplate?: string|null, detailKeyColumn?: string|null, detailKeyParam?: string|null, detailKeyType?: string|null }} cfg
@@ -301,7 +339,7 @@ function validateReportDetailAttachment(filterFields, cfg) {
 }
 
 /**
- * @param {{ menuKind: string, routeKey: string, queryTemplate: string|null|undefined, filterSchema: unknown, detailQueryTemplate?: string|null, detailKeyColumn?: string|null, detailKeyParam?: string|null, detailKeyType?: string|null }} cfg
+ * @param {{ menuKind: string, routeKey: string, queryTemplate: string|null|undefined, filterSchema: unknown, columnLabels?: unknown, detailQueryTemplate?: string|null, detailKeyColumn?: string|null, detailKeyParam?: string|null, detailKeyType?: string|null }} cfg
  */
 function validateReportMenuConfig(cfg) {
   const menuKind = String(cfg.menuKind || 'builtin').toLowerCase();
@@ -333,7 +371,12 @@ function validateReportMenuConfig(cfg) {
     if (fs.fields.length > 0) {
       return { ok: false, error: '内置菜单不应填写查询条件 schema' };
     }
-    return { ok: true, menuKind, filterFields: [] };
+    const cl0 = parseColumnLabelsJson(cfg.columnLabels);
+    if (!cl0.ok) return cl0;
+    if (Object.keys(cl0.labels).length > 0) {
+      return { ok: false, error: '内置菜单不应填写列标题映射' };
+    }
+    return { ok: true, menuKind, filterFields: [], columnLabels: {} };
   }
 
   const template = normalizeTemplate(qt);
@@ -384,12 +427,16 @@ function validateReportMenuConfig(cfg) {
   const detailPart = validateReportDetailAttachment(fs.fields, cfg);
   if (!detailPart.ok) return detailPart;
 
+  const cl = parseColumnLabelsJson(cfg.columnLabels);
+  if (!cl.ok) return cl;
+
   return {
     ok: true,
     menuKind: 'report',
     templateKind: kind,
     normalizedTemplate: single.statement,
     filterFields: fs.fields,
+    columnLabels: cl.labels,
     detailNormalizedTemplate: detailPart.detailNormalizedTemplate,
     detailKeyColumn: detailPart.detailKeyColumn,
     detailKeyParam: detailPart.detailKeyParam,
@@ -758,6 +805,7 @@ module.exports = {
   normalizeTemplate,
   detectTemplateKind,
   parseFilterSchemaJson,
+  parseColumnLabelsJson,
   validateReportMenuConfig,
   extractParamNames,
   executeReportQuery,

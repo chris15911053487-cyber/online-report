@@ -31,11 +31,18 @@ async function main() {
   const migrateReportCols = path.join(__dirname, '..', 'sql', 'migrate-nav-menu-report-columns.sql');
   const migrateDetailCols = path.join(__dirname, '..', 'sql', 'migrate-nav-menu-detail-columns.sql');
   const migrateXBatch = path.join(__dirname, '..', 'sql', 'migrate-x-report-batch.sql');
+  const migrateColumnLabels = path.join(
+    __dirname,
+    '..',
+    'sql',
+    'migrate-nav-menu-column-labels.sql'
+  );
 
   await pool.request().query(fs.readFileSync(schemaPath, 'utf8'));
   await pool.request().query(fs.readFileSync(migrateReportCols, 'utf8'));
   await pool.request().query(fs.readFileSync(migrateDetailCols, 'utf8'));
   await pool.request().query(fs.readFileSync(migrateXBatch, 'utf8'));
+  await pool.request().query(fs.readFileSync(migrateColumnLabels, 'utf8'));
   await pool.request().query(fs.readFileSync(seedPath, 'utf8'));
 
   const ord = await pool.request().query(

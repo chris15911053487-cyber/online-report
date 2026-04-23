@@ -2,6 +2,7 @@ const { getPool, sql } = require('../db');
 const {
   validateReportMenuConfig,
   parseFilterSchemaJson,
+  parseColumnLabelsJson,
 } = require('../report-query');
 
 const ROUTE_KEY_RE = /^[a-z][a-z0-9-]{0,62}$/;
@@ -35,6 +36,7 @@ function defaultMenusForRole(userRole) {
       roles: ['admin', 'operator'],
       menuKind: 'builtin',
       filterSchema: [],
+      columnLabels: {},
     },
     {
       id: 2,
@@ -46,6 +48,7 @@ function defaultMenusForRole(userRole) {
       roles: ['admin'],
       menuKind: 'builtin',
       filterSchema: [],
+      columnLabels: {},
     },
   ];
   return all.filter((m) => m.roles.includes(userRole));
@@ -75,6 +78,11 @@ function filterSchemaFromRow(filterSchemaJson) {
   return p.ok ? p.fields : [];
 }
 
+function columnLabelsFromRow(columnLabelsJson) {
+  const p = parseColumnLabelsJson(columnLabelsJson != null ? columnLabelsJson : '{}');
+  return p.ok ? p.labels : {};
+}
+
 function rowToPublicItem(row) {
   const mk = row.menu_kind ? String(row.menu_kind) : 'builtin';
   const dq =
@@ -92,6 +100,7 @@ function rowToPublicItem(row) {
     roles: parseRolesJson(row.roles_json),
     menuKind: mk,
     filterSchema: mk === 'report' ? filterSchemaFromRow(row.filter_schema_json) : [],
+    columnLabels: mk === 'report' ? columnLabelsFromRow(row.column_labels_json) : {},
     rowDetailEnabled,
     detailKeyColumn: rowDetailEnabled ? dkc : '',
   };
@@ -110,11 +119,13 @@ function rowToAdminItem(row) {
     base.detailKeyParam = dp || 'detailKey';
     base.detailKeyType =
       row.detail_key_type != null ? String(row.detail_key_type) : 'string';
+    base.columnLabels = columnLabelsFromRow(row.column_labels_json);
   } else {
     base.detailQueryTemplate = '';
     base.detailKeyColumn = '';
     base.detailKeyParam = 'detailKey';
     base.detailKeyType = 'string';
+    base.columnLabels = {};
   }
   return base;
 }
@@ -149,6 +160,7 @@ function detailColumnsFromValidated(validated) {
 
 const MENU_SELECT_FIELDS = `id, label, route_key, icon, sort_order, enabled, roles_json,
   COALESCE(menu_kind, N'builtin') AS menu_kind, query_template, filter_schema_json,
+  COALESCE(column_labels_json, N'{}') AS column_labels_json,
   detail_query_template, detail_key_column, detail_key_param, COALESCE(detail_key_type, N'string') AS detail_key_type`;
 
 async function menusRoutes(fastify) {
@@ -233,6 +245,7 @@ async function menusRoutes(fastify) {
         body.detailKeyParam != null ? String(body.detailKeyParam) : '';
       const detailKeyType =
         body.detailKeyType != null ? String(body.detailKeyType) : '';
+      const columnLabels = body.columnLabels;
 
       if (!label) {
         return reply.code(400).send({ error: '请填写菜单名称' });
@@ -259,6 +272,7 @@ async function menusRoutes(fastify) {
             : menuKind === 'report'
               ? '[]'
               : '[]',
+        columnLabels,
         detailQueryTemplate,
         detailKeyColumn,
         detailKeyParam,
@@ -272,6 +286,10 @@ async function menusRoutes(fastify) {
         validated.menuKind === 'report'
           ? JSON.stringify(validated.filterFields)
           : '[]';
+      const columnLabelsJson =
+        validated.menuKind === 'report'
+          ? JSON.stringify(validated.columnLabels || {})
+          : '{}';
       const qt =
         validated.menuKind === 'report' && validated.normalizedTemplate
           ? validated.normalizedTemplate
@@ -292,14 +310,15 @@ async function menusRoutes(fastify) {
           .input('menuKind', sql.NVarChar(32), validated.menuKind)
           .input('queryTemplate', sql.NVarChar(1073741823), qt)
           .input('filterSchemaJson', sql.NVarChar(1073741823), filterSchemaJson)
+          .input('columnLabelsJson', sql.NVarChar(1073741823), columnLabelsJson)
           .input('detailQueryTemplate', sql.NVarChar(1073741823), detailCols.detailQueryTemplate)
           .input('detailKeyColumn', sql.NVarChar(256), detailCols.detailKeyColumn)
           .input('detailKeyParam', sql.NVarChar(128), detailCols.detailKeyParam)
           .input('detailKeyType', sql.NVarChar(32), detailCols.detailKeyType)
           .query(
-            `INSERT INTO dbo.nav_menu_items (label, route_key, icon, sort_order, enabled, roles_json, menu_kind, query_template, filter_schema_json, detail_query_template, detail_key_column, detail_key_param, detail_key_type)
+            `INSERT INTO dbo.nav_menu_items (label, route_key, icon, sort_order, enabled, roles_json, menu_kind, query_template, filter_schema_json, column_labels_json, detail_query_template, detail_key_column, detail_key_param, detail_key_type)
              OUTPUT INSERTED.id AS id
-             VALUES (@label, @routeKey, @icon, @sortOrder, @enabled, @rolesJson, @menuKind, @queryTemplate, @filterSchemaJson, @detailQueryTemplate, @detailKeyColumn, @detailKeyParam, @detailKeyType)`
+             VALUES (@label, @routeKey, @icon, @sortOrder, @enabled, @rolesJson, @menuKind, @queryTemplate, @filterSchemaJson, @columnLabelsJson, @detailQueryTemplate, @detailKeyColumn, @detailKeyParam, @detailKeyType)`
           );
         const newId = Number(ins.recordset[0].id);
         return reply.code(201).send({
@@ -315,6 +334,8 @@ async function menusRoutes(fastify) {
             queryTemplate: qt || '',
             filterSchema:
               validated.menuKind === 'report' ? validated.filterFields : [],
+            columnLabels:
+              validated.menuKind === 'report' ? validated.columnLabels || {} : {},
             detailQueryTemplate: detailCols.detailQueryTemplate || '',
             detailKeyColumn: detailCols.detailKeyColumn || '',
             detailKeyParam: detailCols.detailKeyParam || 'detailKey',
@@ -366,6 +387,7 @@ async function menusRoutes(fastify) {
         body.detailKeyParam != null ? String(body.detailKeyParam) : '';
       const detailKeyType =
         body.detailKeyType != null ? String(body.detailKeyType) : '';
+      const columnLabels = body.columnLabels;
 
       if (!label) {
         return reply.code(400).send({ error: '请填写菜单名称' });
@@ -392,6 +414,7 @@ async function menusRoutes(fastify) {
             : menuKind === 'report'
               ? '[]'
               : '[]',
+        columnLabels,
         detailQueryTemplate,
         detailKeyColumn,
         detailKeyParam,
@@ -405,6 +428,10 @@ async function menusRoutes(fastify) {
         validated.menuKind === 'report'
           ? JSON.stringify(validated.filterFields)
           : '[]';
+      const columnLabelsJson =
+        validated.menuKind === 'report'
+          ? JSON.stringify(validated.columnLabels || {})
+          : '{}';
       const qt =
         validated.menuKind === 'report' && validated.normalizedTemplate
           ? validated.normalizedTemplate
@@ -426,6 +453,7 @@ async function menusRoutes(fastify) {
           .input('menuKind', sql.NVarChar(32), validated.menuKind)
           .input('queryTemplate', sql.NVarChar(1073741823), qt)
           .input('filterSchemaJson', sql.NVarChar(1073741823), filterSchemaJson)
+          .input('columnLabelsJson', sql.NVarChar(1073741823), columnLabelsJson)
           .input('detailQueryTemplate', sql.NVarChar(1073741823), detailCols.detailQueryTemplate)
           .input('detailKeyColumn', sql.NVarChar(256), detailCols.detailKeyColumn)
           .input('detailKeyParam', sql.NVarChar(128), detailCols.detailKeyParam)
@@ -435,6 +463,7 @@ async function menusRoutes(fastify) {
              SET label = @label, route_key = @routeKey, icon = @icon, sort_order = @sortOrder,
                  enabled = @enabled, roles_json = @rolesJson,
                  menu_kind = @menuKind, query_template = @queryTemplate, filter_schema_json = @filterSchemaJson,
+                 column_labels_json = @columnLabelsJson,
                  detail_query_template = @detailQueryTemplate, detail_key_column = @detailKeyColumn,
                  detail_key_param = @detailKeyParam, detail_key_type = @detailKeyType,
                  updated_at = SYSUTCDATETIME()
@@ -456,6 +485,8 @@ async function menusRoutes(fastify) {
             queryTemplate: qt || '',
             filterSchema:
               validated.menuKind === 'report' ? validated.filterFields : [],
+            columnLabels:
+              validated.menuKind === 'report' ? validated.columnLabels || {} : {},
             detailQueryTemplate: detailCols.detailQueryTemplate || '',
             detailKeyColumn: detailCols.detailKeyColumn || '',
             detailKeyParam: detailCols.detailKeyParam || 'detailKey',

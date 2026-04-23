@@ -124,6 +124,10 @@
             <textarea name="filterSchema" rows="3" placeholder='例如：[{"name":"status","label":"状态","type":"string","required":false}]'></textarea>
           </label>
           <label class="field">
+            <span>列表列标题映射 JSON（仅报表，可选；英文列名 -&gt; 中文表头）</span>
+            <textarea name="columnLabels" rows="3" placeholder='例如：{"orderNo":"订单号","plannedQty":"计划数量"}'></textarea>
+          </label>
+          <label class="field">
             <span>行详情 SQL（仅报表；须含主键参数，默认 @detailKey；可与列表共用筛选参数）</span>
             <textarea name="detailQueryTemplate" rows="3" placeholder="留空表示不启用行点击查看详情"></textarea>
           </label>

@@ -197,6 +197,7 @@
     reportClientRowsBuffer: null,
     reportServerRows: null,
     reportLastColumns: [],
+    dynamicReportColumnLabels: {},
     dynamicReportRowDetail: { enabled: false, keyColumn: '' },
     proSignMode: false,
     proSignMenu: null,
@@ -371,6 +372,10 @@
     state.reportClientRowsBuffer = null;
     state.reportServerRows = null;
     state.reportLastColumns = [];
+    state.dynamicReportColumnLabels =
+      menu && menu.menuKind === 'report' && menu.columnLabels && typeof menu.columnLabels === 'object'
+        ? menu.columnLabels
+        : {};
     if (el.dynamicReportErr) {
       el.dynamicReportErr.hidden = true;
       el.dynamicReportErr.textContent = '';
@@ -691,7 +696,14 @@
       .then(function () {
         showToast('报工已提交');
         clearWorkRegTimers();
-        goProSignList(state.proSignMenu || { label: '生产报工', menuKind: 'report', filterSchema: [] });
+        goProSignList(
+          state.proSignMenu || {
+            label: '生产报工',
+            menuKind: 'report',
+            filterSchema: [],
+            columnLabels: {},
+          }
+        );
       })
       .catch(function (e) {
         showToast(e.message || '提交失败');
@@ -705,6 +717,8 @@
     state.dynamicReportRouteKey = menu.routeKey;
     state.dynamicReportLabel = menu.label || '报表';
     state.dynamicReportFilterSchema = menu.filterSchema || [];
+    state.dynamicReportColumnLabels =
+      menu.columnLabels && typeof menu.columnLabels === 'object' ? menu.columnLabels : {};
     state.dynamicReportRowDetail = {
       enabled: !!(menu.rowDetailEnabled && menu.detailKeyColumn),
       keyColumn: (menu.detailKeyColumn || '').trim(),
@@ -931,6 +945,21 @@
     return undefined;
   }
 
+  /** 列表列名（英文）-> 表头中文；无映射则显示原列名 */
+  function reportColumnHeaderText(colName, labelMap) {
+    var map = labelMap || {};
+    if (colName == null || String(colName).trim() === '') return '—';
+    var s = String(colName);
+    if (Object.prototype.hasOwnProperty.call(map, s) && map[s]) return map[s];
+    var lower = s.toLowerCase();
+    for (var k in map) {
+      if (Object.prototype.hasOwnProperty.call(map, k) && k.toLowerCase() === lower) {
+        return map[k];
+      }
+    }
+    return s;
+  }
+
   function closeReportOverlay() {
     if (el.reportOverlay) el.reportOverlay.hidden = true;
     if (el.reportOverlayBody) el.reportOverlayBody.innerHTML = '';
@@ -972,7 +1001,10 @@
         var tr = document.createElement('tr');
         var th = document.createElement('th');
         th.scope = 'row';
-        th.textContent = c != null && String(c).trim() !== '' ? String(c) : '—';
+        th.textContent =
+          c != null && String(c).trim() !== ''
+            ? reportColumnHeaderText(String(c), state.dynamicReportColumnLabels)
+            : '—';
         var td = document.createElement('td');
         var v = row[c];
         td.textContent = v == null || v === '' ? '—' : String(v);
@@ -1113,7 +1145,7 @@
 
     cols.forEach(function (c) {
       var th = document.createElement('th');
-      th.textContent = c;
+      th.textContent = reportColumnHeaderText(c, state.dynamicReportColumnLabels);
       trh.appendChild(th);
     });
     thead.appendChild(trh);
@@ -1579,6 +1611,18 @@
     if (isReserved) taFilter.disabled = true;
     addField('查询条件 JSON', taFilter);
 
+    var taColumnLabels = document.createElement('textarea');
+    taColumnLabels.rows = 3;
+    try {
+      taColumnLabels.value = JSON.stringify(item.columnLabels || {}, null, 2);
+    } catch (e) {
+      taColumnLabels.value = '{}';
+    }
+    taColumnLabels.placeholder =
+      '例如：{"orderNo":"订单号","plannedQty":"计划数量"}，键须与 SELECT 结果列名一致';
+    if (isReserved) taColumnLabels.disabled = true;
+    addField('列表列标题映射 JSON（可选）', taColumnLabels);
+
     var taDetail = document.createElement('textarea');
     taDetail.rows = 3;
     taDetail.value = item.detailQueryTemplate || '';
@@ -1626,12 +1670,23 @@
       var mk = isReserved ? 'builtin' : selKind.value;
       var qtpl = isReserved ? '' : taQuery.value.trim();
       var fsParsed = [];
+      var columnLabelsParsed = {};
       if (!isReserved) {
         try {
           fsParsed = taFilter.value.trim() ? JSON.parse(taFilter.value) : [];
         } catch (e) {
           showToast('查询条件 JSON 格式错误');
           return;
+        }
+        if (mk === 'report') {
+          try {
+            columnLabelsParsed = taColumnLabels.value.trim()
+              ? JSON.parse(taColumnLabels.value)
+              : {};
+          } catch (e) {
+            showToast('列标题映射 JSON 格式错误');
+            return;
+          }
         }
       }
       var detailBody = {
@@ -1660,6 +1715,7 @@
               menuKind: mk,
               queryTemplate: qtpl,
               filterSchema: fsParsed,
+              columnLabels: columnLabelsParsed,
             },
             detailBody
           )
@@ -1727,6 +1783,17 @@
         return;
       }
     }
+    var columnLabels = {};
+    var clRaw = (fd.get('columnLabels') || '').toString().trim();
+    if (clRaw) {
+      try {
+        columnLabels = JSON.parse(clRaw);
+      } catch (e) {
+        el.menuAddErr.textContent = '列标题映射 JSON 格式错误';
+        el.menuAddErr.hidden = false;
+        return;
+      }
+    }
     apiFetch('/admin/menus', {
       method: 'POST',
       body: JSON.stringify({
@@ -1739,6 +1806,7 @@
         menuKind: menuKind,
         queryTemplate: queryTemplate,
         filterSchema: filterSchema,
+        columnLabels: columnLabels,
         detailQueryTemplate: (fd.get('detailQueryTemplate') || '').toString(),
         detailKeyColumn: (fd.get('detailKeyColumn') || '').toString().trim(),
         detailKeyParam: (fd.get('detailKeyParam') || '').toString().trim() || 'detailKey',
@@ -1937,6 +2005,7 @@
           label: '生产报工',
           menuKind: 'report',
           filterSchema: [],
+          columnLabels: {},
         }
       );
     } else if (state.viewName === 'dynamic-report' && state.proSignMode) {

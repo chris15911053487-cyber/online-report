@@ -5,7 +5,7 @@ Web 与移动端共用的报工系统：Node.js（Fastify）提供 API 与静态
 ## 功能概览
 
 - **认证与角色**：登录使用表 `OUSR` 校验密码，签发 JWT；角色分为 `admin`（菜单管理、全部导航）与 `operator`（按菜单权限过滤）。
-- **Web 前端**（`server/public/`，单页应用 + `app.js`）：登录后底部导航为 **目录 / 收藏 / 消息 / 设置**；**生产订单**列表与详情、工序与历史报工、提交报工（`POST /orders/:id/report`）；**可配置报表**支持条件表单、分页、行级详情（`POST /reports/run`、`POST /reports/detail`）；管理员可进入 **菜单设置**，维护 `nav_menu_items`（含可配置报表的 SQL 模板与筛选 JSON）。另有 **OWOR** 等按导航配置的视图。
+- **Web 前端**（`server/public/`，单页应用 + `app.js`）：登录后底部导航为 **目录 / 收藏 / 消息 / 设置**；**生产订单**列表与详情、工序与历史报工、提交报工（`POST /orders/:id/report`）；**可配置报表**支持条件表单、分页、行级详情（`POST /reports/run`、`POST /reports/detail`）、以及 **列表列英文名与中文表头映射**（数据行仍为英文列名，便于对接外部系统）。管理员可进入 **菜单设置**，维护 `nav_menu_items`（SQL 模板、筛选 JSON、列标题映射等）。另有 **OWOR** 等按导航配置的视图。
 - **生产报工登记（`pro-sign`）**：目录中 `route_key` 为 `pro-sign` 的菜单进入专用流程——列表数据来自可配置报表 SQL（或内置默认订单+工序列表）；支持多选明细 **合并报工**，进入 **报工登记** 界面：接单开工、暂停（必填原因）、继续、按行提交良品/不良并写入 `work_reports`（可关联 `batch_line_id`）。批次与计时时长落在 **`X_` 前缀表**（与业务库其他表区分），详见下文「生产报工登记」。
 - **交互细节**：报表请求使用较长客户端超时（与 `REPORT_QUERY_TIMEOUT_MS` 配合）；主要按钮使用 Pointer/touch 兼容的点击绑定，便于移动端与桌面调试。
 - **移动端**：`mobile/` 通过 `EXPO_PUBLIC_API_URL` 指向同一套 API，与 Web 共用后端。
@@ -36,7 +36,7 @@ npm run init-db
 | GET | `/health` | 健康检查 |
 | POST | `/auth/login` | 登录，返回 JWT |
 | GET | `/auth/me` | 当前用户（需 JWT） |
-| GET | `/menus` | 当前角色可见的导航菜单 |
+| GET | `/menus` | 当前角色可见的导航菜单（报表类含 `filterSchema`、`columnLabels` 等） |
 | GET | `/orders` | 生产订单列表（可选 `?status=`） |
 | GET | `/orders/:id` | 订单详情、工序、最近报工 |
 | POST | `/orders/:id/report` | 提交报工 |
@@ -50,7 +50,7 @@ npm run init-db
 | POST | `/pro-sign/batches/:id/pause` | 暂停（Body：`{ "reason": "..." }`） |
 | POST | `/pro-sign/batches/:id/resume` | 继续开工 |
 | POST | `/pro-sign/batches/:id/submit` | 提交报工（Body：`lines: [{ lineId, goodQty, scrapQty, remark }]`） |
-| GET / POST / PATCH / DELETE | `/admin/menus`、`/admin/menus/:id` | 菜单增删改（仅 `admin`） |
+| GET / POST / PATCH / DELETE | `/admin/menus`、`/admin/menus/:id` | 菜单增删改（仅 `admin`）；报表菜单可提交 `columnLabels`（列标题映射） |
 
 ## 环境要求
 
@@ -96,9 +96,34 @@ cd server
 npm run init-db
 ```
 
-导航菜单表 `nav_menu_items` 可在启动时自动创建；若无建表权限，可关闭对应选项并手动执行 `server/sql/migrate-nav-menu-items-only.sql`（见 `.env.example` 注释）。若库中表已存在但缺少报表相关列，请执行 `server/sql/migrate-nav-menu-report-columns.sql`（启动时 `ensure-nav-menu-schema` 也会尝试执行）。
+导航菜单表 `nav_menu_items` 可在启动时自动创建；若无建表权限，可关闭对应选项并手动执行 `server/sql/migrate-nav-menu-items-only.sql`（见 `.env.example` 注释）。若库中表已存在但缺少报表相关列，请依次执行 `server/sql/migrate-nav-menu-report-columns.sql`、`migrate-nav-menu-detail-columns.sql`、`migrate-x-report-batch.sql`、`migrate-nav-menu-column-labels.sql`（启动时 `ensure-nav-menu-schema` 与 `npm run init-db` 也会按顺序尝试执行这些脚本）。
 
 **报工批次表（`X_` 前缀）**：`server/sql/migrate-x-report-batch.sql` 会创建 `X_report_batch`、`X_report_batch_line`、`X_task_logs`，并为 `work_reports` 增加可空列 `batch_line_id`（外键指向 `X_report_batch_line`，删除明细行时置空）。应用启动时 `ensure-nav-menu-schema` 会尝试执行该脚本；`npm run init-db` 也会在种子数据之前执行报表列迁移与本脚本，以便 `seed-mssql.sql` 能写入 `pro-sign` 菜单等与报表相关的列。
+
+#### 菜单设置与 `nav_menu_items` 字段对照
+
+Web **菜单设置** 中「添加菜单」表单的 `name` 与 `POST/PATCH /admin/menus` 的 JSON 字段一致；`GET /menus`、`GET /admin/menus` 返回的字段名亦同（camelCase）。下表为界面用语、API 字段与数据库列的一一对应（仅 SQL Server；`builtin` 菜单中报表相关项应为空或默认值）。
+
+| 菜单设置中的表单项 | API 字段（JSON） | 数据库列 `nav_menu_items` |
+| --- | --- | --- |
+| 名称 | `label` | `label` |
+| 路由标识 | `routeKey` | `route_key` |
+| 图标（可选） | `icon` | `icon` |
+| 排序 | `sortOrder` | `sort_order` |
+| 启用 | `enabled` | `enabled` |
+| 可见角色（管理员 / 普通用户） | `roles`（`["admin","operator"]`） | `roles_json` |
+| 菜单类型 | `menuKind`（`builtin` / `report`） | `menu_kind` |
+| SQL 模板（仅报表） | `queryTemplate` | `query_template` |
+| 查询条件 JSON（仅报表） | `filterSchema` | `filter_schema_json` |
+| 列表列标题映射 JSON（可选，仅报表） | `columnLabels` | `column_labels_json` |
+| 行详情 SQL（可选，仅报表） | `detailQueryTemplate` | `detail_query_template` |
+| 行主键列名（仅报表） | `detailKeyColumn` | `detail_key_column` |
+| 详情 SQL 主键参数名（仅报表） | `detailKeyParam` | `detail_key_param` |
+| 行主键类型（仅报表） | `detailKeyType` | `detail_key_type` |
+
+**主键与时间戳**：`id` 由数据库自增生成；`created_at`、`updated_at` 仅存在于表中，**菜单设置界面不维护**（更新菜单时由服务端写 `updated_at`）。
+
+**编辑已有菜单**：与上表相同，保存时向 `PATCH /admin/menus/:id` 提交同一套 JSON 字段。
 
 ### 生产报工登记（菜单 `route_key`: `pro-sign`）
 
@@ -122,9 +147,17 @@ WHERE (@orderNo IS NULL OR po.order_no LIKE N'%' + @orderNo + N'%')
 
 示例 `filterSchema`：`[{"name":"orderNo","label":"订单号","type":"string","required":false,"maxLength":64}]`。
 
+**列表列标题（中文）与数据列名（英文）**：`SELECT` 结果请继续使用 **英文别名**（如 `orderNo`、`plannedQty`），便于接口与外部系统用同一套字段名。在菜单中配置 **列表列标题映射 JSON**（存于 `column_labels_json`，接口字段 `columnLabels`），格式为 **英文列名 → 中文表头**，例如：
+
+```json
+{"orderNo":"订单号","plannedQty":"计划数量","operationName":"工序名称"}
+```
+
+键必须与结果集中的列名一致（大小写不敏感时也会尝试匹配）。未出现在映射中的列仍显示英文列名。行详情弹层中的列名同样使用该映射。**与查询条件 JSON 的区别**：`filterSchema` 里每条用 `name`（绑定 `@name`）与 `label`（条件表单上的文字）；`columnLabels` 只作用于 **列表与详情展示**，不参与 SQL 参数。
+
 ### 可配置报表（菜单里配 SQL）
 
-管理员在 **菜单设置** 中可将菜单类型设为「可配置报表」，填写 **SQL 模板**（仅允许单条 `SELECT` / `WITH…SELECT`，或 `EXEC` / `EXECUTE` 存储过程）与 **查询条件 JSON**。条件参数在 SQL 中必须使用 `@参数名` 占位，且与 JSON 里每条 `name` 一一对应；执行时由服务端 **参数绑定**，不会把用户输入拼进 SQL 字符串。
+管理员在 **菜单设置** 中可将菜单类型设为「可配置报表」，填写 **SQL 模板**（仅允许单条 `SELECT` / `WITH…SELECT`，或 `EXEC` / `EXECUTE` 存储过程）、**查询条件 JSON**，以及可选的 **列表列标题映射 JSON**（见上文）。条件参数在 SQL 中必须使用 `@参数名` 占位，且与 JSON 里每条 `name` 一一对应；执行时由服务端 **参数绑定**，不会把用户输入拼进 SQL 字符串。
 
 - **POST `/reports/run`**：
   - **Body**：`{ "routeKey": "...", "params": { ... }, "page": 1, "pageSize": 50 }`。`page` / `pageSize` 可选；省略时视为 `page=1` 且 `pageSize=REPORT_MAX_ROWS`（兼容旧客户端一次拉满上限）。`pageSize` 最大为 `min(500, REPORT_MAX_ROWS)`。

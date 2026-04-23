@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 
 /**
- * 将库中 PortNum 等字段转为可比较的字符串（兼容 Buffer、数字、BigInt 等）
+ * 将库中 MobileIMEI 等字段转为可比较的字符串（兼容 Buffer、数字、BigInt 等）
  */
 function normalizeDbCredential(value) {
   if (value == null) return '';
@@ -11,12 +11,12 @@ function normalizeDbCredential(value) {
 }
 
 /**
- * 与 OUSR 中 PortNum 做常量时间比较；任何异常都视为不匹配，避免抛错导致 500
+ * 与 OUSR 中 MobileIMEI 做常量时间比较；任何异常都视为不匹配，避免抛错导致 500
  */
-function timingSafeEqualStr(inputPassword, dbPortNum) {
+function timingSafeEqualStr(inputPassword, dbStoredSecret) {
   try {
     const x = Buffer.from(normalizeDbCredential(inputPassword), 'utf8');
-    const y = Buffer.from(normalizeDbCredential(dbPortNum), 'utf8');
+    const y = Buffer.from(normalizeDbCredential(dbStoredSecret), 'utf8');
     if (x.length !== y.length) {
       return false;
     }

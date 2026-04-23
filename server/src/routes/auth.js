@@ -58,7 +58,7 @@ async function fetchOusrRow(pool, code) {
       .request()
       .input('code', sql.NVarChar(255), code)
       .query(
-        `SELECT TOP (1) [USER_CODE] AS user_code, [PortNum] AS port_num, [U_NAME] AS u_name
+        `SELECT TOP (1) [USER_CODE] AS user_code, [MobileIMEI] AS mobile_imei, [U_NAME] AS u_name
          FROM [OUSR] WHERE [USER_CODE] = @code`
       );
     return result.recordset[0];
@@ -68,7 +68,7 @@ async function fetchOusrRow(pool, code) {
         .request()
         .input('code', sql.NVarChar(255), code)
         .query(
-          `SELECT TOP (1) [USER_CODE] AS user_code, [PortNum] AS port_num
+          `SELECT TOP (1) [USER_CODE] AS user_code, [MobileIMEI] AS mobile_imei
            FROM [OUSR] WHERE [USER_CODE] = @code`
         );
       const row = result.recordset[0];
@@ -91,7 +91,7 @@ async function authRoutes(fastify) {
     try {
       const pool = await getPool();
       const row = await fetchOusrRow(pool, userCodeInput);
-      if (!row || !timingSafeEqualStr(password, row.port_num)) {
+      if (!row || !timingSafeEqualStr(password, row.mobile_imei)) {
         return reply.code(401).send({ error: '用户名或密码错误' });
       }
 
