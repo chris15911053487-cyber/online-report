@@ -1089,7 +1089,7 @@
       hint.className = 'hint';
       hint.style.marginBottom = '10px';
       hint.textContent =
-        '勾选一行或多行工序明细，点击「合并报工」进入登记界面。列表 SQL 须返回 orderId、operationId 列（可配置报表中别名一致即可）。';
+        '勾选一行或多行工序明细，点击「合并报工」进入登记界面。须得到逻辑列 orderId、operationId：可在 SQL 中 AS，或在菜单「列名映射」中从实际列名映过去。';
       var btnMerge = document.createElement('button');
       btnMerge.type = 'button';
       btnMerge.className = 'btn-primary';
@@ -1619,9 +1619,21 @@
       taColumnLabels.value = '{}';
     }
     taColumnLabels.placeholder =
-      '例如：{"orderNo":"订单号","plannedQty":"计划数量"}，键须与 SELECT 结果列名一致';
+      '表头用：键为列名（映射后优先）。未配置列名映射时须与 SQL 原列名一致。';
     if (isReserved) taColumnLabels.disabled = true;
     addField('列表列标题映射 JSON（可选）', taColumnLabels);
+
+    var taColumnNameMapping = document.createElement('textarea');
+    taColumnNameMapping.rows = 3;
+    try {
+      taColumnNameMapping.value = JSON.stringify(item.columnNameMapping || {}, null, 2);
+    } catch (e) {
+      taColumnNameMapping.value = '{}';
+    }
+    taColumnNameMapping.placeholder =
+      '逻辑列名 -> SQL 列名，例如：{"orderId":"order_id","operationId":"OpId"}，合并报工需 orderId、operationId';
+    if (isReserved) taColumnNameMapping.disabled = true;
+    addField('列名映射 JSON（可选）', taColumnNameMapping);
 
     var taDetail = document.createElement('textarea');
     taDetail.rows = 3;
@@ -1671,6 +1683,7 @@
       var qtpl = isReserved ? '' : taQuery.value.trim();
       var fsParsed = [];
       var columnLabelsParsed = {};
+      var columnNameMappingParsed = {};
       if (!isReserved) {
         try {
           fsParsed = taFilter.value.trim() ? JSON.parse(taFilter.value) : [];
@@ -1687,8 +1700,18 @@
             showToast('列标题映射 JSON 格式错误');
             return;
           }
+          try {
+            columnNameMappingParsed = taColumnNameMapping.value.trim()
+              ? JSON.parse(taColumnNameMapping.value)
+              : {};
+          } catch (e) {
+            showToast('列名映射 JSON 格式错误');
+            return;
+          }
         }
       }
+      var columnNameMappingForPatch =
+        !isReserved && mk === 'report' ? columnNameMappingParsed : {};
       var detailBody = {
         detailQueryTemplate: '',
         detailKeyColumn: '',
@@ -1716,6 +1739,7 @@
               queryTemplate: qtpl,
               filterSchema: fsParsed,
               columnLabels: columnLabelsParsed,
+              columnNameMapping: columnNameMappingForPatch,
             },
             detailBody
           )
@@ -1794,6 +1818,17 @@
         return;
       }
     }
+    var columnNameMapping = {};
+    var cnmRaw = (fd.get('columnNameMapping') || '').toString().trim();
+    if (cnmRaw) {
+      try {
+        columnNameMapping = JSON.parse(cnmRaw);
+      } catch (e) {
+        el.menuAddErr.textContent = '列名映射 JSON 格式错误';
+        el.menuAddErr.hidden = false;
+        return;
+      }
+    }
     apiFetch('/admin/menus', {
       method: 'POST',
       body: JSON.stringify({
@@ -1807,6 +1842,7 @@
         queryTemplate: queryTemplate,
         filterSchema: filterSchema,
         columnLabels: columnLabels,
+        columnNameMapping: columnNameMapping,
         detailQueryTemplate: (fd.get('detailQueryTemplate') || '').toString(),
         detailKeyColumn: (fd.get('detailKeyColumn') || '').toString().trim(),
         detailKeyParam: (fd.get('detailKeyParam') || '').toString().trim() || 'detailKey',

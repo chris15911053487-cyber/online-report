@@ -240,6 +240,87 @@ function parseColumnLabelsJson(raw) {
   return { ok: true, labels };
 }
 
+const COL_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
+/**
+ * 列名映射：键为**逻辑名**（前端/合并报工等使用的列名），值为 SQL 结果中的**原列名**。
+ * 例：{"orderId":"order_id","operationId":"OpId"} 将 order_id 映为 orderId，OpId 映为 operationId。
+ * @param {unknown} raw
+ * @returns {{ ok: true, mapping: Record<string, string> } | { ok: false, error: string }}
+ */
+function parseColumnNameMappingJson(raw) {
+  let parsed;
+  try {
+    if (raw === undefined || raw === null || raw === '') {
+      parsed = {};
+    } else if (typeof raw === 'string') {
+      parsed = JSON.parse(raw);
+    } else {
+      parsed = raw;
+    }
+  } catch {
+    return { ok: false, error: 'columnNameMapping 不是合法 JSON' };
+  }
+  if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { ok: false, error: 'columnNameMapping 须为 JSON 对象（逻辑列名 -> SQL 列名）' };
+  }
+  /** @type {Record<string, string>} */
+  const mapping = {};
+  for (const [k, v] of Object.entries(parsed)) {
+    const logical = String(k || '').trim();
+    if (!logical) continue;
+    if (logical.length > 256) {
+      return { ok: false, error: 'columnNameMapping 键过长' };
+    }
+    if (!COL_NAME_RE.test(logical)) {
+      return { ok: false, error: `columnNameMapping 含无效逻辑列名: ${logical}` };
+    }
+    const source = String(v != null ? v : '').trim();
+    if (!source) {
+      return { ok: false, error: `columnNameMapping「${logical}」须对应非空的 SQL 列名` };
+    }
+    if (source.length > 256) {
+      return { ok: false, error: 'columnNameMapping 源列名过长' };
+    }
+    if (!COL_NAME_RE.test(source)) {
+      return { ok: false, error: `columnNameMapping 含无效源列名: ${source}` };
+    }
+    mapping[logical] = source;
+  }
+  return { ok: true, mapping };
+}
+
+/**
+ * 将列表/详情查询结果的列重命名为逻辑名，并更新 columns 与 rows。
+ * @param {{ columns?: string[], rows: object[] }} result
+ * @param {Record<string, string>} mapping
+ */
+function applyColumnNameMapping(result, mapping) {
+  if (!result || !mapping || Object.keys(mapping).length === 0) return result;
+  const entries = Object.entries(mapping).map(([log, src]) => [
+    String(log).trim(),
+    String(src).trim(),
+  ]);
+  if (entries.length === 0) return result;
+  const rows = result.rows || [];
+  const newRows = rows.map((row) => {
+    if (!row || typeof row !== 'object') return row;
+    const o = { ...row };
+    for (const [logical, source] of entries) {
+      if (!Object.prototype.hasOwnProperty.call(o, source)) continue;
+      o[logical] = o[source];
+    }
+    for (const [logical, source] of entries) {
+      if (logical !== source && Object.prototype.hasOwnProperty.call(o, source)) {
+        delete o[source];
+      }
+    }
+    return o;
+  });
+  const newColumns = newRows.length > 0 ? Object.keys(newRows[0]) : result.columns || [];
+  return { ...result, rows: newRows, columns: newColumns };
+}
+
 /**
  * 行详情 SQL：参数须包含主键参数 @detailKeyParam，其余参数须来自列表查询的 filterSchema。
  * @param {object[]} filterFields
@@ -339,7 +420,7 @@ function validateReportDetailAttachment(filterFields, cfg) {
 }
 
 /**
- * @param {{ menuKind: string, routeKey: string, queryTemplate: string|null|undefined, filterSchema: unknown, columnLabels?: unknown, detailQueryTemplate?: string|null, detailKeyColumn?: string|null, detailKeyParam?: string|null, detailKeyType?: string|null }} cfg
+ * @param {{ menuKind: string, routeKey: string, queryTemplate: string|null|undefined, filterSchema: unknown, columnLabels?: unknown, columnNameMapping?: unknown, detailQueryTemplate?: string|null, detailKeyColumn?: string|null, detailKeyParam?: string|null, detailKeyType?: string|null }} cfg
  */
 function validateReportMenuConfig(cfg) {
   const menuKind = String(cfg.menuKind || 'builtin').toLowerCase();
@@ -376,7 +457,12 @@ function validateReportMenuConfig(cfg) {
     if (Object.keys(cl0.labels).length > 0) {
       return { ok: false, error: '内置菜单不应填写列标题映射' };
     }
-    return { ok: true, menuKind, filterFields: [], columnLabels: {} };
+    const cnm0 = parseColumnNameMappingJson(cfg.columnNameMapping);
+    if (!cnm0.ok) return cnm0;
+    if (Object.keys(cnm0.mapping).length > 0) {
+      return { ok: false, error: '内置菜单不应填写列名映射' };
+    }
+    return { ok: true, menuKind, filterFields: [], columnLabels: {}, columnNameMapping: {} };
   }
 
   const template = normalizeTemplate(qt);
@@ -430,6 +516,9 @@ function validateReportMenuConfig(cfg) {
   const cl = parseColumnLabelsJson(cfg.columnLabels);
   if (!cl.ok) return cl;
 
+  const cnm = parseColumnNameMappingJson(cfg.columnNameMapping);
+  if (!cnm.ok) return cnm;
+
   return {
     ok: true,
     menuKind: 'report',
@@ -437,6 +526,7 @@ function validateReportMenuConfig(cfg) {
     normalizedTemplate: single.statement,
     filterFields: fs.fields,
     columnLabels: cl.labels,
+    columnNameMapping: cnm.mapping,
     detailNormalizedTemplate: detailPart.detailNormalizedTemplate,
     detailKeyColumn: detailPart.detailKeyColumn,
     detailKeyParam: detailPart.detailKeyParam,
@@ -806,6 +896,8 @@ module.exports = {
   detectTemplateKind,
   parseFilterSchemaJson,
   parseColumnLabelsJson,
+  parseColumnNameMappingJson,
+  applyColumnNameMapping,
   validateReportMenuConfig,
   extractParamNames,
   executeReportQuery,

@@ -3,6 +3,8 @@ const {
   detectTemplateKind,
   normalizeTemplate,
   parseFilterSchemaJson,
+  parseColumnNameMappingJson,
+  applyColumnNameMapping,
   executeReportQuery,
   executeReportDetailQuery,
 } = require('../report-query');
@@ -43,6 +45,7 @@ async function reportsRoutes(fastify) {
           .request()
           .input('rk', sql.NVarChar(64), routeKey)
           .query(`SELECT id, label, route_key, enabled, roles_json, menu_kind, query_template, filter_schema_json,
+                  COALESCE(column_name_mapping_json, N'{}') AS column_name_mapping_json,
                   detail_query_template, detail_key_column, detail_key_param, COALESCE(detail_key_type, N'string') AS detail_key_type
                   FROM dbo.nav_menu_items
                   WHERE route_key = @rk`);
@@ -86,8 +89,15 @@ async function reportsRoutes(fastify) {
         return reply.code(503).send({ error: 'SQL 模板无效', code: 'REPORT_TEMPLATE_INVALID' });
       }
 
+      const mapParse = parseColumnNameMappingJson(
+        row.column_name_mapping_json != null && String(row.column_name_mapping_json).trim() !== ''
+          ? row.column_name_mapping_json
+          : '{}'
+      );
+      const colMap = mapParse.ok ? mapParse.mapping : {};
+
       try {
-        const result = await executeReportQuery(pool, {
+        const rawResult = await executeReportQuery(pool, {
           templateKind,
           sqlTemplate: template,
           schemaFields: fs.fields,
@@ -95,6 +105,7 @@ async function reportsRoutes(fastify) {
           page,
           pageSize,
         });
+        const result = applyColumnNameMapping(rawResult, colMap);
         return {
           routeKey,
           label: row.label,
@@ -153,6 +164,7 @@ async function reportsRoutes(fastify) {
           .request()
           .input('rk', sql.NVarChar(64), routeKey)
           .query(`SELECT id, label, route_key, enabled, roles_json, menu_kind, query_template, filter_schema_json,
+                  COALESCE(column_name_mapping_json, N'{}') AS column_name_mapping_json,
                   detail_query_template, detail_key_column, detail_key_param, COALESCE(detail_key_type, N'string') AS detail_key_type
                   FROM dbo.nav_menu_items
                   WHERE route_key = @rk`);
@@ -204,8 +216,15 @@ async function reportsRoutes(fastify) {
           : 'detailKey';
       const dkt = row.detail_key_type != null ? String(row.detail_key_type) : 'string';
 
+      const detMapParse = parseColumnNameMappingJson(
+        row.column_name_mapping_json != null && String(row.column_name_mapping_json).trim() !== ''
+          ? row.column_name_mapping_json
+          : '{}'
+      );
+      const detColMap = detMapParse.ok ? detMapParse.mapping : {};
+
       try {
-        const result = await executeReportDetailQuery(pool, {
+        const rawResult = await executeReportDetailQuery(pool, {
           templateKind,
           sqlTemplate: detailTpl,
           schemaFields: fs.fields,
@@ -214,6 +233,7 @@ async function reportsRoutes(fastify) {
           detailKeyRaw: detailKey,
           detailKeyType: dkt,
         });
+        const result = applyColumnNameMapping(rawResult, detColMap);
         return {
           routeKey,
           label: row.label,

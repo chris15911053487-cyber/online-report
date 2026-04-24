@@ -37,12 +37,19 @@ async function main() {
     'sql',
     'migrate-nav-menu-column-labels.sql'
   );
+  const migrateColumnNameMapping = path.join(
+    __dirname,
+    '..',
+    'sql',
+    'migrate-nav-menu-column-name-mapping.sql'
+  );
 
   await pool.request().query(fs.readFileSync(schemaPath, 'utf8'));
   await pool.request().query(fs.readFileSync(migrateReportCols, 'utf8'));
   await pool.request().query(fs.readFileSync(migrateDetailCols, 'utf8'));
   await pool.request().query(fs.readFileSync(migrateXBatch, 'utf8'));
   await pool.request().query(fs.readFileSync(migrateColumnLabels, 'utf8'));
+  await pool.request().query(fs.readFileSync(migrateColumnNameMapping, 'utf8'));
   await pool.request().query(fs.readFileSync(seedPath, 'utf8'));
 
   const ord = await pool.request().query(
