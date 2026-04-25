@@ -1,8 +1,8 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 
 const fs = require('fs');
 const fsp = require('fs').promises;
-const path = require('path');
 const Fastify = require('fastify');
 const cors = require('@fastify/cors');
 const jwt = require('@fastify/jwt');
@@ -93,7 +93,11 @@ async function build() {
     const apkPath = await resolveReadableApkFile(candidates);
     if (!apkPath) {
       request.log.warn({ candidates }, 'android apk: no readable file (set APK_PATH or place public/apk/android-app.apk)');
-      return reply.code(404).type('application/json').send({ error: '安装包暂不可用' });
+      return reply.code(404).type('application/json').send({
+        error: '安装包暂不可用',
+        hint:
+          '常见原因：Docker 内以非 root（node）运行，无法读取宿主机 /root/ 下文件。请把 APK 放到 /srv/apk 等目录并 chmod a+rX，或设 APK_PATH 指向容器可读路径；也可把文件复制为镜像内 /app/public/apk/android-app.apk。',
+      });
     }
     const basename = path.basename(apkPath);
     const utf8Name = encodeURIComponent(basename);

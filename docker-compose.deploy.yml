@@ -26,4 +26,7 @@ services:
       - "${APP_PUBLISH_PORT:-3000}:3000"
     env_file:
       - ${DEPLOY_ENV_FILE:-./server/.env}
+    # 安卓 APK：不要用宿主机 /root/…（容器内 node 用户不可读）。可挂载到 /srv/apk 并设 APK_PATH，见 server/.env.example
+    # volumes:
+    #   - /srv/apk/手机报工1.0.apk:/srv/apk/手机报工1.0.apk:ro
     restart: unless-stopped
