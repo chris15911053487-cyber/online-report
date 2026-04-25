@@ -14,20 +14,25 @@
     </header>
 
     <main class="main">
-      <section id="view-login" class="view">
-        <p class="hint">请使用管理员分配的账号登录</p>
-        <form id="form-login" class="card" autocomplete="on">
-          <label class="field">
-            <span>用户名</span>
-            <input name="username" type="text" required autocomplete="username" />
-          </label>
-          <label class="field">
-            <span>密码</span>
-            <input name="password" type="password" required autocomplete="current-password" />
-          </label>
-          <p class="err" id="login-err" hidden></p>
-          <button type="submit" class="btn-primary">登录</button>
-        </form>
+      <section id="view-login" class="view view-login">
+        <div class="login-stack">
+          <p class="hint">请使用管理员分配的账号登录</p>
+          <form id="form-login" class="card" autocomplete="on">
+            <label class="field">
+              <span>用户名</span>
+              <input name="username" type="text" required autocomplete="username" />
+            </label>
+            <label class="field">
+              <span>密码</span>
+              <input name="password" type="password" required autocomplete="current-password" />
+            </label>
+            <p class="err" id="login-err" hidden></p>
+            <button type="submit" class="btn-primary">登录</button>
+          </form>
+          <p class="login-apk-footer">
+            <a class="login-apk-link" href="/download/android-app.apk">安卓版下载（手机报工 1.0）</a>
+          </p>
+        </div>
       </section>
 
       <!-- 底部四页签：目录内为动态菜单网格 -->

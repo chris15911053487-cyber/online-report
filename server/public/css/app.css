@@ -153,6 +153,38 @@ body.has-pro-sign-list-sticky .main {
   margin: 8px 0 20px;
 }
 
+/* 登录页：表单在上，安卓下载链接靠底部区域 */
+#view-login.view-login {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - 52px - 32px);
+}
+
+#view-login .login-stack {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+#view-login .login-apk-footer {
+  margin-top: auto;
+  padding-top: 28px;
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 0));
+  text-align: center;
+}
+
+#view-login .login-apk-link {
+  font-size: 0.9rem;
+  color: #2563eb;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+#view-login .login-apk-link:active {
+  color: #1d4ed8;
+}
+
 .placeholder-page {
   text-align: center;
   color: #64748b;
