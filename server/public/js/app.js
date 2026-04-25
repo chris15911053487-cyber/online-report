@@ -1228,19 +1228,24 @@
       var row = (state.proSignTableRows && state.proSignTableRows[rIdx]) || null;
       if (!row) return;
       var orderId = getRowValueForColumn(row, 'DocEntry');
-      var opId = getRowValueForColumn(row, 'StepCode');
-      if (orderId == null || opId == null || orderId === '' || opId === '') {
+      var opRaw = getRowValueForColumn(row, 'StepCode');
+      if (orderId == null || opRaw == null || orderId === '' || opRaw === '') {
         return;
       }
-      var oN = Number(orderId);
-      var pN = Number(opId);
-      if (!Number.isFinite(oN) || !Number.isFinite(pN)) {
+      var stepStr =
+        typeof opRaw === 'bigint' ? String(opRaw).trim() : String(opRaw).trim();
+      if (!stepStr) return;
+      if (stepStr.length > 50) stepStr = stepStr.slice(0, 50);
+      var oN = Number(typeof orderId === 'bigint' ? orderId.toString() : orderId);
+      if (!Number.isFinite(oN)) {
         return;
       }
-      selected.push({ orderId: oN, operationId: pN, row: row });
+      selected.push({ orderId: oN, operationId: stepStr, row: row });
     });
     if (selected.length === 0) {
-      showToast('请先勾选至少一行（或 DocEntry/StepCode 不是有效数字，无法与系统订单/工序对应）');
+      showToast(
+        '请先勾选至少一行（或 DocEntry 不是有效数字、StepCode 为空；StepCode 为文本，与工序编码一致即可）'
+      );
       return;
     }
     var lines = selected.map(function (s) {
