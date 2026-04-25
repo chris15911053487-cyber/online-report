@@ -162,6 +162,8 @@
     dynamicReportFormWrap: document.getElementById('dynamic-report-form-wrap'),
     dynamicReportErr: document.getElementById('dynamic-report-err'),
     dynamicReportTableWrap: document.getElementById('dynamic-report-table-wrap'),
+    proSignListSticky: document.getElementById('pro-sign-list-sticky'),
+    proSignListMergeBtn: document.getElementById('pro-sign-list-merge-btn'),
     reportRowDetail: document.getElementById('view-report-row-detail'),
     reportRowDetailBody: document.getElementById('report-row-detail-body'),
     reportOverlay: document.getElementById('report-overlay'),
@@ -169,6 +171,10 @@
     reportOverlayTitle: document.getElementById('report-overlay-title'),
     reportOverlayBody: document.getElementById('report-overlay-body'),
     reportOverlayClose: document.getElementById('report-overlay-close'),
+    proSignReceive: document.getElementById('view-pro-sign-receive'),
+    proSignReceiveScroll: document.getElementById('pro-sign-receive-scroll'),
+    proSignReceiveSticky: document.getElementById('pro-sign-receive-sticky'),
+    proSignReceiveBtnSave: document.getElementById('pro-sign-receive-btn-save'),
     workRegistration: document.getElementById('view-work-registration'),
     workRegHead: document.getElementById('work-reg-head'),
     workRegToolbar: document.getElementById('work-reg-toolbar'),
@@ -201,6 +207,15 @@
     dynamicReportRowDetail: { enabled: false, keyColumn: '' },
     proSignMode: false,
     proSignMenu: null,
+    proSignTableRows: null,
+    proSignReceiveMerge: null,
+    proSignReceiveLineResults: null,
+    proSignReceiveMergeButtonLabel: null,
+    proSignReceiveClockTimer: null,
+    proSignSavePreviewOpen: false,
+    proSignSavePosting: false,
+    /** 从 bindTap(pointerup) 刚打开全屏层时，忽略首轮回弹到 backdrop 的「幽灵 click」，避免移动端/设备模式一打开就关 */
+    reportOverlayBackdropGuardUntil: 0,
     workRegBatchId: null,
     workRegPollTimer: null,
     workRegUiTimer: null,
@@ -240,6 +255,10 @@
     else if (v === 'orders') title = '报工订单';
     else if (v === 'menu-settings') title = '菜单设置';
     else if (v === 'dynamic-report') title = state.dynamicReportLabel || '报表';
+    else if (v === 'pro-sign-receive') {
+      var mergeSuffix = state.proSignReceiveMergeButtonLabel || '接单';
+      title = '合并报工·' + mergeSuffix;
+    }
     else if (v === 'work-registration') title = '报工登记';
     else if (v === 'report-row-detail') title = '行详情';
     else if (v === 'detail') title = '订单报工';
@@ -268,12 +287,20 @@
     el.dynamicReport.hidden = v !== 'dynamic-report';
     el.reportRowDetail.hidden = v !== 'report-row-detail';
     el.detail.hidden = v !== 'detail';
+    if (el.proSignReceive) el.proSignReceive.hidden = v !== 'pro-sign-receive';
+    if (el.proSignReceiveSticky) {
+      el.proSignReceiveSticky.hidden = v !== 'pro-sign-receive';
+    }
     if (el.workRegistration) el.workRegistration.hidden = v !== 'work-registration';
 
     el.btnBack.hidden = v === 'login' || v === 'root';
 
     el.bottomNav.hidden = v !== 'root';
     document.body.classList.toggle('has-bottom-nav', v === 'root');
+    var showProSignListSticky = v === 'dynamic-report' && state.proSignMode;
+    if (el.proSignListSticky) el.proSignListSticky.hidden = !showProSignListSticky;
+    document.body.classList.toggle('has-pro-sign-list-sticky', showProSignListSticky);
+    if (showProSignListSticky) syncProSignMergeButtonLabel();
     document.body.classList.toggle('app-dark', v !== 'login');
 
     updateTitle();
@@ -354,6 +381,30 @@
     showToast('该菜单页面尚未接入');
   }
 
+  function goBackFromProSignReceive() {
+    state.proSignSavePosting = false;
+    state.proSignSavePreviewOpen = false;
+    if (el.reportOverlay) el.reportOverlay.hidden = true;
+    if (el.reportOverlayBody) el.reportOverlayBody.innerHTML = '';
+    if (el.proSignReceiveBtnSave) {
+      el.proSignReceiveBtnSave.disabled = false;
+      el.proSignReceiveBtnSave.textContent = '保存';
+    }
+    clearProSignReceiveClock();
+    state.proSignReceiveMerge = null;
+    state.proSignReceiveLineResults = null;
+    state.proSignReceiveMergeButtonLabel = null;
+    state.viewName = 'dynamic-report';
+    state.proSignMode = true;
+    applyUI();
+    window.scrollTo(0, 0);
+    if (state.reportServerRows != null || (state.reportClientRowsBuffer && state.reportClientRowsBuffer.length)) {
+      renderDynamicReportResult();
+    } else {
+      runDynamicReportQuery(false);
+    }
+  }
+
   function goProSignList(menu) {
     clearWorkRegTimers();
     state.proSignMode = true;
@@ -424,6 +475,9 @@
   function goWorkRegistration(batchId) {
     clearWorkRegTimers();
     state.proSignMode = false;
+    state.proSignReceiveMerge = null;
+    state.proSignReceiveLineResults = null;
+    state.proSignReceiveMergeButtonLabel = null;
     state.viewName = 'work-registration';
     state.workRegBatchId = batchId;
     state.workRegSnapshot = null;
@@ -739,6 +793,176 @@
     renderDynamicReportForm();
   }
 
+  /**
+   * 报表 / 生产报工筛选：摄像头扫码填入文本框（需 HTTPS 与浏览器支持 BarcodeDetector）。
+   * 不支持时提示使用外接扫码枪（焦点在输入框即可录入）。
+   */
+  function openDynamicReportBarcodeScan(targetInput) {
+    if (!targetInput || targetInput.tagName !== 'INPUT') return;
+    if (!('BarcodeDetector' in window)) {
+      showToast('当前环境不支持摄像头扫码，请将焦点放在输入框后用扫码枪或手动输入');
+      try {
+        targetInput.focus();
+      } catch (e) {}
+      return;
+    }
+    var detector;
+    try {
+      detector = new BarcodeDetector({
+        formats: [
+          'aztec',
+          'code_128',
+          'code_39',
+          'code_93',
+          'codabar',
+          'data_matrix',
+          'ean_13',
+          'ean_8',
+          'itf',
+          'pdf417',
+          'qr_code',
+          'upc_a',
+          'upc_e',
+        ],
+      });
+    } catch (e0) {
+      try {
+        detector = new BarcodeDetector();
+      } catch (e1) {
+        showToast('无法启动扫码识别');
+        return;
+      }
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showToast('无法打开摄像头，请使用扫码枪或手动输入');
+      try {
+        targetInput.focus();
+      } catch (e2) {}
+      return;
+    }
+
+    var overlay = document.createElement('div');
+    overlay.className = 'scan-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    var panel = document.createElement('div');
+    panel.className = 'scan-overlay-panel';
+    var hint = document.createElement('p');
+    hint.className = 'scan-overlay-hint';
+    hint.textContent = '将条码 / 二维码对准取景框';
+    var video = document.createElement('video');
+    video.className = 'scan-overlay-video';
+    video.setAttribute('playsinline', '');
+    video.setAttribute('autoplay', '');
+    video.muted = true;
+    var actions = document.createElement('div');
+    actions.className = 'scan-overlay-actions';
+    var btnClose = document.createElement('button');
+    btnClose.type = 'button';
+    btnClose.className = 'btn-secondary scan-overlay-close';
+    btnClose.textContent = '关闭';
+    actions.appendChild(btnClose);
+    panel.appendChild(hint);
+    panel.appendChild(video);
+    panel.appendChild(actions);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    var stream = null;
+    var rafId = 0;
+    var closed = false;
+
+    function cleanup() {
+      if (closed) return;
+      closed = true;
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = 0;
+      if (stream) {
+        stream.getTracks().forEach(function (t) {
+          try {
+            t.stop();
+          } catch (e3) {}
+        });
+        stream = null;
+      }
+      try {
+        video.srcObject = null;
+      } catch (e4) {}
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }
+
+    function applyCode(raw) {
+      var s = raw != null ? String(raw).trim() : '';
+      if (!s) return;
+      targetInput.value = s;
+      try {
+        targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+        targetInput.dispatchEvent(new Event('change', { bubbles: true }));
+      } catch (e5) {}
+      showToast('已扫码');
+      cleanup();
+    }
+
+    function tick() {
+      if (closed) return;
+      if (video.readyState >= 2) {
+        detector
+          .detect(video)
+          .then(function (codes) {
+            if (closed) return;
+            if (codes && codes.length && codes[0].rawValue) {
+              applyCode(codes[0].rawValue);
+              return;
+            }
+            rafId = requestAnimationFrame(tick);
+          })
+          .catch(function () {
+            if (!closed) rafId = requestAnimationFrame(tick);
+          });
+      } else {
+        rafId = requestAnimationFrame(tick);
+      }
+    }
+
+    bindTap(btnClose, cleanup);
+    overlay.addEventListener('click', function (ev) {
+      if (ev.target === overlay) cleanup();
+    });
+
+    navigator.mediaDevices
+      .getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
+      .then(function (s) {
+        if (closed) {
+          s.getTracks().forEach(function (t) {
+            try {
+              t.stop();
+            } catch (e6) {}
+          });
+          return;
+        }
+        stream = s;
+        video.srcObject = stream;
+        video.play().catch(function () {});
+        rafId = requestAnimationFrame(tick);
+      })
+      .catch(function () {
+        showToast('无法打开摄像头（请检查权限）');
+        cleanup();
+      });
+  }
+
+  /** 下拉是否显示「（全部）」：必选或无全部项 / noAllOption / 生产报工下「状态」筛选不显示全部 */
+  function shouldShowFilterSelectAllOption(f) {
+    if (f.required) return false;
+    if (f.noAllOption === true) return false;
+    if (state.proSignMode) {
+      var nameLc = f.name ? String(f.name).toLowerCase() : '';
+      var lab = f.label ? String(f.label).trim() : '';
+      if (nameLc === 'status' || lab === '状态') return false;
+    }
+    return true;
+  }
+
   function renderDynamicReportForm() {
     var wrap = el.dynamicReportFormWrap;
     wrap.innerHTML = '';
@@ -754,7 +978,33 @@
       lab.appendChild(sp);
       var input;
       var t = (f.type || 'string').toLowerCase();
-      if (t === 'bool') {
+      if (f.optionsSql || f.optionsFromSql) {
+        input = document.createElement('select');
+        input.name = f.name;
+        var ld0 = document.createElement('option');
+        ld0.value = '';
+        ld0.textContent = '加载中…';
+        ld0.disabled = true;
+        ld0.selected = true;
+        input.appendChild(ld0);
+      } else if (Array.isArray(f.options) && f.options.length > 0) {
+        input = document.createElement('select');
+        input.name = f.name;
+        if (shouldShowFilterSelectAllOption(f)) {
+          var optAll = document.createElement('option');
+          optAll.value = '';
+          optAll.textContent = '（全部）';
+          input.appendChild(optAll);
+        }
+        for (var oi = 0; oi < f.options.length; oi++) {
+          var op = f.options[oi];
+          var opt = document.createElement('option');
+          var cv = op != null && op.code != null && typeof op.code !== 'object' ? String(op.code) : '';
+          opt.value = cv;
+          opt.textContent = op != null && op.name != null ? String(op.name) : '';
+          input.appendChild(opt);
+        }
+      } else if (t === 'bool') {
         input = document.createElement('input');
         input.type = 'checkbox';
         input.name = f.name;
@@ -775,7 +1025,30 @@
       if (!f.required) {
         input.dataset.optional = '1';
       }
-      lab.appendChild(input);
+      var useScan =
+        f.scan === true &&
+        (t === 'string' || t === 'int' || t === 'decimal') &&
+        input.tagName === 'INPUT' &&
+        (input.type === 'text' || input.type === 'number');
+      if (useScan) {
+        var scanRow = document.createElement('div');
+        scanRow.className = 'field-scan-row';
+        var btnScan = document.createElement('button');
+        btnScan.type = 'button';
+        btnScan.className = 'btn-field-scan';
+        btnScan.setAttribute('aria-label', '摄像头扫码');
+        btnScan.title = '摄像头扫码';
+        btnScan.textContent = '扫码';
+        bindTap(btnScan, function (ev) {
+          if (ev && ev.preventDefault) ev.preventDefault();
+          openDynamicReportBarcodeScan(input);
+        });
+        scanRow.appendChild(input);
+        scanRow.appendChild(btnScan);
+        lab.appendChild(scanRow);
+      } else {
+        lab.appendChild(input);
+      }
       form.appendChild(lab);
     }
 
@@ -791,8 +1064,66 @@
     form.appendChild(btn);
     wrap.appendChild(form);
 
+    if (state.proSignMode && !wrap.dataset.proSignFilterListeners) {
+      wrap.dataset.proSignFilterListeners = '1';
+      wrap.addEventListener('change', onProSignFilterFormChange);
+    }
+
+    var needsOptionsSql = schema.some(function (f) {
+      return !!(f.optionsSql || f.optionsFromSql);
+    });
     if (schema.length === 0) {
       runDynamicReportQuery(true);
+    } else if (needsOptionsSql) {
+      btn.disabled = true;
+      var rk = state.dynamicReportRouteKey;
+      var loads = schema
+        .filter(function (f) {
+          return !!(f.optionsSql || f.optionsFromSql);
+        })
+        .map(function (f) {
+          return apiFetch('/reports/filter-field-options', {
+            method: 'POST',
+            body: JSON.stringify({ routeKey: rk, fieldName: f.name }),
+          })
+            .then(function (data) {
+              var sel = wrap.querySelector('select[name="' + f.name + '"]');
+              if (!sel) return;
+              sel.innerHTML = '';
+              if (shouldShowFilterSelectAllOption(f)) {
+                var oAll = document.createElement('option');
+                oAll.value = '';
+                oAll.textContent = '（全部）';
+                sel.appendChild(oAll);
+              }
+              var items = (data && data.items) || [];
+              for (var ii = 0; ii < items.length; ii++) {
+                var it = items[ii];
+                var opEl = document.createElement('option');
+                var cvs =
+                  it != null && it.code != null && typeof it.code !== 'object' ? String(it.code) : '';
+                opEl.value = cvs;
+                opEl.textContent = it != null && it.name != null ? String(it.name) : '';
+                sel.appendChild(opEl);
+              }
+              sel.dataset.optionsLoaded = '1';
+            })
+            .catch(function (err) {
+              showToast(err.message || '下拉选项加载失败');
+              var sel2 = wrap.querySelector('select[name="' + f.name + '"]');
+              if (sel2) {
+                sel2.innerHTML = '';
+                var bad = document.createElement('option');
+                bad.value = '';
+                bad.textContent = '（加载失败）';
+                bad.disabled = true;
+                sel2.appendChild(bad);
+              }
+            });
+        });
+      Promise.all(loads).finally(function () {
+        btn.disabled = false;
+      });
     }
   }
 
@@ -803,6 +1134,25 @@
     schema.forEach(function (f) {
       var elInput = wrap.querySelector('[name="' + f.name + '"]');
       if (!elInput) return;
+      if (elInput.tagName === 'SELECT') {
+        var sv = elInput.value;
+        if (sv === '' || sv == null) {
+          if (!f.required) params[f.name] = null;
+          return;
+        }
+        if ((f.type || '').toLowerCase() === 'int') {
+          params[f.name] = parseInt(sv, 10);
+        } else if ((f.type || '').toLowerCase() === 'decimal') {
+          params[f.name] = Number(sv);
+        } else if ((f.type || '').toLowerCase() === 'bool') {
+          if (sv === 'true' || sv === '1' || sv === 'yes') params[f.name] = true;
+          else if (sv === 'false' || sv === '0' || sv === 'no') params[f.name] = false;
+          else params[f.name] = sv;
+        } else {
+          params[f.name] = sv;
+        }
+        return;
+      }
       if (elInput.type === 'checkbox') {
         params[f.name] = elInput.checked;
         return;
@@ -821,6 +1171,95 @@
       }
     });
     return params;
+  }
+
+  /** pro-sign：筛选里「Status」为 0 时主按钮显示「接单」，为 1 时显示「完工」，否则「合并报工」。 */
+  function proSignStatusFilterField() {
+    var schema = state.dynamicReportFilterSchema || [];
+    var i;
+    for (i = 0; i < schema.length; i++) {
+      var f = schema[i];
+      if (f && f.name && String(f.name).toLowerCase() === 'status') return f;
+    }
+    for (i = 0; i < schema.length; i++) {
+      var g = schema[i];
+      if (g && g.name && String(g.label || '').trim() === 'Status') return g;
+    }
+    return null;
+  }
+
+  function proSignMergeButtonLabel() {
+    var sf = proSignStatusFilterField();
+    if (!sf) return '合并报工';
+    var params = collectDynamicReportParams();
+    var v = params[sf.name];
+    if (v === 0 || v === '0') return '接单';
+    if (v === 1 || v === '1') return '完工';
+    return '合并报工';
+  }
+
+  function syncProSignMergeButtonLabel() {
+    if (!state.proSignMode) return;
+    var btn = el.proSignListMergeBtn;
+    if (!btn) return;
+    btn.textContent = proSignMergeButtonLabel();
+  }
+
+  /** 生产报工列表：说明文案置于表格/分页下方（吸底按钮单独在 #pro-sign-list-sticky） */
+  function appendProSignMergeListHint(container) {
+    if (!state.proSignMode || !container) return;
+    var hint = document.createElement('p');
+    hint.className = 'hint pro-sign-merge-hint-bottom';
+    hint.textContent =
+      '勾选后点「合并报工」：预检（Z_ONLINE_TOOWORSIGN_DETAIL）通过后进入全屏「接单」页；抬头为首行工序 StepCode/StepName、当前时间与多选操作员；子表为 BaseEntry、LastStep*、数量。列表须含逻辑列 DocEntry、StepCode。';
+    container.appendChild(hint);
+    syncProSignMergeButtonLabel();
+  }
+
+  function triggerProSignMergeFromList() {
+    var wrap = el.dynamicReportTableWrap;
+    if (!wrap || !state.proSignMode) return;
+    var selected = [];
+    wrap.querySelectorAll('tbody input.pro-sign-row-cb:checked').forEach(function (cb) {
+      var tr = cb.closest && cb.closest('tr');
+      if (!tr || tr.dataset.proSignRowIndex == null || tr.dataset.proSignRowIndex === '') return;
+      var rIdx = parseInt(tr.dataset.proSignRowIndex, 10);
+      if (!Number.isFinite(rIdx)) return;
+      var row = (state.proSignTableRows && state.proSignTableRows[rIdx]) || null;
+      if (!row) return;
+      var orderId = getRowValueForColumn(row, 'DocEntry');
+      var opId = getRowValueForColumn(row, 'StepCode');
+      if (orderId == null || opId == null || orderId === '' || opId === '') {
+        return;
+      }
+      var oN = Number(orderId);
+      var pN = Number(opId);
+      if (!Number.isFinite(oN) || !Number.isFinite(pN)) {
+        return;
+      }
+      selected.push({ orderId: oN, operationId: pN, row: row });
+    });
+    if (selected.length === 0) {
+      showToast('请先勾选至少一行（或 DocEntry/StepCode 不是有效数字，无法与系统订单/工序对应）');
+      return;
+    }
+    var lines = selected.map(function (s) {
+      return { docEntry: String(s.orderId), stepCode: String(s.operationId) };
+    });
+    apiFetch('/pro-sign/toowor-sign-detail', {
+      method: 'POST',
+      body: JSON.stringify({ lines: lines }),
+    })
+      .then(function (data) {
+        goProSignReceive(selected, data && data.lineResults);
+      })
+      .catch(function (e) {
+        showToast(e.message || '预检失败');
+      });
+  }
+
+  function onProSignFilterFormChange() {
+    if (state.proSignMode) syncProSignMergeButtonLabel();
   }
 
   function runDynamicReportQuery(resetPage) {
@@ -960,9 +1399,802 @@
     return s;
   }
 
+  function armReportOverlayOpenGuard() {
+    state.reportOverlayBackdropGuardUntil = Date.now() + 450;
+  }
+
   function closeReportOverlay() {
+    if (state.proSignSavePosting) return;
+    if (state.proSignSavePreviewOpen) {
+      state.proSignSavePreviewOpen = false;
+      if (el.proSignReceiveBtnSave && state.viewName === 'pro-sign-receive') {
+        el.proSignReceiveBtnSave.disabled = false;
+      }
+    }
     if (el.reportOverlay) el.reportOverlay.hidden = true;
     if (el.reportOverlayBody) el.reportOverlayBody.innerHTML = '';
+  }
+
+  function clearProSignReceiveClock() {
+    if (state.proSignReceiveClockTimer != null) {
+      clearInterval(state.proSignReceiveClockTimer);
+      state.proSignReceiveClockTimer = null;
+    }
+  }
+
+  function proSignAfterSaveAndReturn() {
+    clearProSignReceiveClock();
+    state.proSignReceiveMerge = null;
+    state.proSignReceiveLineResults = null;
+    state.proSignReceiveMergeButtonLabel = null;
+    if (el.proSignReceiveBtnSave) el.proSignReceiveBtnSave.textContent = '保存';
+    state.viewName = 'dynamic-report';
+    state.proSignMode = true;
+    applyUI();
+    window.scrollTo(0, 0);
+    runDynamicReportQuery(false);
+  }
+
+  /**
+   * 首行/预检 display 与列表行回退。工单用 BaseEntry（与 X_ONLINE_SIGN 自增 DocEntry 区分）；
+   * 数量优先预检 display，再从列表行常见数量列解析（与后端 TOOWOR_QUANTITY_NAMES 对齐）。
+   */
+  var PRO_SIGN_ROW_QTY_COLS = [
+    'Quantity',
+    'Qty',
+    '数量',
+    'PlannedQty',
+    'PlanQty',
+    'GoodQty',
+    'ReportQty',
+    'ReportedQty',
+  ];
+
+  function proSignQuantityFromRow(row) {
+    if (!row) return null;
+    for (var qi = 0; qi < PRO_SIGN_ROW_QTY_COLS.length; qi += 1) {
+      var raw = getRowValueForColumn(row, PRO_SIGN_ROW_QTY_COLS[qi]);
+      if (raw == null || raw === '') continue;
+      var p =
+        typeof raw === 'number'
+          ? raw
+          : parseFloat(String(raw).replace(/,/g, ''));
+      if (Number.isFinite(p)) return p;
+    }
+    return null;
+  }
+
+  function pad2ProSign(n) {
+    return n < 10 ? '0' + n : String(n);
+  }
+
+  /** 本地日期 + 时分（合并报工抬头「当前时间」展示） */
+  function formatProSignZhDateMinute(d) {
+    if (!d || Number.isNaN(d.getTime())) return '—';
+    return (
+      d.getFullYear() +
+      '-' +
+      pad2ProSign(d.getMonth() + 1) +
+      '-' +
+      pad2ProSign(d.getDate()) +
+      ' ' +
+      pad2ProSign(d.getHours()) +
+      ':' +
+      pad2ProSign(d.getMinutes())
+    );
+  }
+
+  function proSignLineDisplay(mergeItem, lineResult) {
+    var d = (lineResult && lineResult.display) || {};
+    var row = (mergeItem && mergeItem.row) || {};
+    var oi = mergeItem && mergeItem.orderId;
+    var oop = mergeItem && mergeItem.operationId;
+    var stv = getRowValueForColumn(row, 'StepCode');
+    if (stv == null || stv === '') stv = oop;
+    var qNum = null;
+    if (d.quantity != null) {
+      var pq =
+        typeof d.quantity === 'number'
+          ? d.quantity
+          : parseFloat(String(d.quantity).replace(/,/g, ''));
+      if (Number.isFinite(pq)) qNum = pq;
+    }
+    if (qNum == null) qNum = proSignQuantityFromRow(row);
+    if (qNum == null) qNum = 0;
+    var stepCodeDisp =
+      d.setupCode != null && String(d.setupCode).trim() !== ''
+        ? String(d.setupCode)
+        : stv != null && stv !== ''
+          ? String(stv)
+          : '—';
+    var stepNameDisp =
+      d.setupName != null && String(d.setupName).trim() !== ''
+        ? String(d.setupName)
+        : (function () {
+            var a = getRowValueForColumn(row, 'StepName');
+            if (a != null && a !== '') return String(a);
+            a = getRowValueForColumn(row, 'SetupName');
+            if (a != null && a !== '') return String(a);
+            a = getRowValueForColumn(row, 'operationName');
+            if (a != null && a !== '') return String(a);
+            return '—';
+          })();
+    var rawLastCode =
+      d.lastStepCode != null && String(d.lastStepCode).trim() !== ''
+        ? String(d.lastStepCode).trim()
+        : '';
+    if (!rawLastCode) {
+      var lc = getRowValueForColumn(row, 'LastStepCode');
+      if (lc != null && lc !== '') rawLastCode = String(lc).trim();
+    }
+    var rawLastName =
+      d.lastStepName != null && String(d.lastStepName).trim() !== ''
+        ? String(d.lastStepName).trim()
+        : '';
+    if (!rawLastName) {
+      var ln = getRowValueForColumn(row, 'LastStepName');
+      if (ln != null && ln !== '') rawLastName = String(ln).trim();
+    }
+    var rawLastTime =
+      d.lastStepTime != null && String(d.lastStepTime).trim() !== ''
+        ? String(d.lastStepTime).trim()
+        : '';
+    if (!rawLastTime) {
+      var lt = getRowValueForColumn(row, 'LastStepTime');
+      if (lt != null && lt !== '') rawLastTime = String(lt).trim();
+    }
+    var lastIso = null;
+    if (rawLastTime) {
+      var dt = new Date(rawLastTime);
+      if (!Number.isNaN(dt.getTime())) lastIso = dt.toISOString();
+    }
+    var lastTimeLabel = '—';
+    if (lastIso) lastTimeLabel = formatProSignZhDateMinute(new Date(lastIso));
+    else if (rawLastTime) lastTimeLabel = rawLastTime;
+    var rawPc = '';
+    if (d.pc != null && String(d.pc).trim() !== '') {
+      rawPc = String(d.pc).trim();
+    } else {
+      var PC_COLS = ['PC', 'Pc', '批次', 'BatchNo', 'batchNo', 'Batch', 'Lot', 'LotNo'];
+      for (var pci = 0; pci < PC_COLS.length; pci += 1) {
+        var pcv = getRowValueForColumn(row, PC_COLS[pci]);
+        if (pcv != null && String(pcv).trim() !== '') {
+          rawPc = String(pcv).trim();
+          break;
+        }
+      }
+    }
+    var itemNameDisp = '—';
+    if (d.itemName != null && String(d.itemName).trim() !== '') {
+      itemNameDisp = String(d.itemName).trim();
+    } else {
+      var INM_COLS = [
+        'ItemName',
+        '物料名称',
+        '产品名称',
+        'MaterialName',
+        'materialName',
+        'ProductName',
+        'ItemDesc',
+      ];
+      for (var ini = 0; ini < INM_COLS.length; ini += 1) {
+        var inv = getRowValueForColumn(row, INM_COLS[ini]);
+        if (inv != null && String(inv).trim() !== '') {
+          itemNameDisp = String(inv).trim();
+          break;
+        }
+      }
+    }
+    return {
+      baseEntry:
+        d.baseEntry != null && String(d.baseEntry).trim() !== ''
+          ? String(d.baseEntry)
+          : (function () {
+              var b = getRowValueForColumn(row, 'BaseEntry');
+              if (b != null && b !== '') return String(b);
+              if (oi != null && oi !== '') return String(oi);
+              return '—';
+            })(),
+      stepCode: stepCodeDisp,
+      stepName: stepNameDisp,
+      quantity: qNum,
+      lastStepCode: rawLastCode || '—',
+      lastStepName: rawLastName || '—',
+      lastStepTimeLabel: lastTimeLabel,
+      lastStepTimeIso: lastIso,
+      pc: rawPc,
+      itemName: itemNameDisp,
+    };
+  }
+
+  function goProSignReceive(mergeItems, lineResults) {
+    if (!mergeItems || !mergeItems.length) return;
+    if (!el.proSignReceive || !el.proSignReceiveScroll) return;
+    state.proSignReceiveMerge = mergeItems;
+    state.proSignReceiveLineResults = lineResults && lineResults.length ? lineResults : null;
+    state.proSignReceiveMergeButtonLabel = proSignMergeButtonLabel();
+    state.viewName = 'pro-sign-receive';
+    applyUI();
+    window.scrollTo(0, 0);
+    renderProSignReceive();
+  }
+
+  /**
+   * 接单页操作员：原生多选列表 +「仅本人」快捷；列表内直接点选多行。
+   */
+  function initProSignReceiveOperatorsPicker(picker) {
+    if (!picker) return;
+    var listEl = picker.querySelector('[data-pro-op-list]');
+    var search = picker.querySelector('[data-pro-op-search]');
+    var summary = picker.querySelector('[data-pro-op-summary]');
+    if (!listEl || listEl.tagName !== 'SELECT' || !summary) return;
+    var uc = (state.username || '').trim();
+    var ucLower = uc.toLowerCase();
+
+    function selectedCount() {
+      var n = 0;
+      var opts = listEl.options;
+      for (var i = 0; i < opts.length; i += 1) {
+        if (opts[i].selected && !opts[i].disabled && String(opts[i].value).trim()) n += 1;
+      }
+      return n;
+    }
+
+    function updateSummary() {
+      var parts = [];
+      var maxShow = 5;
+      var opts = listEl.options;
+      for (var i = 0; i < opts.length && parts.length < maxShow; i += 1) {
+        var o = opts[i];
+        if (!o.selected || o.disabled || !String(o.value).trim()) continue;
+        parts.push(o.value);
+      }
+      var c = selectedCount();
+      if (!c) {
+        summary.textContent = '未勾选人员；保存时将默认使用当前登录账号';
+        return;
+      }
+      var extra = c > maxShow ? '…' : '';
+      summary.textContent =
+        '已选 ' + c + ' 人：' + parts.join('、') + extra + (c > maxShow ? '（共 ' + c + ' 人）' : '');
+    }
+
+    function ensureLoginSelectedIfNone() {
+      if (!uc) return;
+      if (selectedCount() > 0) return;
+      var opts = listEl.options;
+      for (var j = 0; j < opts.length; j += 1) {
+        if (opts[j].disabled) continue;
+        if (String(opts[j].value).toLowerCase() === ucLower) {
+          opts[j].selected = true;
+          return;
+        }
+      }
+    }
+
+    function showAllOptions() {
+      var opts = listEl.options;
+      for (var i = 0; i < opts.length; i += 1) {
+        opts[i].hidden = false;
+      }
+    }
+
+    function applyFilter() {
+      if (!search) {
+        showAllOptions();
+        return;
+      }
+      var q = (search.value ? String(search.value) : '').trim().toLowerCase();
+      var opts = listEl.options;
+      for (var i = 0; i < opts.length; i += 1) {
+        var o = opts[i];
+        if (o.disabled || !String(o.value).trim()) {
+          o.hidden = false;
+          continue;
+        }
+        var code = String(o.value).toLowerCase();
+        var t = (o.getAttribute('data-op-search-text') || '').toLowerCase();
+        var match = !q || code.indexOf(q) >= 0 || t.indexOf(q) >= 0;
+        o.hidden = !match;
+      }
+    }
+
+    function selectLoginOnly() {
+      var opts = listEl.options;
+      for (var j = 0; j < opts.length; j += 1) {
+        var o = opts[j];
+        if (o.disabled || !String(o.value).trim()) {
+          o.selected = false;
+          continue;
+        }
+        o.selected = String(o.value).toLowerCase() === ucLower;
+      }
+      if (uc) ensureLoginSelectedIfNone();
+      updateSummary();
+    }
+
+    function syncListSize() {
+      var n = 0;
+      var opts = listEl.options;
+      for (var i = 0; i < opts.length; i += 1) {
+        if (!opts[i].disabled && String(opts[i].value).trim()) n += 1;
+      }
+      listEl.size = Math.min(Math.max(n, 3), 7);
+    }
+
+    function buildRows(ops) {
+      listEl.innerHTML = '';
+      var seen = {};
+      var list = [];
+      for (var a = 0; a < (ops || []).length; a += 1) {
+        list.push(ops[a]);
+      }
+      if (uc) {
+        var hasUc = false;
+        for (var b = 0; b < list.length; b += 1) {
+          var oc = list[b] && list[b].code != null ? String(list[b].code).trim() : '';
+          if (oc.toLowerCase() === ucLower) hasUc = true;
+        }
+        if (!hasUc) {
+          list.unshift({ code: uc, name: '', unlisted: true });
+        }
+      }
+      var added = 0;
+      for (var j = 0; j < list.length; j += 1) {
+        var op = list[j];
+        if (!op || op.code == null) continue;
+        var c = String(op.code).trim();
+        if (!c || seen[c]) continue;
+        seen[c] = true;
+        var nm = op.name != null && String(op.name).trim() !== '' ? String(op.name).trim() : '';
+        var opt = document.createElement('option');
+        opt.value = c;
+        opt.setAttribute('data-op-search-text', (nm ? c + ' ' + nm : c).toLowerCase());
+        if (op.unlisted) opt.textContent = c + '（未在目录）';
+        else opt.textContent = nm ? c + ' — ' + nm : c;
+        listEl.appendChild(opt);
+        added += 1;
+      }
+      if (!added) {
+        var ph = document.createElement('option');
+        ph.value = '';
+        ph.disabled = true;
+        ph.textContent = '暂无人员数据（保存时将使用当前登录账号）';
+        listEl.appendChild(ph);
+        listEl.size = 4;
+      } else {
+        syncListSize();
+        var opts2 = listEl.options;
+        for (var k = 0; k < opts2.length; k += 1) {
+          if (opts2[k].disabled) continue;
+          if (String(opts2[k].value).toLowerCase() === ucLower) opts2[k].selected = true;
+        }
+        ensureLoginSelectedIfNone();
+        showAllOptions();
+      }
+      updateSummary();
+    }
+
+    var btnSelf = picker.querySelector('[data-pro-op-only-self]');
+    if (btnSelf) btnSelf.addEventListener('click', selectLoginOnly);
+    if (search) {
+      search.addEventListener('input', applyFilter);
+      search.addEventListener('search', applyFilter);
+    }
+    listEl.addEventListener('change', updateSummary);
+
+    summary.textContent = '正在加载人员列表…';
+    apiFetch('/pro-sign/online-sign-operators')
+      .then(function (data) {
+        var ops = (data && data.operators) || [];
+        buildRows(ops);
+      })
+      .catch(function () {
+        buildRows([]);
+      });
+  }
+
+  function getProSignReceiveOperatorCodesFromPicker() {
+    var root = el.proSignReceiveScroll && el.proSignReceiveScroll.querySelector('[data-pro-operators-root]');
+    if (!root) return [];
+    var sel = root.querySelector('[data-pro-op-list]');
+    if (!sel || sel.tagName !== 'SELECT') return [];
+    var out = [];
+    var opts = sel.options;
+    for (var i = 0; i < opts.length; i += 1) {
+      var o = opts[i];
+      if (!o.selected || o.disabled) continue;
+      var v = String(o.value).trim();
+      if (v) out.push(v);
+    }
+    return out;
+  }
+
+  function renderProSignReceive() {
+    var cont = el.proSignReceiveScroll;
+    if (!cont) return;
+    clearProSignReceiveClock();
+    cont.innerHTML = '';
+    var mergeItems = state.proSignReceiveMerge || [];
+    if (!mergeItems.length) return;
+    var lineRes = state.proSignReceiveLineResults || [];
+    var first0 = proSignLineDisplay(mergeItems[0], lineRes[0] || null);
+
+    var cardH = document.createElement('div');
+    cardH.className = 'card pro-sign-receive-block';
+    var meta = document.createElement('div');
+    meta.className = 'pro-sign-receive-header-meta';
+    function addReadonlyRow(lbl, val) {
+      var w = document.createElement('div');
+      w.className = 'pro-sign-receive-meta-row';
+      var sl = document.createElement('span');
+      sl.className = 'pro-sign-receive-meta-label';
+      sl.textContent = lbl;
+      var sv = document.createElement('span');
+      sv.className = 'pro-sign-receive-meta-value';
+      sv.textContent = val == null || val === '' ? '—' : String(val);
+      w.appendChild(sl);
+      w.appendChild(sv);
+      meta.appendChild(w);
+    }
+    addReadonlyRow('工序编码', first0.stepCode);
+    addReadonlyRow('工序名称', first0.stepName);
+    (function () {
+      var w = document.createElement('div');
+      w.className = 'pro-sign-receive-meta-row';
+      var sl = document.createElement('span');
+      sl.className = 'pro-sign-receive-meta-label';
+      sl.textContent = '当前时间';
+      var sv = document.createElement('span');
+      sv.className = 'pro-sign-receive-meta-value';
+      sv.setAttribute('data-pro-clock', '1');
+      sv.textContent = formatProSignZhDateMinute(new Date());
+      w.appendChild(sl);
+      w.appendChild(sv);
+      meta.appendChild(w);
+    })();
+    cardH.appendChild(meta);
+
+    var opField = document.createElement('div');
+    opField.className = 'field pro-sign-receive-operators-field';
+    var opLabSpan = document.createElement('span');
+    opLabSpan.textContent = '当前操作员';
+    opField.appendChild(opLabSpan);
+    var picker = document.createElement('div');
+    picker.className = 'pro-sign-receive-operators-picker';
+    picker.setAttribute('data-pro-operators-root', '1');
+    var opHead = document.createElement('div');
+    opHead.className = 'pro-sign-receive-operators-head';
+    var opSummary = document.createElement('div');
+    opSummary.className = 'pro-sign-receive-operators-summary';
+    opSummary.setAttribute('data-pro-op-summary', '1');
+    opSummary.textContent = '正在加载人员列表…';
+    var btnSelfOnly = document.createElement('button');
+    btnSelfOnly.type = 'button';
+    btnSelfOnly.className = 'pro-sign-receive-operators-action pro-sign-receive-operators-action--compact';
+    btnSelfOnly.textContent = '仅本人';
+    btnSelfOnly.setAttribute('data-pro-op-only-self', '1');
+    btnSelfOnly.setAttribute('aria-label', '仅选中当前登录账号');
+    opHead.appendChild(opSummary);
+    opHead.appendChild(btnSelfOnly);
+    var opListWrap = document.createElement('div');
+    opListWrap.className = 'pro-sign-receive-operators-list-wrap';
+    var opSelect = document.createElement('select');
+    opSelect.className = 'pro-sign-receive-operators-select';
+    opSelect.multiple = true;
+    opSelect.size = 5;
+    opSelect.setAttribute('data-pro-op-list', '1');
+    opSelect.setAttribute('aria-label', '操作员列表，可多选');
+    opSelect.title = '点击选项切换选中；电脑端可按住 Ctrl 再点多选。';
+    opListWrap.appendChild(opSelect);
+    picker.appendChild(opHead);
+    picker.appendChild(opListWrap);
+    opField.appendChild(picker);
+    cardH.appendChild(opField);
+    initProSignReceiveOperatorsPicker(picker);
+
+    cont.appendChild(cardH);
+
+    var cardChild = document.createElement('div');
+    cardChild.className = 'card pro-sign-receive-block pro-sign-receive-block--sub';
+    var scroll = document.createElement('div');
+    scroll.className = 'pro-sign-receive-child-scroll pro-sign-receive-child-scroll--cards';
+    var cardsWrap = document.createElement('div');
+    cardsWrap.className = 'pro-sign-receive-line-cards';
+    function appendCardRow(card, labelText, valueNode) {
+      var rowEl = document.createElement('div');
+      rowEl.className = 'pro-sign-receive-line-card__row';
+      var labEl = document.createElement('span');
+      labEl.className = 'pro-sign-receive-line-card__label';
+      labEl.textContent = labelText;
+      var valEl = document.createElement('div');
+      valEl.className = 'pro-sign-receive-line-card__value';
+      if (typeof valueNode === 'string') {
+        valEl.textContent = valueNode;
+      } else {
+        valEl.appendChild(valueNode);
+      }
+      rowEl.appendChild(labEl);
+      rowEl.appendChild(valEl);
+      card.appendChild(rowEl);
+    }
+    mergeItems.forEach(function (item, idx) {
+      var lr = (lineRes[idx] != null ? lineRes[idx] : null) || null;
+      var dline = proSignLineDisplay(item, lr);
+      var card = document.createElement('article');
+      card.className = 'pro-sign-receive-line-card';
+      card.setAttribute('data-pro-line-card-idx', String(idx));
+      var title = document.createElement('div');
+      title.className = 'pro-sign-receive-line-card__title';
+      title.textContent = '第 ' + (idx + 1) + ' 条 · 工单 ' + dline.baseEntry;
+      card.appendChild(title);
+      var batchDisp =
+        dline.pc != null && String(dline.pc).trim() !== '' ? String(dline.pc).trim() : '—';
+      appendCardRow(card, '批次', batchDisp);
+      appendCardRow(card, '物料名称', dline.itemName);
+      appendCardRow(card, '上道工序编码', dline.lastStepCode);
+      appendCardRow(card, '上道工序名称', dline.lastStepName);
+      appendCardRow(card, '上道工序时间', dline.lastStepTimeLabel);
+      var inQty = document.createElement('input');
+      inQty.type = 'number';
+      inQty.step = 'any';
+      inQty.className = 'pro-sign-line-qty pro-sign-receive-line-qty';
+      inQty.setAttribute('data-pro-line-idx', String(idx));
+      inQty.setAttribute('aria-label', '数量');
+      inQty.value = String(
+        dline.quantity != null && Number.isFinite(dline.quantity) ? dline.quantity : 0
+      );
+      inQty.min = '0';
+      appendCardRow(card, '数量', inQty);
+      cardsWrap.appendChild(card);
+    });
+    scroll.appendChild(cardsWrap);
+    cardChild.appendChild(scroll);
+    cont.appendChild(cardChild);
+
+    if (el.proSignReceiveBtnSave) {
+      el.proSignReceiveBtnSave.disabled = false;
+      el.proSignReceiveBtnSave.textContent =
+        state.proSignReceiveMergeButtonLabel || '保存';
+    }
+
+    function tickClock() {
+      if (state.viewName !== 'pro-sign-receive' || !cont) return;
+      var sp = cont.querySelector('[data-pro-clock]');
+      if (sp) sp.textContent = formatProSignZhDateMinute(new Date());
+    }
+    state.proSignReceiveClockTimer = setInterval(tickClock, 1000);
+  }
+
+  /**
+   * 合并接单保存：收集请求体（不含 signAt，确认保存时再写入当前时刻）。
+   */
+  function collectProSignOnlineSaveRequest() {
+    if (state.viewName !== 'pro-sign-receive') {
+      return { ok: false };
+    }
+    var mergeItems = state.proSignReceiveMerge;
+    if (!mergeItems || !mergeItems.length) {
+      return { ok: false };
+    }
+    var remarks = '';
+    var operatorCodes = getProSignReceiveOperatorCodesFromPicker();
+    var lrHead = (state.proSignReceiveLineResults && state.proSignReceiveLineResults[0]) || null;
+    var headDisp = proSignLineDisplay(mergeItems[0], lrHead);
+    var stepCode = headDisp.stepCode === '—' ? null : String(headDisp.stepCode);
+    var stepName = headDisp.stepName === '—' ? null : String(headDisp.stepName);
+    var lineRes = state.proSignReceiveLineResults || [];
+    var lines = [];
+    for (var i = 0; i < mergeItems.length; i += 1) {
+      var it = mergeItems[i];
+      var row = it.row || {};
+      var be = Math.trunc(Number(it.orderId));
+      if (!Number.isFinite(be)) {
+        return {
+          ok: false,
+          errorMessage: '第' + (i + 1) + ' 行 BaseEntry 无效，请检查列表中 DocEntry 列',
+        };
+      }
+      var lr = (lineRes[i] != null ? lineRes[i] : null) || null;
+      var dline = proSignLineDisplay(it, lr);
+      var inp = el.proSignReceiveScroll
+        ? el.proSignReceiveScroll.querySelector('[data-pro-line-idx="' + i + '"]')
+        : null;
+      var qv = inp && 'value' in inp ? parseFloat(String(inp.value).replace(/,/g, '')) : 0;
+      if (!Number.isFinite(qv)) qv = 0;
+      var pcVal =
+        dline.pc != null && String(dline.pc).trim() !== '' ? String(dline.pc).trim() : '';
+      var lsc = dline.lastStepCode === '—' ? null : String(dline.lastStepCode).trim();
+      var lsn = dline.lastStepName === '—' ? null : String(dline.lastStepName).trim();
+      var isn = dline.itemName === '—' ? null : String(dline.itemName).trim();
+      lines.push({
+        baseEntry: be,
+        quantity: qv,
+        lastStepCode: lsc || null,
+        lastStepName: lsn || null,
+        lastStepTime: dline.lastStepTimeIso,
+        pc: pcVal || null,
+        itemName: isn || null,
+      });
+    }
+    return {
+      ok: true,
+      body: {
+        remarks: remarks,
+        stepCode: stepCode,
+        stepName: stepName,
+        operatorCodes: operatorCodes,
+        lines: lines,
+      },
+    };
+  }
+
+  function onProSignReceiveSaveClick() {
+    var collected = collectProSignOnlineSaveRequest();
+    if (!collected.ok) {
+      if (collected.errorMessage) showToast(collected.errorMessage);
+      return;
+    }
+    openProSignOnlineSavePreview(collected.body);
+  }
+
+  function proSignPreviewLastStepTimeLabel(iso) {
+    if (!iso) return '—';
+    var dt = new Date(iso);
+    if (Number.isNaN(dt.getTime())) return '—';
+    return formatProSignZhDateMinute(dt);
+  }
+
+  function openProSignOnlineSavePreview(body) {
+    if (!el.reportOverlay || !el.reportOverlayBody) return;
+    state.proSignSavePreviewOpen = true;
+    if (el.proSignReceiveBtnSave) el.proSignReceiveBtnSave.disabled = true;
+    el.reportOverlayTitle.textContent = '保存前确认';
+    el.reportOverlayBody.innerHTML = '';
+
+    var root = document.createElement('div');
+    root.className = 'pro-sign-save-preview';
+
+    var secHead = document.createElement('div');
+    secHead.className = 'pro-sign-save-preview-section';
+    var hHead = document.createElement('h3');
+    hHead.className = 'pro-sign-save-preview-title';
+    hHead.textContent = 'X_ONLINE_SIGN';
+    secHead.appendChild(hHead);
+
+    var tblH = document.createElement('table');
+    tblH.className = 'report-detail-transpose';
+    var tbH = document.createElement('tbody');
+    function addPreviewRow(label, val) {
+      var tr = document.createElement('tr');
+      var th = document.createElement('th');
+      th.scope = 'row';
+      th.textContent = label;
+      var td = document.createElement('td');
+      td.textContent = val == null || val === '' ? '—' : String(val);
+      tr.appendChild(th);
+      tr.appendChild(td);
+      tbH.appendChild(tr);
+    }
+    addPreviewRow('工序编码', body.stepCode != null ? body.stepCode : '—');
+    addPreviewRow('工序名称', body.stepName != null ? body.stepName : '—');
+    addPreviewRow('当前时间 SignAt', '保存时自动记录为提交时刻');
+    var opDisp =
+      body.operatorCodes && body.operatorCodes.length
+        ? body.operatorCodes.join('、')
+        : '未勾选（将默认当前登录账号）';
+    addPreviewRow('操作员 OperatorCodes', opDisp);
+    tblH.appendChild(tbH);
+    secHead.appendChild(tblH);
+    root.appendChild(secHead);
+
+    var secLines = document.createElement('div');
+    secLines.className = 'pro-sign-save-preview-section';
+
+    var scrollWrap = document.createElement('div');
+    scrollWrap.className = 'pro-sign-save-preview-lines-scroll pro-sign-save-preview-lines-scroll--cards';
+    var prevCards = document.createElement('div');
+    prevCards.className = 'pro-sign-save-preview-line-cards';
+    function previewCardRow(card, lbl, txt) {
+      var rowEl = document.createElement('div');
+      rowEl.className = 'pro-sign-save-preview-line-card__row';
+      var l = document.createElement('span');
+      l.className = 'pro-sign-save-preview-line-card__label';
+      l.textContent = lbl;
+      var v = document.createElement('span');
+      v.className = 'pro-sign-save-preview-line-card__value';
+      v.textContent = txt == null || txt === '' ? '—' : String(txt);
+      rowEl.appendChild(l);
+      rowEl.appendChild(v);
+      card.appendChild(rowEl);
+    }
+    body.lines.forEach(function (ln, idx) {
+      var card = document.createElement('article');
+      card.className = 'pro-sign-save-preview-line-card';
+      var tit = document.createElement('div');
+      tit.className = 'pro-sign-save-preview-line-card__title';
+      tit.textContent = '第 ' + (idx + 1) + ' 条 · 工单 ' + String(ln.baseEntry);
+      card.appendChild(tit);
+      previewCardRow(
+        card,
+        '批次',
+        ln.pc != null && String(ln.pc).trim() !== '' ? String(ln.pc).trim() : '—'
+      );
+      previewCardRow(
+        card,
+        '物料名称',
+        ln.itemName != null && String(ln.itemName).trim() !== '' ? String(ln.itemName).trim() : '—'
+      );
+      previewCardRow(card, '上道工序编码', ln.lastStepCode != null ? String(ln.lastStepCode) : '—');
+      previewCardRow(card, '上道工序名称', ln.lastStepName != null ? String(ln.lastStepName) : '—');
+      previewCardRow(card, '上道工序时间', proSignPreviewLastStepTimeLabel(ln.lastStepTime));
+      previewCardRow(
+        card,
+        '数量',
+        ln.quantity != null && Number.isFinite(Number(ln.quantity)) ? String(ln.quantity) : '0'
+      );
+      prevCards.appendChild(card);
+    });
+    scrollWrap.appendChild(prevCards);
+    secLines.appendChild(scrollWrap);
+    root.appendChild(secLines);
+
+    var btnRow = document.createElement('div');
+    btnRow.className = 'btn-row pro-sign-save-preview-actions';
+
+    var btnCancel = document.createElement('button');
+    btnCancel.type = 'button';
+    btnCancel.className = 'btn-secondary';
+    btnCancel.textContent = '取消';
+    btnCancel.addEventListener('click', closeReportOverlay);
+
+    var btnConfirm = document.createElement('button');
+    btnConfirm.type = 'button';
+    btnConfirm.className = 'btn-primary';
+    btnConfirm.textContent = '确认';
+
+    btnConfirm.addEventListener('click', function () {
+      if (state.proSignSavePosting) return;
+      btnConfirm.disabled = true;
+      btnCancel.disabled = true;
+      btnConfirm.textContent = '保存中…';
+      state.proSignSavePosting = true;
+      var payload = Object.assign({}, body, { signAt: new Date().toISOString() });
+      apiFetch('/pro-sign/online-sign-save', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+        .then(function (data) {
+          state.proSignSavePosting = false;
+          if (!state.proSignReceiveMerge) {
+            var msgLeft = '保存已完成';
+            if (data && data.docEntry != null) msgLeft += '，单号 ' + data.docEntry;
+            showToast(msgLeft);
+            closeReportOverlay();
+            return;
+          }
+          var msg = '已保存';
+          if (data && data.docEntry != null) msg += '，单号 ' + data.docEntry;
+          showToast(msg);
+          closeReportOverlay();
+          proSignAfterSaveAndReturn();
+        })
+        .catch(function (e) {
+          state.proSignSavePosting = false;
+          showToast(e.message || '保存失败');
+          btnConfirm.disabled = false;
+          btnCancel.disabled = false;
+          btnConfirm.textContent = '确认';
+        });
+    });
+
+    btnRow.appendChild(btnCancel);
+    btnRow.appendChild(btnConfirm);
+    root.appendChild(btnRow);
+
+    el.reportOverlayBody.appendChild(root);
+    armReportOverlayOpenGuard();
+    el.reportOverlay.hidden = false;
   }
 
   function openReportTextOverlay(title, text) {
@@ -973,6 +2205,7 @@
     pre.className = 'report-overlay-text';
     pre.textContent = text;
     el.reportOverlayBody.appendChild(pre);
+    armReportOverlayOpenGuard();
     el.reportOverlay.hidden = false;
   }
 
@@ -1070,56 +2303,21 @@
     } else {
       rows = state.reportServerRows || [];
     }
+    if (state.proSignMode) {
+      state.proSignTableRows = rows || [];
+    }
 
     if (state.reportTotalRowCount === 0 && (!rows || !rows.length)) {
       wrap.innerHTML = '<p class="empty">无数据</p>';
+      if (state.proSignMode) appendProSignMergeListHint(wrap);
       return;
     }
 
     if ((!rows || !rows.length) && state.reportTotalRowCount > 0) {
       wrap.innerHTML = '<p class="empty">当前页无数据</p>';
       appendReportPager(wrap);
+      if (state.proSignMode) appendProSignMergeListHint(wrap);
       return;
-    }
-
-    if (state.proSignMode) {
-      var toolbar = document.createElement('div');
-      toolbar.className = 'pro-sign-toolbar card';
-      var hint = document.createElement('p');
-      hint.className = 'hint';
-      hint.style.marginBottom = '10px';
-      hint.textContent =
-        '勾选一行或多行工序明细，点击「合并报工」进入登记界面。须得到逻辑列 orderId、operationId：可在 SQL 中 AS，或在菜单「列名映射」中从实际列名映过去。';
-      var btnMerge = document.createElement('button');
-      btnMerge.type = 'button';
-      btnMerge.className = 'btn-primary';
-      btnMerge.textContent = '合并报工';
-      bindTap(btnMerge, function () {
-        var selected = [];
-        wrap.querySelectorAll('tbody input.pro-sign-row-cb:checked').forEach(function (cb) {
-          var orderId = cb.dataset.orderId;
-          var opId = cb.dataset.opId;
-          if (!orderId || !opId) return;
-          selected.push({ orderId: Number(orderId), operationId: Number(opId) });
-        });
-        if (selected.length === 0) {
-          showToast('请先勾选至少一行');
-          return;
-        }
-        apiFetch('/pro-sign/batches', {
-          method: 'POST',
-          body: JSON.stringify({ lines: selected }),
-        })
-          .then(function (d) {
-            goWorkRegistration(d.batchId);
-          })
-          .catch(function (e) {
-            showToast(e.message || '创建失败');
-          });
-      });
-      toolbar.appendChild(hint);
-      toolbar.appendChild(btnMerge);
-      wrap.appendChild(toolbar);
     }
 
     var table = document.createElement('table');
@@ -1152,16 +2350,17 @@
     var tbody = document.createElement('tbody');
     var rowDetailOn = state.dynamicReportRowDetail.enabled && !state.proSignMode;
     var keyCol = state.dynamicReportRowDetail.keyColumn;
-    rows.forEach(function (row) {
+    rows.forEach(function (row, rowIdx) {
       var tr = document.createElement('tr');
       if (state.proSignMode) {
+        tr.dataset.proSignRowIndex = String(rowIdx);
         var tdCheck = document.createElement('td');
         tdCheck.className = 'pro-sign-td-check';
         var cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.className = 'pro-sign-row-cb';
-        var oid = getRowValueForColumn(row, 'orderId');
-        var opid = getRowValueForColumn(row, 'operationId');
+        var oid = getRowValueForColumn(row, 'DocEntry');
+        var opid = getRowValueForColumn(row, 'StepCode');
         cb.dataset.orderId = oid != null && oid !== '' ? String(oid) : '';
         cb.dataset.opId = opid != null && opid !== '' ? String(opid) : '';
         cb.addEventListener('click', function (e) {
@@ -1221,6 +2420,7 @@
     scroll.appendChild(table);
     wrap.appendChild(scroll);
     appendReportPager(wrap);
+    if (state.proSignMode) appendProSignMergeListHint(wrap);
     if (wrap.scrollIntoView) {
       requestAnimationFrame(function () {
         wrap.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
@@ -1631,7 +2831,7 @@
       taColumnNameMapping.value = '{}';
     }
     taColumnNameMapping.placeholder =
-      '逻辑列名 -> SQL 列名，例如：{"orderId":"order_id","operationId":"OpId"}，合并报工需 orderId、operationId';
+      '逻辑列名 -> SQL 列名，例如：{"DocEntry":"order_id","StepCode":"OpId"}，合并报工需 DocEntry、StepCode';
     if (isReserved) taColumnNameMapping.disabled = true;
     addField('列名映射 JSON（可选）', taColumnNameMapping);
 
@@ -2034,6 +3234,8 @@
       state.viewName = 'dynamic-report';
       applyUI();
       window.scrollTo(0, 0);
+    } else if (state.viewName === 'pro-sign-receive') {
+      goBackFromProSignReceive();
     } else if (state.viewName === 'work-registration') {
       clearWorkRegTimers();
       goProSignList(
@@ -2125,7 +3327,16 @@
     bindTap(el.reportOverlayClose, closeReportOverlay);
   }
   if (el.reportOverlayBackdrop) {
-    el.reportOverlayBackdrop.addEventListener('click', closeReportOverlay);
+    el.reportOverlayBackdrop.addEventListener('click', function () {
+      if (Date.now() < state.reportOverlayBackdropGuardUntil) return;
+      closeReportOverlay();
+    });
+  }
+  if (el.proSignReceiveBtnSave) {
+    bindTap(el.proSignReceiveBtnSave, onProSignReceiveSaveClick);
+  }
+  if (el.proSignListMergeBtn) {
+    bindTap(el.proSignListMergeBtn, triggerProSignMergeFromList);
   }
 
   function boot() {

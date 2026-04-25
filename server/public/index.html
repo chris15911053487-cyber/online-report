@@ -116,12 +116,12 @@
             </select>
           </label>
           <label class="field">
-            <span>SQL 模板（仅报表；SELECT 或 EXEC 过程；参数用 @名称，与下方 JSON 一致）</span>
+            <span>SQL 模板（仅报表；SELECT 或 EXEC；条件参数 @名称 与下方 JSON 一致；另可用会话变量 @_loginUser、@_loginDisplayName 表示当前登录用户编码与显示名，勿写入 JSON）</span>
             <textarea name="queryTemplate" rows="4" placeholder="留空（内置）"></textarea>
           </label>
           <label class="field">
             <span>查询条件 JSON（仅报表）</span>
-            <textarea name="filterSchema" rows="3" placeholder='例如：[{"name":"status","label":"状态","type":"string","required":false}]'></textarea>
+            <textarea name="filterSchema" rows="3" placeholder='例如静态下拉：[{"name":"status","label":"状态","type":"string","required":false,"options":[{"name":"进行中","code":"open"}]}]；或 SQL 下拉（二选一）：{"name":"wh","label":"仓库","type":"string","required":false,"optionsSql":"SELECT WhsName AS name, WhsCode AS code FROM dbo.OWHS ORDER BY WhsCode"}（结果须两列：第1列显示名、第2列 code；optionsSql 仅可用 @_loginUser、@_loginDisplayName）。string/int/decimal 可加 "scan":true 显示「扫码」按钮（如订单号 @DocEntry 条件）'></textarea>
           </label>
           <label class="field">
             <span>列表列标题映射 JSON（仅报表，可选；英文列名 -&gt; 中文表头）</span>
@@ -168,6 +168,18 @@
         <div id="dynamic-report-form-wrap" class="card"></div>
         <p class="err" id="dynamic-report-err" hidden></p>
         <div id="dynamic-report-table-wrap" class="owor-table-panel"></div>
+        <div id="pro-sign-list-sticky" class="pro-sign-list-sticky" hidden>
+          <button type="button" class="btn-primary pro-sign-list-sticky__btn" id="pro-sign-list-merge-btn">
+            合并报工
+          </button>
+        </div>
+      </section>
+
+      <section id="view-pro-sign-receive" class="view view--pro-sign-receive" hidden>
+        <div id="pro-sign-receive-scroll" class="pro-sign-receive pro-sign-receive--scroll" aria-label="合并报工接单"></div>
+        <div id="pro-sign-receive-sticky" class="pro-sign-receive-sticky" hidden>
+          <button type="button" class="btn-primary pro-sign-receive-sticky__btn" id="pro-sign-receive-btn-save">保存</button>
+        </div>
       </section>
 
       <section id="view-work-registration" class="view" hidden>

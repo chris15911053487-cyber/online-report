@@ -6,6 +6,7 @@ const {
   parseFilterSchemaJson,
   parseColumnNameMappingJson,
   applyColumnNameMapping,
+  buildReportSessionInject,
   executeReportQuery,
 } = require('../report-query');
 
@@ -28,7 +29,14 @@ WHERE (@orderNo IS NULL OR LTRIM(RTRIM(ISNULL(@orderNo, N''))) = N'' OR po.order
 ORDER BY po.id DESC, oo.seq_no`;
 
 const DEFAULT_FILTER_SCHEMA = [
-  { name: 'orderNo', label: '订单号', type: 'string', required: false, maxLength: 64 },
+  {
+    name: 'orderNo',
+    label: '订单号',
+    type: 'string',
+    required: false,
+    maxLength: 64,
+    scan: true,
+  },
 ];
 
 function parseRolesJson(s) {
@@ -46,6 +54,314 @@ function toBigIntId(v) {
   const n = typeof v === 'bigint' ? Number(v) : Number(v);
   if (!Number.isFinite(n)) return null;
   return BigInt(Math.trunc(n));
+}
+
+/** 将 mssql 行序列化为可 JSON 返回的纯对象 */
+function jsonSafeMssqlRow(row) {
+  if (row == null || typeof row !== 'object') return row;
+  const o = {};
+  for (const k of Object.keys(row)) {
+    let v = row[k];
+    if (v != null && typeof v === 'object' && v instanceof Date) {
+      o[k] = v.toISOString();
+    } else if (typeof v === 'bigint') {
+      o[k] = v.toString();
+    } else {
+      o[k] = v;
+    }
+  }
+  return o;
+}
+
+/** 多结果集 -> 可 JSON 的二维数组 */
+function serializeMssqlRecordsets(rs) {
+  const sets = Array.isArray(rs.recordsets) && rs.recordsets.length
+    ? rs.recordsets
+    : rs.recordset
+      ? [rs.recordset]
+      : [[]];
+  return sets.map((set) => (set || []).map((row) => jsonSafeMssqlRow(row)));
+}
+
+/**
+ * 从 Z_ONLINE_TOOWORSIGN_DETAIL 首行取接单页展示字段；列名不区分大小写，可含中文别名列。
+ * 业务工单用 BaseEntry（或工单号 等），不含表主键列 DocEntry。数量见 TOOWOR_QUANTITY_NAMES。缺省用 null 由前端回退。
+ */
+function valueToDisplayString(v) {
+  if (v == null) return null;
+  if (typeof v === 'bigint') return v.toString();
+  if (typeof v === 'object' && v instanceof Date) {
+    return v.toISOString();
+  }
+  const s = String(v).trim();
+  return s.length ? s : null;
+}
+
+function valueToNumberOrNull(v) {
+  if (v == null || v === '') return null;
+  if (typeof v === 'bigint') {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+  if (typeof v === 'object' && v instanceof Date) return null;
+  if (typeof v === 'number' && !Number.isNaN(v) && Number.isFinite(v)) return v;
+  const t = String(v).replace(/,/g, '').trim();
+  if (!t.length) return null;
+  const n = parseFloat(t);
+  return Number.isFinite(n) ? n : null;
+}
+
+/* BaseEntry/工单名：用 BaseEntry 或业务别名列，不含 DocEntry（X_ONLINE_SIGN 单头主键，由 IDENTITY 生成，勿与业务工单混用） */
+const TOOWOR_DISPLAY_PICKS = {
+  baseEntry: ['baseentry', '工单号', 'workorderid', 'woid'],
+  setupCode: ['setupcode', '工序编码', 'opid', 'stepcode'],
+  setupName: ['setupname', '工序名称', 'opname', 'processname', 'stepname'],
+  itemName: ['itemname', '物料名称', '产品名称', '产品名', 'productname', 'materialname', 'matname'],
+};
+
+const TOOWOR_LAST_STEP = {
+  lastStepCode: ['laststepcode', '上道工序编码', 'lastopcode', 'prevstepcode'],
+  lastStepName: ['laststepname', '上道工序名称', 'lastopname', 'prevstepname'],
+  lastStepTime: ['laststeptime', '上道工序时间', 'lastoptime', 'prevsteptime'],
+};
+
+/** 预检首行：PC / 批次（列名不区分大小写） */
+const TOOWOR_PC = ['pc', '批次', 'batchno', 'batch', 'batchcode', 'lot', 'lotno', 'charg', 'chargenr'];
+
+/** 预检首行数量列：Quantity 及常见别名（列名不区分大小写） */
+const TOOWOR_QUANTITY_NAMES = [
+  'quantity',
+  'qty',
+  '数量',
+  'planqty',
+  'plannedqty',
+  'planned_qty',
+  'goodqty',
+  'good_qty',
+  'reportqty',
+  'reportedqty',
+];
+
+function pickTooworQuantityFromRow(row, lowerKeyMap) {
+  if (!row || !lowerKeyMap) return null;
+  for (const name of TOOWOR_QUANTITY_NAMES) {
+    const lk = name.toLowerCase().trim();
+    if (Object.prototype.hasOwnProperty.call(lowerKeyMap, lk)) {
+      const n = valueToNumberOrNull(row[lowerKeyMap[lk]]);
+      if (n != null) return n;
+    }
+  }
+  return null;
+}
+
+function buildLowerKeyMap(row) {
+  const o = {};
+  for (const k of Object.keys(row)) {
+    o[k.toLowerCase().trim()] = k;
+  }
+  return o;
+}
+
+function pickTooworFieldFromRow(row, lowerKeyMap, candidates) {
+  if (!row) return null;
+  for (const name of candidates) {
+    const lk = name.toLowerCase();
+    if (Object.prototype.hasOwnProperty.call(lowerKeyMap, lk)) {
+      const v = valueToDisplayString(row[lowerKeyMap[lk]]);
+      if (v != null) return v;
+    }
+  }
+  for (const name of candidates) {
+    if (Object.prototype.hasOwnProperty.call(row, name)) {
+      const v = valueToDisplayString(row[name]);
+      if (v != null) return v;
+    }
+  }
+  return null;
+}
+
+function parseTooworDisplayFromRow(row) {
+  if (!row || typeof row !== 'object') {
+    return {
+      baseEntry: null,
+      setupCode: null,
+      setupName: null,
+      itemName: null,
+      quantity: null,
+      lastStepCode: null,
+      lastStepName: null,
+      lastStepTime: null,
+      pc: null,
+    };
+  }
+  const lower = buildLowerKeyMap(row);
+  return {
+    baseEntry: pickTooworFieldFromRow(row, lower, TOOWOR_DISPLAY_PICKS.baseEntry),
+    setupCode: pickTooworFieldFromRow(row, lower, TOOWOR_DISPLAY_PICKS.setupCode),
+    setupName: pickTooworFieldFromRow(row, lower, TOOWOR_DISPLAY_PICKS.setupName),
+    itemName: pickTooworFieldFromRow(row, lower, TOOWOR_DISPLAY_PICKS.itemName),
+    quantity: pickTooworQuantityFromRow(row, lower),
+    lastStepCode: pickTooworFieldFromRow(row, lower, TOOWOR_LAST_STEP.lastStepCode),
+    lastStepName: pickTooworFieldFromRow(row, lower, TOOWOR_LAST_STEP.lastStepName),
+    lastStepTime: pickTooworFieldFromRow(row, lower, TOOWOR_LAST_STEP.lastStepTime),
+    pc: pickTooworFieldFromRow(row, lower, TOOWOR_PC),
+  };
+}
+
+function parseSignAtFromBody(body) {
+  const raw = body && body.signAt;
+  if (raw == null || raw === '') return new Date();
+  const d = new Date(String(raw));
+  return Number.isNaN(d.getTime()) ? new Date() : d;
+}
+
+function normalizeOperatorCodesForDb(body, userCode) {
+  let arr = body && body.operatorCodes;
+  if (!Array.isArray(arr)) arr = [];
+  arr = arr.map((x) => String(x).trim()).filter((s) => s.length);
+  const uc = String(userCode || '').trim();
+  if (!arr.length && uc) arr = [uc];
+  const joined = [...new Set(arr)].join(',');
+  return joined.length ? joined.slice(0, 500) : null;
+}
+
+function parseOptionalLineDateTime(v) {
+  if (v == null || v === '') return null;
+  if (v instanceof Date && !Number.isNaN(v.getTime())) return v;
+  const d = new Date(String(v));
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * 从 mssql 查询结果中解析 DocEntry（多结果集时取含行的集合；列名不区分大小写）
+ */
+function pickDocEntryFromMssqlResult(result) {
+  if (!result) return null;
+  const sets = result.recordsets && result.recordsets.length
+    ? result.recordsets
+    : result.recordset && result.recordset.length
+      ? [result.recordset]
+      : [];
+  for (let s = sets.length - 1; s >= 0; s -= 1) {
+    const arr = sets[s];
+    if (!arr || !arr.length) continue;
+    for (const row of arr) {
+      if (!row || typeof row !== 'object') continue;
+      for (const k of Object.keys(row)) {
+        if (k && k.toLowerCase() === 'docentry' && row[k] != null) {
+          const n = Math.trunc(Number(row[k]));
+          if (Number.isInteger(n) && n >= 1) return n;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/** 是否存在 X_ONLINE_SIGN，及 DocEntry 是否为 IDENTITY */
+async function getXOnlineSignHeaderMode(pool) {
+  const r = await pool.request().query(`
+    SELECT
+      CASE WHEN OBJECT_ID(N'dbo.X_ONLINE_SIGN', N'U') IS NULL THEN 0 ELSE 1 END AS hasTable,
+      CASE
+        WHEN OBJECT_ID(N'dbo.X_ONLINE_SIGN', N'U') IS NULL THEN NULL
+        ELSE CAST(COLUMNPROPERTY(OBJECT_ID(N'dbo.X_ONLINE_SIGN', N'U'), N'DocEntry', N'IsIdentity') AS INT)
+      END AS IsIdentity
+  `);
+  const row = r.recordset[0] || {};
+  if (!row.hasTable) {
+    return { hasTable: false, isIdentity: false };
+  }
+  return { hasTable: true, isIdentity: Number(row.IsIdentity) === 1 };
+}
+
+/**
+ * 插入 X_ONLINE_SIGN 一行并返回 DocEntry：IDENTITY 用 SCOPE_IDENTITY()；非 IDENTITY 用并发安全 MAX+1（表锁）
+ * @param {{ hasTable: boolean, isIdentity: boolean }} mode 由 getXOnlineSignHeaderMode 预先查询
+ */
+async function insertXOnlineSignHeaderAndGetDocEntry(transaction, header, mode) {
+  const rem =
+    header && header.remarks != null && String(header.remarks).trim() !== ''
+      ? String(header.remarks).trim().slice(0, 500)
+      : null;
+  const stepCode =
+    header && header.stepCode != null && String(header.stepCode).trim() !== ''
+      ? String(header.stepCode).trim().slice(0, 100)
+      : null;
+  const stepName =
+    header && header.stepName != null && String(header.stepName).trim() !== ''
+      ? String(header.stepName).trim().slice(0, 200)
+      : null;
+  const signAt = header && header.signAt instanceof Date ? header.signAt : new Date();
+  const operatorCodes =
+    header && header.operatorCodes != null && String(header.operatorCodes).trim() !== ''
+      ? String(header.operatorCodes).trim().slice(0, 500)
+      : null;
+  if (!mode || !mode.hasTable) {
+    const e = new Error('X_ONLINE_SIGN missing');
+    e.code = 'ONLINE_SIGN_NO_TABLE';
+    throw e;
+  }
+  if (mode.isIdentity) {
+    const out = await new sql.Request(transaction)
+      .input('remarks', sql.NVarChar(500), rem)
+      .input('stepCode', sql.NVarChar(100), stepCode)
+      .input('stepName', sql.NVarChar(200), stepName)
+      .input('signAt', sql.DateTime2, signAt)
+      .input('operatorCodes', sql.NVarChar(500), operatorCodes)
+      .query(
+        `INSERT INTO dbo.X_ONLINE_SIGN (Remarks, StepCode, StepName, SignAt, OperatorCodes)
+         VALUES (@remarks, @stepCode, @stepName, @signAt, @operatorCodes);
+         SELECT CAST(SCOPE_IDENTITY() AS INT) AS DocEntry;`
+      );
+    let de = pickDocEntryFromMssqlResult(out);
+    if (de == null) {
+      const sc = await new sql.Request(transaction).query(
+        `SELECT CAST(SCOPE_IDENTITY() AS INT) AS DocEntry;`
+      );
+      de = pickDocEntryFromMssqlResult(sc);
+    }
+    if (de == null) {
+      const idc = await new sql.Request(transaction).query(
+        `SELECT CAST(IDENT_CURRENT('dbo.X_ONLINE_SIGN') AS INT) AS DocEntry;`
+      );
+      de = pickDocEntryFromMssqlResult(idc);
+    }
+    if (de == null) {
+      const last = await new sql.Request(transaction).query(
+        `SELECT TOP 1 DocEntry FROM dbo.X_ONLINE_SIGN WITH (UPDLOCK, HOLDLOCK) ORDER BY DocEntry DESC;`
+      );
+      de = pickDocEntryFromMssqlResult(last);
+    }
+    if (de == null || de < 1) {
+      const e = new Error('Scope identity null');
+      e.code = 'ONLINE_SIGN_NO_ID';
+      throw e;
+    }
+    return de;
+  }
+  const nextR = await new sql.Request(transaction).query(
+    `SELECT ISNULL(MAX(DocEntry), 0) + 1 AS NextD FROM dbo.X_ONLINE_SIGN WITH (TABLOCKX, HOLDLOCK);`
+  );
+  const raw = nextR.recordset[0] && nextR.recordset[0].NextD;
+  const de = raw != null ? Math.trunc(Number(raw)) : NaN;
+  if (!Number.isInteger(de) || de < 1) {
+    const e = new Error('max DocEntry null');
+    e.code = 'ONLINE_SIGN_NO_ID';
+    throw e;
+  }
+  await new sql.Request(transaction)
+    .input('d', sql.Int, de)
+    .input('remarks', sql.NVarChar(500), rem)
+    .input('stepCode', sql.NVarChar(100), stepCode)
+    .input('stepName', sql.NVarChar(200), stepName)
+    .input('signAt', sql.DateTime2, signAt)
+    .input('operatorCodes', sql.NVarChar(500), operatorCodes)
+    .query(
+      `INSERT INTO dbo.X_ONLINE_SIGN (DocEntry, Remarks, StepCode, StepName, SignAt, OperatorCodes)
+       VALUES (@d, @remarks, @stepCode, @stepName, @signAt, @operatorCodes);`
+    );
+  return de;
 }
 
 function displayWorkingSeconds(row) {
@@ -148,6 +464,7 @@ async function proSignRoutes(fastify) {
           sqlTemplate: template,
           schemaFields,
           params,
+          sessionInject: buildReportSessionInject(request.user),
           page,
           pageSize,
         });
@@ -168,7 +485,11 @@ async function proSignRoutes(fastify) {
         if (code === 'REPORT_BAD_PAGING') {
           return reply.code(400).send({ error: err.message, code });
         }
-        if (code === 'REPORT_PARAM_REQUIRED' || code === 'REPORT_PARAM_INVALID') {
+        if (
+          code === 'REPORT_PARAM_REQUIRED' ||
+          code === 'REPORT_PARAM_INVALID' ||
+          code === 'REPORT_OPTIONS_SQL_BAD_RESULT'
+        ) {
           return reply.code(400).send({ error: err.message, code });
         }
         if (code === 'REPORT_QUERY_TIMEOUT') {
@@ -180,6 +501,278 @@ async function proSignRoutes(fastify) {
           code: 'REPORT_EXEC_ERROR',
           detail: err.message || String(err),
         });
+      }
+    }
+  );
+
+  /**
+   * 合并报工前：按行调用 SAP/业务库存储过程 Z_ONLINE_TOOWORSIGN_DETAIL
+   * 首列值为 0 时视为失败，并返回 msg；否则通过预检。
+   * 成功时从首行解析 display：BaseEntry/工单名（非 DocEntry 主键）与 Setup*、ItemName、数量；数量仅列名
+   * Quantity 匹配。中文别名列如工单号、工序编码 等。完整 recordsets 随 lineResults 一并返回。
+   */
+  fastify.post(
+    '/pro-sign/toowor-sign-detail',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const userCode = String(request.user.username || '').trim();
+      if (!userCode) {
+        return reply.code(401).send({ error: '无效登录', code: 'UNAUTHORIZED' });
+      }
+      const { lines } = request.body || {};
+      if (!Array.isArray(lines) || lines.length === 0) {
+        return reply.code(400).send({ error: '请至少选择一行明细', code: 'PRO_SIGN_LINES_EMPTY' });
+      }
+      if (lines.length > MAX_BATCH_LINES) {
+        return reply.code(400).send({ error: `明细行不能超过 ${MAX_BATCH_LINES} 条`, code: 'PRO_SIGN_TOO_MANY' });
+      }
+
+      const pool = await getPool();
+      const lineResults = [];
+      for (let i = 0; i < lines.length; i += 1) {
+        const line = lines[i] || {};
+        const docEntry = String(line.docEntry != null ? line.docEntry : line.DocEntry != null ? line.DocEntry : '').trim();
+        const stepCode = String(
+          line.stepCode != null ? line.stepCode : line.StepCode != null ? line.StepCode : line.setupCode != null
+            ? line.setupCode
+            : line.SetupCode != null
+              ? line.SetupCode
+              : ''
+        ).trim();
+        if (!docEntry || !stepCode) {
+          return reply.code(400).send({
+            error: '每行须包含 docEntry 与 stepCode',
+            code: 'TOOWOR_BAD_LINE',
+          });
+        }
+        let rs;
+        try {
+          rs = await pool
+            .request()
+            .input('UserCode', sql.NVarChar(50), userCode.slice(0, 50))
+            .input('DocEntry', sql.NVarChar(50), docEntry.slice(0, 50))
+            .input('SetupCode', sql.NVarChar(50), stepCode.slice(0, 50))
+            .query('EXEC dbo.Z_ONLINE_TOOWORSIGN_DETAIL @UserCode, @DocEntry, @SetupCode');
+        } catch (e) {
+          request.log.error({ e }, 'Z_ONLINE_TOOWORSIGN_DETAIL');
+          return reply.code(500).send({
+            error: '合并报工预检执行失败，请确认已部署存储过程 Z_ONLINE_TOOWORSIGN_DETAIL',
+            code: 'TOOWOR_EXEC_ERROR',
+            detail: e.message || String(e),
+          });
+        }
+        const row0 = rs.recordset && rs.recordset[0];
+        if (!row0) {
+          return reply.code(400).send({
+            error: '存储过程未返回数据',
+            code: 'TOOWOR_NO_RESULT',
+            docEntry,
+            stepCode,
+          });
+        }
+        const firstVal = Object.values(row0)[0];
+        const isProcFailure =
+          firstVal === 0 ||
+          firstVal === 0n ||
+          (typeof firstVal === 'string' && firstVal.trim() === '0') ||
+          (typeof firstVal === 'number' && !Number.isNaN(firstVal) && firstVal === 0);
+        if (isProcFailure) {
+          let userMsg;
+          for (const k of Object.keys(row0)) {
+            if (k.toLowerCase() === 'msg' && row0[k] != null) {
+              userMsg = String(row0[k]);
+              break;
+            }
+          }
+          return reply.code(400).send({
+            error: userMsg && userMsg.length ? userMsg : '该明细不可合并报工',
+            code: 'TOOWOR_SIGN_REJECTED',
+            docEntry,
+            stepCode,
+          });
+        }
+        const display = parseTooworDisplayFromRow(row0);
+        const recordsets = serializeMssqlRecordsets(rs);
+        lineResults.push({ docEntry, stepCode, display, recordsets });
+      }
+      return { ok: true, lineResults };
+    }
+  );
+
+  /**
+   * 合并报工接单页：操作员多选数据源（业务库视图 X_ONLINE_VIEW_OHEM）
+   */
+  fastify.get(
+    '/pro-sign/online-sign-operators',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      try {
+        const pool = await getPool();
+        const rs = await pool.request().query(
+          `SELECT LTRIM(RTRIM(CAST(code AS NVARCHAR(100)))) AS code,
+                  LTRIM(RTRIM(CAST(name AS NVARCHAR(200)))) AS name
+           FROM dbo.X_ONLINE_VIEW_OHEM
+           WHERE code IS NOT NULL AND LTRIM(RTRIM(CAST(code AS NVARCHAR(100)))) <> N''
+           ORDER BY code`
+        );
+        const operators = (rs.recordset || []).map((row) => ({
+          code: row.code != null ? String(row.code) : '',
+          name: row.name != null ? String(row.name) : '',
+        }));
+        return { operators };
+      } catch (e) {
+        request.log.warn(e, '[pro-sign] X_ONLINE_VIEW_OHEM 不可用，返回空操作员列表');
+        return { operators: [] };
+      }
+    }
+  );
+
+  /**
+   * 合并报工「接单」保存：X_ONLINE_SIGN 抬头 + X_ONLINE_SIGN1 明细
+   * DocEntry 为 IDENTITY，并发安全。
+   */
+  fastify.post(
+    '/pro-sign/online-sign-save',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const userCode = String(request.user.username || '').trim();
+      if (!userCode) {
+        return reply.code(401).send({ error: '无效登录', code: 'UNAUTHORIZED' });
+      }
+      const body = request.body || {};
+      const { remarks, lines } = body;
+      if (!Array.isArray(lines) || lines.length === 0) {
+        return reply.code(400).send({ error: '请至少选择一行明细', code: 'ONLINE_SIGN_EMPTY' });
+      }
+      if (lines.length > MAX_BATCH_LINES) {
+        return reply.code(400).send({ error: `明细行不能超过 ${MAX_BATCH_LINES} 条`, code: 'ONLINE_SIGN_TOO_MANY' });
+      }
+
+      const rem = remarks != null ? String(remarks).trim().slice(0, 500) : '';
+      const stepCode =
+        body.stepCode != null && String(body.stepCode).trim() !== ''
+          ? String(body.stepCode).trim().slice(0, 100)
+          : null;
+      const stepName =
+        body.stepName != null && String(body.stepName).trim() !== ''
+          ? String(body.stepName).trim().slice(0, 200)
+          : null;
+      const signAt = parseSignAtFromBody(body);
+      const operatorCodesJoined = normalizeOperatorCodesForDb(body, userCode);
+
+      const pool = await getPool();
+      const signMode = await getXOnlineSignHeaderMode(pool);
+      if (!signMode.hasTable) {
+        return reply.code(503).send({
+          error: '表 X_ONLINE_SIGN 未创建。请执行 sql/migrate-x-online-sign.sql 或启动服务以自动建表',
+          code: 'ONLINE_SIGN_NO_TABLE',
+        });
+      }
+      const transaction = new sql.Transaction(pool);
+
+      try {
+        await transaction.begin();
+        let de;
+        try {
+          de = await insertXOnlineSignHeaderAndGetDocEntry(
+            transaction,
+            {
+              remarks: rem,
+              stepCode,
+              stepName,
+              signAt,
+              operatorCodes: operatorCodesJoined,
+            },
+            signMode
+          );
+        } catch (insErr) {
+          await transaction.rollback();
+          if (insErr.code === 'ONLINE_SIGN_NO_ID') {
+            return reply.code(500).send({ error: '未生成 DocEntry', code: 'ONLINE_SIGN_NO_ID' });
+          }
+          if (insErr.code === 'ONLINE_SIGN_NO_TABLE') {
+            return reply.code(503).send({
+              error: '表 X_ONLINE_SIGN 不可用',
+              code: 'ONLINE_SIGN_NO_TABLE',
+            });
+          }
+          throw insErr;
+        }
+        if (!Number.isInteger(de) || de < 1) {
+          await transaction.rollback();
+          return reply.code(500).send({ error: 'DocEntry 无效', code: 'ONLINE_SIGN_BAD_ID' });
+        }
+        let lineId = 0;
+        for (const line of lines) {
+          lineId += 1;
+          const baseEntry =
+            line.baseEntry != null
+              ? Number(line.baseEntry)
+              : line.BaseEntry != null
+                ? Number(line.BaseEntry)
+                : NaN;
+          if (!Number.isInteger(baseEntry)) {
+            await transaction.rollback();
+            return reply.code(400).send({ error: '每行须为有效整数 BaseEntry', code: 'ONLINE_SIGN_BAD_BASE' });
+          }
+          const rawQ = line.quantity != null ? line.quantity : line.Quantity;
+          const qty = rawQ == null || rawQ === '' ? null : Number(rawQ);
+          if (rawQ != null && rawQ !== '' && (typeof qty !== 'number' || !Number.isFinite(qty))) {
+            await transaction.rollback();
+            return reply.code(400).send({ error: '数量无效', code: 'ONLINE_SIGN_BAD_QTY' });
+          }
+          const lastStepCode = String(
+            line.lastStepCode != null ? line.lastStepCode : line.LastStepCode != null ? line.LastStepCode : ''
+          )
+            .trim()
+            .slice(0, 100);
+          const lastStepName = String(
+            line.lastStepName != null ? line.lastStepName : line.LastStepName != null ? line.LastStepName : ''
+          )
+            .trim()
+            .slice(0, 200);
+          const lstRaw =
+            line.lastStepTime != null ? line.lastStepTime : line.LastStepTime != null ? line.LastStepTime : null;
+          const lastStepTime = parseOptionalLineDateTime(lstRaw);
+          const pcRaw = line.pc != null ? line.pc : line.PC != null ? line.PC : '';
+          const pc = String(pcRaw)
+            .trim()
+            .slice(0, 200);
+          const itemNameRaw =
+            line.itemName != null ? line.itemName : line.ItemName != null ? line.ItemName : '';
+          const itemName = String(itemNameRaw)
+            .trim()
+            .slice(0, 500);
+          await new sql.Request(transaction)
+            .input('de', sql.Int, de)
+            .input('lineId', sql.Int, lineId)
+            .input('be', sql.Int, baseEntry)
+            .input('qty', sql.Decimal(19, 2), qty)
+            .input('lsc', sql.NVarChar(100), lastStepCode || null)
+            .input('lsn', sql.NVarChar(200), lastStepName || null)
+            .input('lst', sql.DateTime2, lastStepTime)
+            .input('pc', sql.NVarChar(200), pc || null)
+            .input('itemName', sql.NVarChar(500), itemName || null)
+            .query(
+              `INSERT INTO dbo.X_ONLINE_SIGN1 (DocEntry, LineId, BaseEntry, Quantity, LastStepCode, LastStepName, LastStepTime, PC, ItemName)
+               VALUES (@de, @lineId, @be, @qty, @lsc, @lsn, @lst, @pc, @itemName)`
+            );
+        }
+        await transaction.commit();
+        return { ok: true, docEntry: de, reporterUserCode: userCode };
+      } catch (e) {
+        try {
+          await transaction.rollback();
+        } catch (_) {}
+        request.log.error(e);
+        const msg = e.message || String(e);
+        if (msg.includes('X_ONLINE_SIGN') && (msg.includes('Invalid object name') || msg.includes('对象名'))) {
+          return reply.code(503).send({
+            error: '表 X_ONLINE_SIGN 未创建。请执行 sql/migrate-x-online-sign.sql 或启动服务以自动建表',
+            code: 'ONLINE_SIGN_NO_TABLE',
+          });
+        }
+        return reply.code(500).send({ error: '保存失败', code: 'ONLINE_SIGN_ERR', detail: msg });
       }
     }
   );

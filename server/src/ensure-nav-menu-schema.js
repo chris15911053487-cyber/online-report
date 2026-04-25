@@ -27,6 +27,7 @@ const SQL_COLUMN_NAME_MAPPING_PATH = path.join(
   'sql',
   'migrate-nav-menu-column-name-mapping.sql'
 );
+const SQL_X_ONLINE_SIGN_PATH = path.join(__dirname, '..', 'sql', 'migrate-x-online-sign.sql');
 
 /**
  * 启动时自动执行 migrate-nav-menu-items-only.sql（需账号有建表权限）。
@@ -60,6 +61,8 @@ async function ensureNavMenuSchema(getPool, log) {
     await pool.request().query(sqlColumnLabels);
     const sqlColNameMap = fs.readFileSync(SQL_COLUMN_NAME_MAPPING_PATH, 'utf8');
     await pool.request().query(sqlColNameMap);
+    const sqlXOnlineSign = fs.readFileSync(SQL_X_ONLINE_SIGN_PATH, 'utf8');
+    await pool.request().query(sqlXOnlineSign);
     log?.info?.('[nav_menu_items] 已检查/创建表结构与默认数据（含报表扩展列与 X_ 报工批次表）');
   } catch (err) {
     warn(

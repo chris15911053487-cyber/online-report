@@ -84,6 +84,55 @@ body.has-bottom-nav .main {
   padding-bottom: 72px;
 }
 
+/* 生产报工列表：吸底「合并报工 / 接单 / 完工」与主内容留白（离开该页后 class 移除，不影响其它界面） */
+body.has-pro-sign-list-sticky .main {
+  padding-bottom: calc(76px + env(safe-area-inset-bottom, 0));
+}
+
+#pro-sign-list-sticky[hidden] {
+  display: none !important;
+}
+
+.pro-sign-list-sticky {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 560px;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0));
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  box-shadow: 0 -2px 10px rgba(15, 23, 42, 0.06);
+}
+
+.app-dark .pro-sign-list-sticky {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  box-shadow: 0 -2px 10px rgba(15, 23, 42, 0.06);
+}
+
+.pro-sign-list-sticky__btn {
+  min-width: 200px;
+  min-height: 48px;
+  width: 100%;
+  max-width: 320px;
+}
+
+.pro-sign-merge-hint-bottom {
+  margin-top: 16px;
+  margin-bottom: 8px;
+  text-align: left;
+  line-height: 1.5;
+}
+
 .view {
   animation: fade 0.2s ease;
 }
@@ -469,7 +518,7 @@ body.has-bottom-nav .main {
 .report-overlay {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: 200;
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -657,7 +706,8 @@ body.has-bottom-nav .main {
   margin-bottom: 14px;
 }
 
-.field span {
+/* 仅直接子级：避免 .field 内嵌套列表（如合并报工操作员行）里的 span 被当成标题，导致 flex 列宽塌成一字宽 */
+.field > span {
   display: block;
   font-size: 0.85rem;
   font-weight: 600;
@@ -679,6 +729,84 @@ body.has-bottom-nav .main {
 .field textarea {
   resize: vertical;
   min-height: 72px;
+}
+
+.field-scan-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.field-scan-row input {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.btn-field-scan {
+  flex-shrink: 0;
+  padding: 0 14px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1e40af;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  cursor: pointer;
+  min-height: 48px;
+  touch-action: manipulation;
+  white-space: nowrap;
+}
+
+.btn-field-scan:active {
+  background: #dbeafe;
+}
+
+.scan-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.72);
+  box-sizing: border-box;
+}
+
+.scan-overlay-panel {
+  width: 100%;
+  max-width: 420px;
+  background: #fff;
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+}
+
+.scan-overlay-hint {
+  margin: 0 0 10px;
+  font-size: 0.9rem;
+  color: #475569;
+  text-align: center;
+}
+
+.scan-overlay-video {
+  display: block;
+  width: 100%;
+  max-height: min(52vh, 360px);
+  border-radius: 10px;
+  background: #0f172a;
+  object-fit: cover;
+}
+
+.scan-overlay-actions {
+  margin-top: 14px;
+  display: flex;
+  justify-content: center;
+}
+
+.scan-overlay-close {
+  min-width: 120px;
 }
 
 .btn-primary {
@@ -876,6 +1004,11 @@ body.has-bottom-nav .main {
   display: none !important;
 }
 
+/* 同上：.view--pro-sign-receive 对 section 设置了 display:flex，会压过 hidden，离开接单页后表单仍会叠在目录等页下方 */
+#view-pro-sign-receive[hidden] {
+  display: none !important;
+}
+
 .bottom-nav-item {
   flex: 1;
   display: flex;
@@ -1022,6 +1155,551 @@ body.has-bottom-nav .main {
 .pro-sign-td-check input[type='checkbox'] {
   width: 20px;
   height: 20px;
+}
+
+.pro-sign-merge-lead {
+  margin: 0 0 12px;
+  font-size: 14px;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.pro-sign-merge-scroll {
+  max-height: min(58vh, 480px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-bottom: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.pro-sign-merge-table {
+  min-width: 100%;
+  margin: 0;
+  font-size: 13px;
+}
+
+.pro-sign-merge-table th,
+.pro-sign-merge-table td {
+  white-space: nowrap;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pro-sign-merge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+/* 合并报工·接单：保存区固定于视口底部，滚动时始终贴在屏幕下沿（与 root 四页签互斥不叠显） */
+#view-pro-sign-receive {
+  min-height: min(100dvh, 100%);
+  position: relative;
+}
+
+.view--pro-sign-receive {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+#pro-sign-receive-scroll.pro-sign-receive--scroll,
+.pro-sign-receive.pro-sign-receive--scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* 为 fixed 底栏与刘海安全区留空，避免最后几行与按钮重叠 */
+  padding: 0 0 calc(88px + env(safe-area-inset-bottom, 0));
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* 离开本页时须隐藏，否则 position:fixed 的保存条会盖住其它屏 */
+#pro-sign-receive-sticky[hidden] {
+  display: none !important;
+}
+
+.pro-sign-receive-sticky {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 560px;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  box-sizing: border-box;
+  padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0));
+  background: #f8fafc;
+  border-top: 1px solid #e2e8f0;
+  box-shadow: 0 -2px 10px rgba(15, 23, 42, 0.06);
+}
+
+/* 与 body / 卡片浅色框架一致（app-dark 下主界面仍为浅色，底栏勿再用深色块） */
+.app-dark .pro-sign-receive-sticky {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  box-shadow: 0 -2px 10px rgba(15, 23, 42, 0.06);
+}
+
+.pro-sign-receive-sticky__btn {
+  min-width: 200px;
+  min-height: 48px;
+}
+
+.pro-sign-receive {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pro-sign-line-qty {
+  min-width: 4.5rem;
+  min-height: 40px;
+}
+
+.pro-sign-receive-hint {
+  margin: 0 0 4px;
+}
+
+.pro-sign-receive-header-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: #f1f5f9;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  box-sizing: border-box;
+}
+
+.pro-sign-receive-meta-row {
+  display: grid;
+  grid-template-columns: minmax(6.5rem, 42%) 1fr;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.pro-sign-receive-meta-label {
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.pro-sign-receive-meta-value {
+  color: #0f172a;
+  font-weight: 500;
+  word-break: break-word;
+}
+
+.pro-sign-receive-remarks {
+  margin-top: 0;
+}
+
+.pro-sign-receive-operators-field {
+  margin: 0 0 12px;
+}
+
+/* 与 .field input / 备注框同一套浅色表单主题（主界面 app-dark 下仍为白底卡片） */
+.pro-sign-receive-operators-picker {
+  margin-top: 2px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.pro-sign-receive-operators-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.pro-sign-receive-operators-summary {
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: #64748b;
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.pro-sign-receive-operators-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.pro-sign-receive-operators-search {
+  width: 100%;
+  padding: 12px 14px;
+  font-size: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  color: #0f172a;
+  box-sizing: border-box;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.pro-sign-receive-operators-search::placeholder {
+  color: #94a3b8;
+}
+
+.pro-sign-receive-operators-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.pro-sign-receive-operators-action {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 8px 12px;
+  min-height: 40px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #334155;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pro-sign-receive-operators-action:active {
+  background: #f8fafc;
+}
+
+.pro-sign-receive-operators-action--compact {
+  padding: 6px 12px;
+  min-height: 36px;
+  font-size: 0.82rem;
+  flex-shrink: 0;
+  align-self: flex-start;
+}
+
+.pro-sign-receive-operators-list-wrap {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+
+/* 原生多选列表：由系统绘制选项行，工号姓名整行可读 */
+.pro-sign-receive-operators-select {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 16px;
+  line-height: 1.5;
+  color: #0f172a;
+  background: #fff;
+  border: none;
+  border-radius: 10px;
+  min-height: 7.5rem;
+  max-height: min(32vh, 200px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.pro-sign-receive-operators-select:focus {
+  outline: 2px solid #93c5fd;
+  outline-offset: -2px;
+}
+
+.pro-sign-receive-operators-select option {
+  padding: 6px 4px;
+  border-radius: 4px;
+}
+
+.app-dark .pro-sign-receive-header-meta {
+  background: #f1f5f9;
+}
+
+.app-dark .pro-sign-receive-meta-label {
+  color: #64748b;
+}
+
+.app-dark .pro-sign-receive-meta-value {
+  color: #0f172a;
+}
+
+.pro-sign-receive-block {
+  margin: 0;
+}
+
+.pro-sign-receive-h2,
+.pro-sign-receive-h3 {
+  margin: 0 0 10px;
+  font-size: 1.1rem;
+}
+
+.pro-sign-receive-h3 {
+  font-size: 0.98rem;
+  color: #475569;
+  font-weight: 600;
+}
+
+.pro-sign-receive-form .field {
+  margin-bottom: 0.75rem;
+}
+
+.pro-sign-receive-block--sub .pro-sign-receive-h2,
+.pro-sign-receive-block--proc .pro-sign-receive-h3 {
+  margin-top: 0;
+}
+
+.pro-sign-receive-child-scroll,
+.pro-sign-receive-block--proc {
+  max-width: 100%;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.pro-sign-receive-block--proc {
+  padding: 0;
+}
+
+.pro-sign-receive-block--proc h3,
+.pro-sign-receive-block--proc .pro-sign-receive-h3 {
+  padding: 10px 12px 0;
+  margin: 0;
+  border: none;
+}
+
+.pro-sign-receive-block--proc table {
+  margin: 0;
+  border: none;
+}
+
+.pro-sign-receive-child-table th,
+.pro-sign-receive-proc-table th,
+.pro-sign-receive-child-table td,
+.pro-sign-receive-proc-table td {
+  font-size: 13px;
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 合并接单：明细行 — 移动端卡片 */
+.pro-sign-receive-child-scroll--cards {
+  padding: 0;
+}
+
+.pro-sign-receive-line-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 12px 12px;
+}
+
+.pro-sign-receive-line-card {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  box-shadow: none;
+}
+
+.pro-sign-receive-line-card__title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #0f172a;
+  margin: 0 0 10px;
+  line-height: 1.35;
+}
+
+.pro-sign-receive-line-card__row {
+  display: grid;
+  grid-template-columns: minmax(92px, 36%) 1fr;
+  gap: 8px 12px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 14px;
+}
+
+.pro-sign-receive-line-card__row:last-of-type {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.pro-sign-receive-line-card__label {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.pro-sign-receive-line-card__value {
+  min-width: 0;
+  color: #0f172a;
+  word-break: break-word;
+}
+
+.pro-sign-receive-line-qty {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 8px 10px;
+  font-size: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fff;
+  color: #0f172a;
+}
+
+.pro-sign-receive-btn-primary,
+.pro-sign-receive-sticky__btn {
+  /* 吸底全宽/醒目 */
+  width: 100%;
+  max-width: 400px;
+}
+
+.app-dark .pro-sign-receive-block--proc,
+.app-dark .pro-sign-receive-child-scroll {
+  border-color: #cbd5e1;
+}
+
+/* 合并接单：保存前确认预览（共用 report-overlay） */
+.pro-sign-save-preview-section {
+  margin-bottom: 16px;
+}
+
+.pro-sign-save-preview-section:last-of-type {
+  margin-bottom: 12px;
+}
+
+.pro-sign-save-preview-title {
+  margin: 0 0 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.pro-sign-save-preview-lines-scroll {
+  max-width: 100%;
+  max-height: min(38vh, 280px);
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.pro-sign-save-preview-lines-scroll--cards {
+  max-height: min(52vh, 360px);
+  padding: 0;
+}
+
+.pro-sign-save-preview-line-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px 12px;
+}
+
+.pro-sign-save-preview-line-card {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  font-size: 13px;
+}
+
+.pro-sign-save-preview-line-card__title {
+  font-weight: 600;
+  color: #0f172a;
+  margin: 0 0 8px;
+  line-height: 1.35;
+}
+
+.pro-sign-save-preview-line-card__row {
+  display: grid;
+  grid-template-columns: minmax(88px, 36%) 1fr;
+  gap: 6px 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.pro-sign-save-preview-line-card__row:last-of-type {
+  border-bottom: none;
+}
+
+.pro-sign-save-preview-line-card__label {
+  color: #64748b;
+}
+
+.pro-sign-save-preview-line-card__value {
+  color: #0f172a;
+  word-break: break-word;
+  text-align: right;
+}
+
+.pro-sign-save-preview-table {
+  margin: 0;
+  font-size: 13px;
+}
+
+.pro-sign-save-preview-table th,
+.pro-sign-save-preview-table td {
+  white-space: nowrap;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pro-sign-save-preview-actions {
+  margin-top: 8px;
+  margin-bottom: 0;
+  position: sticky;
+  bottom: 0;
+  padding-top: 8px;
+  background: linear-gradient(to top, #fff 70%, rgba(255, 255, 255, 0));
+}
+
+.app-dark .pro-sign-save-preview-lines-scroll {
+  border-color: #cbd5e1;
+}
+
+.app-dark .pro-sign-save-preview-title {
+  color: #94a3b8;
+}
+
+.app-dark .pro-sign-save-preview-actions {
+  background: linear-gradient(to top, #1e293b 70%, rgba(30, 41, 59, 0));
 }
 
 /* 报工登记页 */

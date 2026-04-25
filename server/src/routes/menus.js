@@ -81,6 +81,18 @@ function filterSchemaFromRow(filterSchemaJson) {
   return p.ok ? p.fields : [];
 }
 
+/** 非管理员菜单接口：不返回 optionsSql 文本，仅标记需走接口拉取下拉项 */
+function sanitizeFilterSchemaForPublic(fields) {
+  if (!Array.isArray(fields)) return fields;
+  return fields.map((f) => {
+    if (!f || typeof f !== 'object' || !f.optionsSql) return f;
+    const next = { ...f };
+    delete next.optionsSql;
+    next.optionsFromSql = true;
+    return next;
+  });
+}
+
 function columnLabelsFromRow(columnLabelsJson) {
   const p = parseColumnLabelsJson(columnLabelsJson != null ? columnLabelsJson : '{}');
   return p.ok ? p.labels : {};
@@ -111,7 +123,10 @@ function rowToPublicItem(row) {
     enabled: !!row.enabled,
     roles: parseRolesJson(row.roles_json),
     menuKind: mk,
-    filterSchema: mk === 'report' ? filterSchemaFromRow(row.filter_schema_json) : [],
+    filterSchema:
+      mk === 'report'
+        ? sanitizeFilterSchemaForPublic(filterSchemaFromRow(row.filter_schema_json))
+        : [],
     columnLabels: mk === 'report' ? columnLabelsFromRow(row.column_labels_json) : {},
     rowDetailEnabled,
     detailKeyColumn: rowDetailEnabled ? dkc : '',
@@ -123,6 +138,7 @@ function rowToAdminItem(row) {
   base.queryTemplate = row.query_template != null ? String(row.query_template) : '';
   const mk = base.menuKind || 'builtin';
   if (mk === 'report') {
+    base.filterSchema = filterSchemaFromRow(row.filter_schema_json);
     base.detailQueryTemplate =
       row.detail_query_template != null ? String(row.detail_query_template) : '';
     base.detailKeyColumn =

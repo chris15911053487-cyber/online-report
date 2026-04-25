@@ -43,6 +43,7 @@ async function main() {
     'sql',
     'migrate-nav-menu-column-name-mapping.sql'
   );
+  const migrateXOnlineSign = path.join(__dirname, '..', 'sql', 'migrate-x-online-sign.sql');
 
   await pool.request().query(fs.readFileSync(schemaPath, 'utf8'));
   await pool.request().query(fs.readFileSync(migrateReportCols, 'utf8'));
@@ -50,6 +51,7 @@ async function main() {
   await pool.request().query(fs.readFileSync(migrateXBatch, 'utf8'));
   await pool.request().query(fs.readFileSync(migrateColumnLabels, 'utf8'));
   await pool.request().query(fs.readFileSync(migrateColumnNameMapping, 'utf8'));
+  await pool.request().query(fs.readFileSync(migrateXOnlineSign, 'utf8'));
   await pool.request().query(fs.readFileSync(seedPath, 'utf8'));
 
   const ord = await pool.request().query(

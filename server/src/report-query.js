@@ -19,6 +19,20 @@ function getReportQueryTimeoutMs() {
   return Math.min(Math.trunc(n), 600000);
 }
 
+/** 下拉 optionsSql 最大行数 */
+function getFilterOptionsSqlMaxRows() {
+  const n = Number(process.env.REPORT_FILTER_OPTIONS_MAX_ROWS ?? 500);
+  if (!Number.isFinite(n) || n < 1) return 500;
+  return Math.min(Math.trunc(n), 5000);
+}
+
+/** 下拉 optionsSql 查询超时（毫秒） */
+function getFilterOptionsSqlTimeoutMs() {
+  const n = Number(process.env.REPORT_FILTER_OPTIONS_TIMEOUT_MS ?? 15000);
+  if (!Number.isFinite(n) || n < 1000) return 15000;
+  return Math.min(Math.trunc(n), 120000);
+}
+
 /** 单页最大条数上限（与 REPORT_MAX_ROWS 取 min） */
 function getReportMaxPageSize() {
   return Math.min(500, getReportMaxRows());
@@ -150,6 +164,367 @@ function extractParamNames(sqlText) {
 }
 
 /**
+ * 提取 SQL 中全部 @参数名（含下划线前缀，用于 optionsSql 白名单校验）。
+ * @param {string} sqlText
+ * @returns {Set<string>}
+ */
+function extractAllSqlParamNames(sqlText) {
+  const set = new Set();
+  const re = /@([a-zA-Z_][a-zA-Z0-9_]*)/g;
+  let m;
+  while ((m = re.exec(String(sqlText || ''))) !== null) {
+    set.add(m[1]);
+  }
+  return set;
+}
+
+/**
+ * 会话注入占位符（SQL 中写 @_xxx，无需出现在 filterSchema；客户端不可改）。
+ * @_loginUser：登录用户编码（JWT username，与 OUSR 用户编码一致）
+ * @_loginDisplayName：显示名（无则与编码相同）
+ */
+const REPORT_SESSION_INJECT_PARAMS = [
+  { key: '_loginUser', maxLen: 128 },
+  { key: '_loginDisplayName', maxLen: 256 },
+];
+
+/** optionsSql 子查询中允许的 @参数（与会话注入一致） */
+const FILTER_OPTIONS_SQL_ALLOWED_PARAMS = new Set(
+  REPORT_SESSION_INJECT_PARAMS.map((p) => p.key)
+);
+
+/**
+ * @param {string} sqlRaw
+ * @param {string} filterParamName filterSchema 中的参数名（用于错误信息）
+ * @returns {{ ok: true, normalized: string } | { ok: false, error: string }}
+ */
+function validateFilterFieldOptionsSql(sqlRaw, filterParamName) {
+  const template = normalizeTemplate(sqlRaw);
+  if (!template) {
+    return { ok: false, error: `参数 ${filterParamName} 的 optionsSql 不能为空` };
+  }
+  const single = validateSingleStatement(template);
+  if (!single.ok) return single;
+  const dyn = validateNoDynamicExec(single.statement);
+  if (!dyn.ok) return dyn;
+  const kind = detectTemplateKind(single.statement);
+  if (kind !== 'select') {
+    return {
+      ok: false,
+      error: `参数 ${filterParamName} 的 optionsSql 仅支持 SELECT（或 WITH…SELECT），不支持 EXEC`,
+    };
+  }
+  const vs = validateSelectTemplate(single.statement);
+  if (!vs.ok) return vs;
+  for (const n of extractAllSqlParamNames(single.statement)) {
+    if (!FILTER_OPTIONS_SQL_ALLOWED_PARAMS.has(n)) {
+      return {
+        ok: false,
+        error: `参数 ${filterParamName} 的 optionsSql 中 @${n} 不可用：仅允许 @_loginUser、@_loginDisplayName`,
+      };
+    }
+  }
+  return { ok: true, normalized: single.statement };
+}
+
+/**
+ * @param {string} sqlText
+ * @param {string} paramName 不含 @
+ */
+function sqlTemplateReferencesParam(sqlText, paramName) {
+  return new RegExp(`@${paramName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(
+    String(sqlText || '')
+  );
+}
+
+/**
+ * @param {import('mssql').Request} request
+ * @param {string} sqlTemplate
+ * @param {{ userCode?: string, displayName?: string } | null | undefined} session
+ */
+function bindReportSessionInjections(request, sqlTemplate, session) {
+  if (!session || typeof session !== 'object') return;
+  const tpl = String(sqlTemplate || '');
+  const userCode =
+    session.userCode != null ? String(session.userCode).trim().slice(0, 128) : '';
+  const displayRaw =
+    session.displayName != null ? String(session.displayName).trim().slice(0, 256) : '';
+  const displayName = displayRaw || userCode;
+
+  for (const { key, maxLen } of REPORT_SESSION_INJECT_PARAMS) {
+    if (!sqlTemplateReferencesParam(tpl, key)) continue;
+    if (key === '_loginUser') {
+      request.input('_loginUser', sql.NVarChar(maxLen), userCode);
+    } else if (key === '_loginDisplayName') {
+      request.input('_loginDisplayName', sql.NVarChar(maxLen), displayName);
+    }
+  }
+}
+
+/**
+ * 从 JWT 用户载荷构造报表会话注入对象（供 executeReport* 使用）。
+ * @param {unknown} user
+ * @returns {{ userCode: string, displayName: string }}
+ */
+function buildReportSessionInject(user) {
+  if (!user || typeof user !== 'object') {
+    return { userCode: '', displayName: '' };
+  }
+  const u = /** @type {{ username?: unknown, displayName?: unknown }} */ (user);
+  const userCode = u.username != null ? String(u.username).trim() : '';
+  const displayName = u.displayName != null ? String(u.displayName).trim() : '';
+  return { userCode, displayName: displayName || userCode };
+}
+
+/**
+ * @param {object} field
+ * @param {unknown} raw
+ */
+function coerceValue(field, raw) {
+  if (raw === undefined || raw === null || raw === '') {
+    return null;
+  }
+  switch (field.type) {
+    case 'string': {
+      let s = String(raw);
+      if (field.maxLength) s = s.slice(0, field.maxLength);
+      return s;
+    }
+    case 'int': {
+      const n = parseInt(String(raw), 10);
+      if (!Number.isFinite(n)) return null;
+      return n;
+    }
+    case 'decimal': {
+      const n = Number(raw);
+      if (!Number.isFinite(n)) return null;
+      return n;
+    }
+    case 'date': {
+      const s = String(raw).trim();
+      if (!s) return null;
+      const d = new Date(s);
+      if (Number.isNaN(d.getTime())) return null;
+      return s.length <= 10 ? s : d.toISOString().slice(0, 10);
+    }
+    case 'datetime': {
+      const s = String(raw).trim();
+      if (!s) return null;
+      const d = new Date(s);
+      if (Number.isNaN(d.getTime())) return null;
+      return d;
+    }
+    case 'bool': {
+      if (typeof raw === 'boolean') return raw;
+      const s = String(raw).toLowerCase();
+      if (s === '1' || s === 'true' || s === 'yes') return true;
+      if (s === '0' || s === 'false' || s === 'no') return false;
+      return null;
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * @param {string} type
+ * @param {unknown} a
+ * @param {unknown} b
+ */
+function valuesEqualForFilterType(type, a, b) {
+  if (a === null || b === null) return a === b;
+  switch (type) {
+    case 'string':
+      return String(a) === String(b);
+    case 'int':
+      return (
+        Number.isFinite(Number(a)) &&
+        Number.isFinite(Number(b)) &&
+        Math.trunc(Number(a)) === Math.trunc(Number(b))
+      );
+    case 'decimal':
+      return Number.isFinite(Number(a)) && Number.isFinite(Number(b)) && Number(a) === Number(b);
+    case 'date':
+      return String(a).slice(0, 10) === String(b).slice(0, 10);
+    case 'datetime': {
+      const da = a instanceof Date ? a : new Date(a);
+      const db = b instanceof Date ? b : new Date(b);
+      return !Number.isNaN(da.getTime()) && !Number.isNaN(db.getTime()) && da.getTime() === db.getTime();
+    }
+    case 'bool':
+      return !!a === !!b;
+    default:
+      return false;
+  }
+}
+
+/**
+ * @param {string} type
+ * @param {unknown} val
+ */
+function fingerprintFilterOptionValue(type, val) {
+  if (val === null) return '\0null';
+  switch (type) {
+    case 'string':
+      return `s:${String(val)}`;
+    case 'int':
+      return `i:${Math.trunc(Number(val))}`;
+    case 'decimal':
+      return `d:${Number(val)}`;
+    case 'date':
+      return `D:${String(val).slice(0, 10)}`;
+    case 'datetime': {
+      const d = val instanceof Date ? val : new Date(val);
+      return `T:${Number.isNaN(d.getTime()) ? 'NaN' : d.getTime()}`;
+    }
+    case 'bool':
+      return `b:${!!val}`;
+    default:
+      return `x:${String(val)}`;
+  }
+}
+
+/**
+ * 下拉项：name 为界面展示，code 为提交给 SQL 绑定的值。
+ * @param {unknown} rawOptions
+ * @param {{ type: string, maxLength?: number }} field
+ * @param {string} paramName
+ * @returns {{ ok: true, options?: { name: string, code: unknown }[] } | { ok: false, error: string }}
+ */
+function parseFilterFieldOptions(rawOptions, field, paramName) {
+  if (rawOptions === undefined || rawOptions === null) {
+    return { ok: true };
+  }
+  if (!Array.isArray(rawOptions)) {
+    return {
+      ok: false,
+      error: `参数 ${paramName} 的 options 须为数组，每项含 name（界面显示）与 code（提交值）`,
+    };
+  }
+  if (rawOptions.length === 0) {
+    return { ok: false, error: `参数 ${paramName} 的 options 须至少包含一项` };
+  }
+  /** @type {{ name: string, code: unknown }[]} */
+  const options = [];
+  const seenFp = new Set();
+  for (let i = 0; i < rawOptions.length; i++) {
+    const item = rawOptions[i];
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return { ok: false, error: `参数 ${paramName} 的 options[${i}] 须为对象` };
+    }
+    const disp = String(item.name != null ? item.name : '').trim();
+    if (!disp) {
+      return { ok: false, error: `参数 ${paramName} 的 options[${i}] 须有非空 name（界面显示）` };
+    }
+    if (!Object.prototype.hasOwnProperty.call(item, 'code')) {
+      return { ok: false, error: `参数 ${paramName} 的 options[${i}] 须有 code（提交给后端的值）` };
+    }
+    const code = item.code;
+    if (code === undefined || code === null || code === '') {
+      return { ok: false, error: `参数 ${paramName} 的 options[${i}] 的 code 不能为空` };
+    }
+    const coerced = coerceValue(field, code);
+    if (coerced === null) {
+      return {
+        ok: false,
+        error: `参数 ${paramName} 的 options[${i}] 的 code 无法按类型 ${field.type} 解析`,
+      };
+    }
+    const fp = fingerprintFilterOptionValue(field.type, coerced);
+    if (seenFp.has(fp)) {
+      return { ok: false, error: `参数 ${paramName} 的 options 中存在重复 code（解析后相同）` };
+    }
+    seenFp.add(fp);
+    options.push({ name: disp.slice(0, 256), code });
+  }
+  return { ok: true, options };
+}
+
+/**
+ * @param {object} field
+ * @param {unknown} val 已 coerce 的非 null 值
+ */
+function isCoercedValueInFilterOptions(field, val) {
+  if (!field.options || field.options.length === 0) return true;
+  for (const opt of field.options) {
+    const c = coerceValue(field, opt.code);
+    if (c !== null && valuesEqualForFilterType(field.type, c, val)) return true;
+  }
+  return false;
+}
+
+/**
+ * 静态 options 与 optionsSql 二选一。
+ * @param {object} raw filterSchema 数组项
+ * @param {{ type: string, maxLength?: number }} field
+ * @param {string} paramName
+ * @returns
+ *   | { ok: true }
+ *   | { ok: true, options: { name: string, code: unknown }[] }
+ *   | { ok: true, optionsSql: string }
+ *   | { ok: false, error: string }
+ */
+function parseFilterFieldOptionsSource(raw, field, paramName) {
+  const sqlTrim = raw.optionsSql != null ? String(raw.optionsSql).trim() : '';
+  const hasSql = sqlTrim !== '';
+  const o = raw.options;
+  if (hasSql) {
+    if (o !== undefined && o !== null && !(Array.isArray(o) && o.length === 0)) {
+      return { ok: false, error: `参数 ${paramName} 不能同时配置 options 与 optionsSql` };
+    }
+    const vs = validateFilterFieldOptionsSql(sqlTrim, paramName);
+    if (!vs.ok) return vs;
+    return { ok: true, optionsSql: vs.normalized };
+  }
+  return parseFilterFieldOptions(raw.options, field, paramName);
+}
+
+/**
+ * 执行 filter 字段的 optionsSql，返回下拉项（第一列为显示名，第二列为 code）。
+ * @param {import('mssql').ConnectionPool} pool
+ * @param {{ name: string, type: string, maxLength?: number, optionsSql: string }} field
+ * @param {{ userCode?: string, displayName?: string } | null | undefined} sessionInject
+ * @returns {Promise<{ name: string, code: unknown }[]>}
+ */
+async function loadFilterFieldOptionsItems(pool, field, sessionInject) {
+  const sqlTemplate = field.optionsSql;
+  const maxRows = getFilterOptionsSqlMaxRows();
+  const timeoutMs = getFilterOptionsSqlTimeoutMs();
+  const req = pool.request();
+  req.timeout = timeoutMs;
+  bindReportSessionInjections(req, sqlTemplate, sessionInject);
+  const wrapped = `SELECT TOP (${maxRows}) * FROM (${sqlTemplate}) AS __opt_sub`;
+  const result = await req.query(wrapped);
+  const rows = result.recordset || [];
+  /** @type {{ name: string, code: unknown }[]} */
+  const items = [];
+  const seenFp = new Set();
+  for (let ri = 0; ri < rows.length; ri++) {
+    const row = rows[ri];
+    if (!row || typeof row !== 'object') continue;
+    const vals = Object.values(row);
+    if (vals.length < 2) {
+      const err = new Error(
+        `参数 ${field.name} 的 optionsSql 结果每行须至少两列（第 1 列显示名，第 2 列 code）`
+      );
+      err.code = 'REPORT_OPTIONS_SQL_BAD_RESULT';
+      throw err;
+    }
+    const nameDisp = String(vals[0] != null ? vals[0] : '').trim();
+    const codeRaw = vals[1];
+    if (!nameDisp) continue;
+    if (codeRaw === undefined || codeRaw === null || codeRaw === '') continue;
+    const coerced = coerceValue(field, codeRaw);
+    if (coerced === null) continue;
+    const fp = fingerprintFilterOptionValue(field.type, coerced);
+    if (seenFp.has(fp)) continue;
+    seenFp.add(fp);
+    items.push({ name: nameDisp.slice(0, 256), code: codeRaw });
+  }
+  return items;
+}
+
+/**
  * @param {string} jsonStr
  * @returns {{ ok: true, fields: object[] } | { ok: false, error: string }}
  */
@@ -186,18 +561,39 @@ function parseFilterSchemaJson(jsonStr) {
     if (!allowedTypes.has(type)) {
       return { ok: false, error: `不支持的条件类型: ${type}` };
     }
-    fields.push({
+    const maxLength =
+      typeof raw.maxLength === 'number' && Number.isFinite(raw.maxLength)
+        ? Math.min(Math.trunc(raw.maxLength), 4000)
+        : type === 'string'
+          ? 4000
+          : undefined;
+    const field = {
       name,
       label: label || name,
       type,
       required: raw.required === true,
-      maxLength:
-        typeof raw.maxLength === 'number' && Number.isFinite(raw.maxLength)
-          ? Math.min(Math.trunc(raw.maxLength), 4000)
-          : type === 'string'
-            ? 4000
-            : undefined,
-    });
+      maxLength,
+    };
+    if (raw.noAllOption === true) {
+      field.noAllOption = true;
+    }
+    if (raw.scan === true) {
+      if (type !== 'string' && type !== 'int' && type !== 'decimal') {
+        return { ok: false, error: `参数 ${name} 的 scan 仅适用于 string / int / decimal` };
+      }
+      field.scan = true;
+    }
+    const optRes = parseFilterFieldOptionsSource(raw, field, name);
+    if (!optRes.ok) {
+      return { ok: false, error: optRes.error };
+    }
+    if (optRes.options) {
+      field.options = optRes.options;
+    }
+    if (optRes.optionsSql) {
+      field.optionsSql = optRes.optionsSql;
+    }
+    fields.push(field);
   }
   return { ok: true, fields };
 }
@@ -535,67 +931,22 @@ function validateReportMenuConfig(cfg) {
 }
 
 /**
- * @param {object} field
- * @param {unknown} raw
- */
-function coerceValue(field, raw) {
-  if (raw === undefined || raw === null || raw === '') {
-    return null;
-  }
-  switch (field.type) {
-    case 'string': {
-      let s = String(raw);
-      if (field.maxLength) s = s.slice(0, field.maxLength);
-      return s;
-    }
-    case 'int': {
-      const n = parseInt(String(raw), 10);
-      if (!Number.isFinite(n)) return null;
-      return n;
-    }
-    case 'decimal': {
-      const n = Number(raw);
-      if (!Number.isFinite(n)) return null;
-      return n;
-    }
-    case 'date': {
-      const s = String(raw).trim();
-      if (!s) return null;
-      const d = new Date(s);
-      if (Number.isNaN(d.getTime())) return null;
-      return s.length <= 10 ? s : d.toISOString().slice(0, 10);
-    }
-    case 'datetime': {
-      const s = String(raw).trim();
-      if (!s) return null;
-      const d = new Date(s);
-      if (Number.isNaN(d.getTime())) return null;
-      return d;
-    }
-    case 'bool': {
-      if (typeof raw === 'boolean') return raw;
-      const s = String(raw).toLowerCase();
-      if (s === '1' || s === 'true' || s === 'yes') return true;
-      if (s === '0' || s === 'false' || s === 'no') return false;
-      return null;
-    }
-    default:
-      return null;
-  }
-}
-
-/**
- * @param {import('mssql').Request} req
- * @param {object} field
- * @param {unknown} value
- */
-/**
  * 校验 filter 参数并绑定到 request（不含分页占位符）。
  * @param {import('mssql').Request} request
+ * @param {import('mssql').ConnectionPool} pool
  * @param {object[]} schemaFields
  * @param {object} body
+ * @param {{ userCode?: string, displayName?: string } | null | undefined} sessionInject
+ * @param {Map<string, { name: string, code: unknown }[]>} dynamicOptsCache
  */
-function bindReportFilterParams(request, schemaFields, body) {
+async function bindReportFilterParams(
+  request,
+  pool,
+  schemaFields,
+  body,
+  sessionInject,
+  dynamicOptsCache
+) {
   const params = body && typeof body === 'object' ? body : {};
   for (const field of schemaFields) {
     const raw = params[field.name];
@@ -610,6 +961,23 @@ function bindReportFilterParams(request, schemaFields, body) {
       val = coerceValue(field, raw);
       if (val === null) {
         const err = new Error(`参数无效: ${field.label || field.name}`);
+        err.code = 'REPORT_PARAM_INVALID';
+        throw err;
+      }
+      if (field.optionsSql) {
+        if (!dynamicOptsCache.has(field.name)) {
+          const loaded = await loadFilterFieldOptionsItems(pool, field, sessionInject);
+          dynamicOptsCache.set(field.name, loaded);
+        }
+        const dynItems = dynamicOptsCache.get(field.name) || [];
+        const tmp = { ...field, options: dynItems, optionsSql: undefined };
+        if (!isCoercedValueInFilterOptions(tmp, val)) {
+          const err = new Error(`参数不在允许范围: ${field.label || field.name}`);
+          err.code = 'REPORT_PARAM_INVALID';
+          throw err;
+        }
+      } else if (!isCoercedValueInFilterOptions(field, val)) {
+        const err = new Error(`参数不在允许范围: ${field.label || field.name}`);
         err.code = 'REPORT_PARAM_INVALID';
         throw err;
       }
@@ -680,6 +1048,7 @@ async function executeReportQuery(pool, opts) {
     sqlTemplate,
     schemaFields,
     params,
+    sessionInject,
     timeoutMs = getReportQueryTimeoutMs(),
     maxRows = getReportMaxRows(),
     page: pageOpt,
@@ -688,12 +1057,21 @@ async function executeReportQuery(pool, opts) {
 
   const body = params && typeof params === 'object' ? params : {};
   const { page, pageSize } = normalizeReportPaging(pageOpt, pageSizeOpt);
+  const dynamicOptsCache = new Map();
 
   try {
     if (templateKind === 'select') {
       const countReq = pool.request();
       countReq.timeout = timeoutMs;
-      bindReportFilterParams(countReq, schemaFields, body);
+      await bindReportFilterParams(
+        countReq,
+        pool,
+        schemaFields,
+        body,
+        sessionInject,
+        dynamicOptsCache
+      );
+      bindReportSessionInjections(countReq, sqlTemplate, sessionInject);
       const countSql = `SELECT COUNT(1) AS __report_cnt FROM (${sqlTemplate}) AS __report_sub`;
       const countResult = await countReq.query(countSql);
       const cntRow = countResult.recordset && countResult.recordset[0];
@@ -712,7 +1090,15 @@ async function executeReportQuery(pool, opts) {
       const offset = (page - 1) * pageSize;
       const dataReq = pool.request();
       dataReq.timeout = timeoutMs;
-      bindReportFilterParams(dataReq, schemaFields, body);
+      await bindReportFilterParams(
+        dataReq,
+        pool,
+        schemaFields,
+        body,
+        sessionInject,
+        dynamicOptsCache
+      );
+      bindReportSessionInjections(dataReq, sqlTemplate, sessionInject);
       dataReq.input('__reportOffset', sql.Int, offset);
       dataReq.input('__reportPageSize', sql.Int, pageSize);
       const dataSql = `SELECT * FROM (${sqlTemplate}) AS __report_sub
@@ -734,7 +1120,15 @@ async function executeReportQuery(pool, opts) {
 
     const request = pool.request();
     request.timeout = timeoutMs;
-    bindReportFilterParams(request, schemaFields, body);
+    await bindReportFilterParams(
+      request,
+      pool,
+      schemaFields,
+      body,
+      sessionInject,
+      dynamicOptsCache
+    );
+    bindReportSessionInjections(request, sqlTemplate, sessionInject);
     const result = await request.query(sqlTemplate);
     let rows =
       result.recordset && result.recordset.length
@@ -761,7 +1155,8 @@ async function executeReportQuery(pool, opts) {
       err &&
       (err.code === 'REPORT_PARAM_REQUIRED' ||
         err.code === 'REPORT_PARAM_INVALID' ||
-        err.code === 'REPORT_BAD_PAGING')
+        err.code === 'REPORT_BAD_PAGING' ||
+        err.code === 'REPORT_OPTIONS_SQL_BAD_RESULT')
     ) {
       throw err;
     }
@@ -792,6 +1187,7 @@ async function executeReportDetailQuery(pool, opts) {
     sqlTemplate,
     schemaFields,
     params,
+    sessionInject,
     detailKeyParam,
     detailKeyRaw,
     detailKeyType,
@@ -824,11 +1220,21 @@ async function executeReportDetailQuery(pool, opts) {
     throw err;
   }
 
+  const dynamicOptsCache = new Map();
+
   try {
     if (templateKind === 'select') {
       const dataReq = pool.request();
       dataReq.timeout = timeoutMs;
-      bindReportFilterParams(dataReq, schemaFields, body);
+      await bindReportFilterParams(
+        dataReq,
+        pool,
+        schemaFields,
+        body,
+        sessionInject,
+        dynamicOptsCache
+      );
+      bindReportSessionInjections(dataReq, sqlTemplate, sessionInject);
       bindInput(dataReq, dkField, val);
       const cap = Math.min(Math.max(1, maxRows), 50000);
       dataReq.input('__reportDetailCap', sql.Int, cap);
@@ -846,7 +1252,15 @@ async function executeReportDetailQuery(pool, opts) {
 
     const request = pool.request();
     request.timeout = timeoutMs;
-    bindReportFilterParams(request, schemaFields, body);
+    await bindReportFilterParams(
+      request,
+      pool,
+      schemaFields,
+      body,
+      sessionInject,
+      dynamicOptsCache
+    );
+    bindReportSessionInjections(request, sqlTemplate, sessionInject);
     bindInput(request, dkField, val);
     const result = await request.query(sqlTemplate);
     let rows =
@@ -866,7 +1280,8 @@ async function executeReportDetailQuery(pool, opts) {
       err &&
       (err.code === 'REPORT_PARAM_REQUIRED' ||
         err.code === 'REPORT_PARAM_INVALID' ||
-        err.code === 'REPORT_DETAIL_KEY_MISSING')
+        err.code === 'REPORT_DETAIL_KEY_MISSING' ||
+        err.code === 'REPORT_OPTIONS_SQL_BAD_RESULT')
     ) {
       throw err;
     }
@@ -890,6 +1305,8 @@ module.exports = {
   getReportMaxRows,
   getReportMaxPageSize,
   getReportQueryTimeoutMs,
+  getFilterOptionsSqlMaxRows,
+  getFilterOptionsSqlTimeoutMs,
   normalizeReportPaging,
   RESERVED_ROUTE_KEYS,
   normalizeTemplate,
@@ -900,6 +1317,8 @@ module.exports = {
   applyColumnNameMapping,
   validateReportMenuConfig,
   extractParamNames,
+  buildReportSessionInject,
+  loadFilterFieldOptionsItems,
   executeReportQuery,
   executeReportDetailQuery,
 };

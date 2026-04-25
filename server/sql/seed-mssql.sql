@@ -30,7 +30,7 @@ BEGIN
     N'生产报工登记', N'pro-sign', N'✍', 12, 1, N'["admin","operator"]',
     N'report',
     @proSignSql,
-    N'[{"name":"orderNo","label":"订单号","type":"string","required":false,"maxLength":64}]',
+    N'[{"name":"orderNo","label":"订单号","type":"string","required":false,"maxLength":64,"scan":true}]',
     NULL, NULL, NULL, N'string'
   );
 END;
