@@ -19,10 +19,34 @@ const ensureNavMenuSchema = require('./ensure-nav-menu-schema');
 const PORT = Number(process.env.PORT || 3000);
 const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';
 
-/** 登录页「安卓下载」指向的 APK；可用 APK_PATH 覆盖完整路径 */
-const ANDROID_APK_PATH =
-  process.env.APK_PATH ||
-  path.join(process.env.APK_SHARE_ROOT || '/root/apk-share', process.env.APK_FILENAME || '手机报工1.0.apk');
+const PUBLIC_ROOT = path.join(__dirname, '..', 'public');
+/** 随代码部署：把 APK 命名为 android-app.apk 放到 public/apk/ 即可 */
+const PUBLIC_APK_BUNDLE = path.join(PUBLIC_ROOT, 'apk', 'android-app.apk');
+
+function getAndroidApkCandidates() {
+  const fromShare = path.join(
+    process.env.APK_SHARE_ROOT || '/root/apk-share',
+    process.env.APK_FILENAME || '手机报工1.0.apk',
+  );
+  const raw = process.env.APK_PATH && String(process.env.APK_PATH).trim();
+  const list = [];
+  if (raw) list.push(path.resolve(raw));
+  list.push(PUBLIC_APK_BUNDLE);
+  list.push(fromShare);
+  return [...new Set(list)];
+}
+
+async function resolveReadableApkFile(candidatePaths) {
+  for (const p of candidatePaths) {
+    try {
+      const st = await fsp.stat(p);
+      if (st.isFile() && st.size > 0) return p;
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
+}
 
 async function build() {
   const fastify = Fastify({ logger: true });
@@ -65,12 +89,13 @@ async function build() {
   fastify.get('/health', async () => ({ ok: true, ts: new Date().toISOString() }));
 
   fastify.get('/download/android-app.apk', async (request, reply) => {
-    try {
-      await fsp.access(ANDROID_APK_PATH, fs.constants.R_OK);
-    } catch {
+    const candidates = getAndroidApkCandidates();
+    const apkPath = await resolveReadableApkFile(candidates);
+    if (!apkPath) {
+      request.log.warn({ candidates }, 'android apk: no readable file (set APK_PATH or place public/apk/android-app.apk)');
       return reply.code(404).type('application/json').send({ error: '安装包暂不可用' });
     }
-    const basename = path.basename(ANDROID_APK_PATH);
+    const basename = path.basename(apkPath);
     const utf8Name = encodeURIComponent(basename);
     return reply
       .header('Content-Type', 'application/vnd.android.package-archive')
@@ -78,7 +103,7 @@ async function build() {
         'Content-Disposition',
         `attachment; filename="android-app.apk"; filename*=UTF-8''${utf8Name}`,
       )
-      .send(fs.createReadStream(ANDROID_APK_PATH));
+      .send(fs.createReadStream(apkPath));
   });
 
   await fastify.register(fastifyStatic, {
