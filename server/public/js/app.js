@@ -237,13 +237,17 @@
     return map[s] || s;
   }
 
-  function showToast(msg) {
+  function showToast(msg, durationMs) {
     el.toast.textContent = msg;
     el.toast.hidden = false;
     clearTimeout(showToast._t);
+    var ms =
+      durationMs != null && Number.isFinite(durationMs) && durationMs > 0
+        ? Math.floor(durationMs)
+        : 2200;
     showToast._t = setTimeout(function () {
       el.toast.hidden = true;
-    }, 2200);
+    }, ms);
   }
 
   function updateTitle() {
@@ -3027,6 +3031,7 @@
 
     // AI Prompt 配置 - 支持自然语言驱动的报表智能分析
     var taAIPrompt = document.createElement('textarea');
+    taAIPrompt.id = 'menu-ai-prompt-' + item.id;
     taAIPrompt.rows = 6;
     taAIPrompt.value = item.aiPrompt || '';
     taAIPrompt.placeholder = 'AI 分析 Prompt 模板（支持占位符：{report_label}、{filters}、{metrics}、{data_sample}）\n\n推荐直接复制 migrate-nav-menu-ai-prompt.sql 中的示例';
@@ -3041,7 +3046,7 @@
       aiGenBtn.style.marginTop = '8px';
       aiGenBtn.textContent = '🤖 AI 生成 Prompt';
       aiGenBtn.addEventListener('click', function () {
-        generateAIPromptWithAI(taAIPrompt, item.label || '');
+        generateAIPromptWithAI(taAIPrompt, item.label || '', item.id);
       });
       var fieldDiv = document.createElement('div');
       fieldDiv.style.marginTop = '8px';
@@ -3568,7 +3573,7 @@
    * AI Prompt 生成器
    * 管理员输入自然语言描述，调用后端生成结构化的 ai_prompt
    */
-  function generateAIPromptWithAI(taAIPrompt, reportLabel) {
+  function generateAIPromptWithAI(taAIPrompt, reportLabel, menuItemId) {
     if (!taAIPrompt) return;
 
     var exampleText =
@@ -3668,22 +3673,31 @@
       }
       close();
 
-      var loadingMsg = '🤖 AI 正在生成专业的 Prompt 模板...';
-      showToast(loadingMsg);
+      var loadingMsg = '🤖 AI 正在生成专业的 Prompt 模板…（约需数十秒）';
+      showToast(loadingMsg, 95000);
 
-      apiFetch('/ai/generate-prompt', {
-        method: 'POST',
-        body: JSON.stringify({
-          description: description,
-          reportType: reportLabel || '通用报表'
-        })
-      })
+      var targetTa =
+        menuItemId != null ? document.getElementById('menu-ai-prompt-' + menuItemId) : null;
+      var fillTa = targetTa && document.body.contains(targetTa) ? targetTa : taAIPrompt;
+
+      apiFetchReport(
+        '/ai/generate-prompt',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            description: description,
+            reportType: reportLabel || '通用报表'
+          })
+        },
+        120000
+      )
         .then(function (data) {
           if (data.success && data.prompt) {
-            taAIPrompt.value = normalizeGeneratedPromptText(data.prompt);
+            var text = normalizeGeneratedPromptText(data.prompt);
+            fillTa.value = text;
             try {
-              taAIPrompt.dispatchEvent(new Event('input', { bubbles: true }));
-              taAIPrompt.dispatchEvent(new Event('change', { bubbles: true }));
+              fillTa.dispatchEvent(new Event('input', { bubbles: true }));
+              fillTa.dispatchEvent(new Event('change', { bubbles: true }));
             } catch (e1) {}
             showToast('✅ AI Prompt 生成成功！已自动填入下方文本框，可直接保存。');
             console.log('[AI Prompt Generator]', data.message || 'Success');
@@ -3693,7 +3707,11 @@
         })
         .catch(function (err) {
           console.error(err);
-          showToast('AI 生成 Prompt 失败：' + (err.message || '网络错误'));
+          var hint = err.message || '网络错误';
+          if (err.name === 'AbortError' || /aborted|超时|timeout/i.test(hint)) {
+            hint = '请求超时（120s）或已中断，请检查网络与 AI 服务后重试';
+          }
+          showToast('AI 生成 Prompt 失败：' + hint);
         });
     });
   }

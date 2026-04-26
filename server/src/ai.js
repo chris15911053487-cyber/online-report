@@ -363,6 +363,26 @@ ${sample}
     return JSON.stringify(sampleRows, null, 2);
   }
 
+  /** 兼容 string / 多段 content 数组（部分供应商返回格式不同） */
+  static extractChatTextContent(message) {
+    if (!message || message.content == null) return '';
+    const c = message.content;
+    if (typeof c === 'string') return c;
+    if (Array.isArray(c)) {
+      return c
+        .map(function (part) {
+          if (typeof part === 'string') return part;
+          if (part && typeof part === 'object') {
+            if (typeof part.text === 'string') return part.text;
+            if (typeof part.content === 'string') return part.content;
+          }
+          return '';
+        })
+        .join('');
+    }
+    return String(c);
+  }
+
   /**
    * Generate high-quality ai_prompt template from natural language description
    * Only used by admin "AI Prompt Generator" feature.
@@ -375,6 +395,15 @@ ${sample}
       return {
         success: false,
         error: '描述内容太短或无效，请输入有意义的业务需求描述'
+      };
+    }
+
+    const configuredKey = this.getConfiguredApiKey();
+    if (!configuredKey) {
+      const hint = this.expectedKeyHint();
+      return {
+        success: false,
+        error: `未检测到 ${hint}。请写入 server/.env 或仓库根目录 .env 后重启服务（当前 AI_PROVIDER=${this.provider}）。`,
       };
     }
 
@@ -413,10 +442,17 @@ ${sample}
         ],
         temperature: 0.3,
         max_tokens: 1200,
-        response_format: { type: 'text' }
       });
 
-      let generatedPrompt = completion.choices[0].message.content.trim();
+      const choice = completion.choices && completion.choices[0];
+      let generatedPrompt = AIService.extractChatTextContent(choice && choice.message).trim();
+
+      if (!generatedPrompt) {
+        return {
+          success: false,
+          error: 'AI 返回内容为空，请重试或检查 AI_DEFAULT_MODEL 是否与当前供应商兼容',
+        };
+      }
 
       // Clean up if model wrapped it in markdown
       if (generatedPrompt.includes('```')) {
@@ -429,6 +465,13 @@ ${sample}
         .replace(/\\r\\n/g, '\n')
         .replace(/\\n/g, '\n')
         .replace(/\\t/g, '\t');
+
+      if (!generatedPrompt) {
+        return {
+          success: false,
+          error: 'AI 返回内容在清洗后为空，请重试',
+        };
+      }
 
       return {
         success: true,
