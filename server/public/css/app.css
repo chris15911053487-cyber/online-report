@@ -814,6 +814,14 @@ body.has-pro-sign-list-sticky .main {
   background: #dbeafe;
 }
 
+.scan-hint {
+  font-size: 0.8rem;
+  color: #64748b;
+  margin-left: 8px;
+  white-space: nowrap;
+  align-self: center;
+}
+
 .scan-overlay {
   position: fixed;
   inset: 0;
@@ -835,11 +843,80 @@ body.has-pro-sign-list-sticky .main {
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
 }
 
+/* 移动端扫码优化：更大取景区域、更友好提示 */
+@media (max-width: 768px) {
+  .scan-overlay {
+    padding: 0;
+  }
+
+  .scan-overlay-panel {
+    max-width: none;
+    height: 100%;
+    border-radius: 0;
+    padding: 20px 16px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .scan-overlay-hint {
+    font-size: 1.1rem;
+    margin-bottom: 16px;
+    text-align: center;
+    font-weight: 500;
+  }
+
+  .scan-overlay-video {
+    flex: 1;
+    max-height: none;
+    border-radius: 12px;
+    margin-bottom: 20px;
+  }
+
+  .scan-overlay-actions {
+    margin-top: auto;
+    padding-bottom: env(safe-area-inset-bottom, 20px);
+  }
+
+  .scan-overlay-close {
+    min-width: 160px;
+    padding: 14px 24px;
+    font-size: 1.05rem;
+  }
+}
+
 .scan-overlay-hint {
   margin: 0 0 10px;
   font-size: 0.9rem;
   color: #475569;
   text-align: center;
+}
+
+.scan-overlay-hint--multiline {
+  white-space: pre-wrap;
+  text-align: left;
+  line-height: 1.5;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.scan-html5-reader {
+  width: 100%;
+  min-height: 200px;
+  border-radius: 10px;
+  background: #0f172a;
+  margin-bottom: 12px;
+}
+
+.scan-overlay-actions-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.scan-overlay-actions-row .btn-primary,
+.scan-overlay-actions-row .btn-secondary {
+  width: 100%;
 }
 
 .scan-overlay-video {

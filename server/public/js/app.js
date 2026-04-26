@@ -421,7 +421,10 @@
     state.viewName = 'dynamic-report';
     state.dynamicReportRouteKey = 'pro-sign';
     state.dynamicReportLabel = (menu && menu.label) || '生产报工';
-    state.dynamicReportAiPrompt = '';
+
+    // 支持 AI 分析 - 与普通报表一致加载 aiPrompt（菜单设置中可通过「🤖 AI 生成 Prompt」配置）
+    state.dynamicReportAiPrompt = menu && menu.aiPrompt != null ? String(menu.aiPrompt).trim() : '';
+
     state.dynamicReportFilterSchema =
       menu && menu.menuKind === 'report' ? menu.filterSchema || [] : [];
     state.dynamicReportRowDetail = { enabled: false, keyColumn: '' };
@@ -804,161 +807,227 @@
     renderDynamicReportForm();
   }
 
+  var HTML5_QR_SCRIPT = 'https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js';
+
+  /** 动态加载 html5-qrcode（支持从相册选图解码，HTTP 也可用；HTTPS 下可开摄像头） */
+  function loadHtml5QrcodeOnce() {
+    if (typeof Html5Qrcode !== 'undefined') {
+      return Promise.resolve();
+    }
+    if (window.__html5QrcodeLoadPromise) {
+      return window.__html5QrcodeLoadPromise;
+    }
+    window.__html5QrcodeLoadPromise = new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = HTML5_QR_SCRIPT;
+      s.async = true;
+      s.crossOrigin = 'anonymous';
+      s.onload = function () {
+        if (typeof Html5Qrcode === 'undefined') {
+          reject(new Error('扫码库加载异常'));
+          return;
+        }
+        resolve();
+      };
+      s.onerror = function () {
+        reject(new Error('无法从网络加载扫码库，请检查网络或改用 HTTPS'));
+      };
+      document.head.appendChild(s);
+    });
+    return window.__html5QrcodeLoadPromise;
+  }
+
+  function canUseLiveCamera() {
+    return !!(
+      window.isSecureContext &&
+      navigator.mediaDevices &&
+      typeof navigator.mediaDevices.getUserMedia === 'function'
+    );
+  }
+
   /**
-   * 报表 / 生产报工筛选：摄像头扫码填入文本框（需 HTTPS 与浏览器支持 BarcodeDetector）。
-   * 不支持时提示使用外接扫码枪（焦点在输入框即可录入）。
+   * 报表 / 生产报工筛选：扫码填入文本框
+   * - HTTP：浏览器禁止网页直接调摄像头；可用「选择照片识别」（本地解码，不上传）
+   * - HTTPS：可选「实时摄像头」或选图；外接扫码枪仍可直接扫入输入框
    */
   function openDynamicReportBarcodeScan(targetInput) {
     if (!targetInput || targetInput.tagName !== 'INPUT') return;
-    if (!('BarcodeDetector' in window)) {
-      showToast('当前环境不支持摄像头扫码，请将焦点放在输入框后用扫码枪或手动输入');
-      try {
-        targetInput.focus();
-      } catch (e) {}
-      return;
-    }
-    var detector;
-    try {
-      detector = new BarcodeDetector({
-        formats: [
-          'aztec',
-          'code_128',
-          'code_39',
-          'code_93',
-          'codabar',
-          'data_matrix',
-          'ean_13',
-          'ean_8',
-          'itf',
-          'pdf417',
-          'qr_code',
-          'upc_a',
-          'upc_e',
-        ],
-      });
-    } catch (e0) {
-      try {
-        detector = new BarcodeDetector();
-      } catch (e1) {
-        showToast('无法启动扫码识别');
-        return;
-      }
-    }
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      showToast('无法打开摄像头，请使用扫码枪或手动输入');
-      try {
-        targetInput.focus();
-      } catch (e2) {}
-      return;
-    }
 
-    var overlay = document.createElement('div');
-    overlay.className = 'scan-overlay';
-    overlay.setAttribute('role', 'dialog');
-    overlay.setAttribute('aria-modal', 'true');
-    var panel = document.createElement('div');
-    panel.className = 'scan-overlay-panel';
-    var hint = document.createElement('p');
-    hint.className = 'scan-overlay-hint';
-    hint.textContent = '将条码 / 二维码对准取景框';
-    var video = document.createElement('video');
-    video.className = 'scan-overlay-video';
-    video.setAttribute('playsinline', '');
-    video.setAttribute('autoplay', '');
-    video.muted = true;
-    var actions = document.createElement('div');
-    actions.className = 'scan-overlay-actions';
-    var btnClose = document.createElement('button');
-    btnClose.type = 'button';
-    btnClose.className = 'btn-secondary scan-overlay-close';
-    btnClose.textContent = '关闭';
-    actions.appendChild(btnClose);
-    panel.appendChild(hint);
-    panel.appendChild(video);
-    panel.appendChild(actions);
-    overlay.appendChild(panel);
-    document.body.appendChild(overlay);
+    loadHtml5QrcodeOnce()
+      .then(function () {
+        var readerId = 'html5-scan-reader-' + String(Date.now());
+        var overlay = document.createElement('div');
+        overlay.className = 'scan-overlay';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
 
-    var stream = null;
-    var rafId = 0;
-    var closed = false;
+        var panel = document.createElement('div');
+        panel.className = 'scan-overlay-panel';
 
-    function cleanup() {
-      if (closed) return;
-      closed = true;
-      if (rafId) cancelAnimationFrame(rafId);
-      rafId = 0;
-      if (stream) {
-        stream.getTracks().forEach(function (t) {
+        var hint = document.createElement('p');
+        hint.className = 'scan-overlay-hint scan-overlay-hint--multiline';
+        if (!window.isSecureContext) {
+          hint.textContent =
+            '当前为 HTTP 访问：浏览器不允许网页直接打开摄像头（与是否安装插件无关）。\n\n' +
+            '请点下方「选择照片识别」：用手机相机拍清条码后，从相册里选这张图即可识别填入（仅在手机本地解码，不上传服务器）。\n\n' +
+            '若需要「一扫即填」，请部署 HTTPS，或使用外接扫码枪对准输入框扫码。';
+        } else {
+          hint.textContent =
+            '可选「实时摄像头」连续识别，或「选择照片识别」从相册选图。\n解码在浏览器本地完成。';
+        }
+
+        var readerDiv = document.createElement('div');
+        readerDiv.id = readerId;
+        readerDiv.className = 'scan-html5-reader';
+
+        var actionsRow = document.createElement('div');
+        actionsRow.className = 'scan-overlay-actions-row';
+
+        var fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = 'image/*';
+        fileInput.hidden = true;
+
+        var html5QrCode = null;
+        var liveStarted = false;
+        var closed = false;
+
+        function shutdownCamera() {
+          if (!liveStarted || !html5QrCode) {
+            return Promise.resolve();
+          }
+          liveStarted = false;
+          return html5QrCode
+            .stop()
+            .catch(function () {})
+            .then(function () {
+              try {
+                html5QrCode.clear();
+              } catch (e0) {}
+            });
+        }
+
+        function removeOverlay() {
+          if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        }
+
+        function cleanup() {
+          if (closed) return;
+          closed = true;
+          shutdownCamera()
+            .catch(function () {})
+            .finally(function () {
+              if (html5QrCode) {
+                try {
+                  html5QrCode.clear();
+                } catch (e1) {}
+              }
+              removeOverlay();
+            });
+        }
+
+        function applyCode(raw) {
+          var s = raw != null ? String(raw).trim() : '';
+          if (!s) return;
+          targetInput.value = s;
           try {
-            t.stop();
-          } catch (e3) {}
+            targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+            targetInput.dispatchEvent(new Event('change', { bubbles: true }));
+          } catch (e2) {}
+          showToast('已扫码');
+          cleanup();
+        }
+
+        var btnFile = document.createElement('button');
+        btnFile.type = 'button';
+        btnFile.className = 'btn-primary';
+        btnFile.textContent = '选择照片识别';
+        bindTap(btnFile, function (ev) {
+          if (ev && ev.preventDefault) ev.preventDefault();
+          fileInput.click();
         });
-        stream = null;
-      }
-      try {
-        video.srcObject = null;
-      } catch (e4) {}
-      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-    }
 
-    function applyCode(raw) {
-      var s = raw != null ? String(raw).trim() : '';
-      if (!s) return;
-      targetInput.value = s;
-      try {
-        targetInput.dispatchEvent(new Event('input', { bubbles: true }));
-        targetInput.dispatchEvent(new Event('change', { bubbles: true }));
-      } catch (e5) {}
-      showToast('已扫码');
-      cleanup();
-    }
+        fileInput.addEventListener('change', function (ev) {
+          var f = ev.target.files && ev.target.files[0];
+          ev.target.value = '';
+          if (!f || closed) return;
+          shutdownCamera()
+            .then(function () {
+              return html5QrCode && html5QrCode.scanFile(f, false);
+            })
+            .then(applyCode)
+            .catch(function () {
+              showToast('未能从照片中识别条码，请换一张更清晰、正对条码的照片', 4500);
+            });
+        });
 
-    function tick() {
-      if (closed) return;
-      if (video.readyState >= 2) {
-        detector
-          .detect(video)
-          .then(function (codes) {
-            if (closed) return;
-            if (codes && codes.length && codes[0].rawValue) {
-              applyCode(codes[0].rawValue);
-              return;
-            }
-            rafId = requestAnimationFrame(tick);
-          })
-          .catch(function () {
-            if (!closed) rafId = requestAnimationFrame(tick);
+        actionsRow.appendChild(btnFile);
+
+        if (canUseLiveCamera()) {
+          var btnCam = document.createElement('button');
+          btnCam.type = 'button';
+          btnCam.className = 'btn-secondary';
+          btnCam.textContent = '实时摄像头';
+          bindTap(btnCam, function (ev) {
+            if (ev && ev.preventDefault) ev.preventDefault();
+            if (closed || liveStarted) return;
+            liveStarted = true;
+            btnCam.disabled = true;
+            var box = Math.min(280, Math.max(200, window.innerWidth - 48));
+            html5QrCode
+              .start(
+                { facingMode: 'environment' },
+                { fps: 8, qrbox: { width: box, height: Math.min(240, box) } },
+                function (decodedText) {
+                  applyCode(decodedText);
+                },
+                function () {}
+              )
+              .catch(function () {
+                liveStarted = false;
+                btnCam.disabled = false;
+                showToast('无法启动摄像头，请改用「选择照片识别」或外接扫码枪', 5000);
+              });
           });
-      } else {
-        rafId = requestAnimationFrame(tick);
-      }
-    }
+          actionsRow.appendChild(btnCam);
+        }
 
-    bindTap(btnClose, cleanup);
-    overlay.addEventListener('click', function (ev) {
-      if (ev.target === overlay) cleanup();
-    });
+        var btnClose = document.createElement('button');
+        btnClose.type = 'button';
+        btnClose.className = 'btn-secondary scan-overlay-close';
+        btnClose.textContent = '关闭';
+        bindTap(btnClose, cleanup);
 
-    navigator.mediaDevices
-      .getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
-      .then(function (s) {
-        if (closed) {
-          s.getTracks().forEach(function (t) {
-            try {
-              t.stop();
-            } catch (e6) {}
-          });
+        var actionsBottom = document.createElement('div');
+        actionsBottom.className = 'scan-overlay-actions';
+        actionsBottom.appendChild(btnClose);
+
+        panel.appendChild(hint);
+        panel.appendChild(readerDiv);
+        panel.appendChild(actionsRow);
+        panel.appendChild(fileInput);
+        panel.appendChild(actionsBottom);
+        overlay.appendChild(panel);
+        document.body.appendChild(overlay);
+
+        try {
+          html5QrCode = new Html5Qrcode(readerId);
+        } catch (eInit) {
+          showToast('无法初始化扫码界面', 4000);
+          removeOverlay();
           return;
         }
-        stream = s;
-        video.srcObject = stream;
-        video.play().catch(function () {});
-        rafId = requestAnimationFrame(tick);
+
+        overlay.addEventListener('click', function (ev) {
+          if (ev.target === overlay) cleanup();
+        });
       })
-      .catch(function () {
-        showToast('无法打开摄像头（请检查权限）');
-        cleanup();
+      .catch(function (err) {
+        showToast((err && err.message) || '无法加载扫码组件', 6000);
+        try {
+          targetInput.focus();
+          targetInput.select();
+        } catch (e3) {}
       });
   }
 
@@ -1036,19 +1105,23 @@
       if (!f.required) {
         input.dataset.optional = '1';
       }
+
       var useScan =
         f.scan === true &&
         (t === 'string' || t === 'int' || t === 'decimal') &&
         input.tagName === 'INPUT' &&
         (input.type === 'text' || input.type === 'number');
+
       if (useScan) {
+        // 只要 schema 配置了 scan: true 就显示扫码按钮（手机端可尝试调用摄像头）
         var scanRow = document.createElement('div');
         scanRow.className = 'field-scan-row';
         var btnScan = document.createElement('button');
         btnScan.type = 'button';
         btnScan.className = 'btn-field-scan';
-        btnScan.setAttribute('aria-label', '摄像头扫码');
-        btnScan.title = '摄像头扫码';
+        btnScan.setAttribute('aria-label', '扫码');
+        btnScan.title =
+          '扫码：HTTP 下请选相册照片识别；HTTPS 可用摄像头。外接扫码枪可直接扫入输入框。';
         btnScan.textContent = '扫码';
         bindTap(btnScan, function (ev) {
           if (ev && ev.preventDefault) ev.preventDefault();
@@ -1075,7 +1148,9 @@
     var actionRow = document.createElement('div');
     actionRow.className = 'report-query-actions';
     actionRow.appendChild(btn);
-    if (!state.proSignMode && String(state.dynamicReportAiPrompt || '').trim() !== '') {
+
+    // 生产报工列表也支持 AI 分析（与普通动态报表一致）
+    if (String(state.dynamicReportAiPrompt || '').trim() !== '') {
       var btnAI = document.createElement('button');
       btnAI.type = 'button';
       btnAI.className = 'btn-secondary';

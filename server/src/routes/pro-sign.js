@@ -380,7 +380,8 @@ async function loadMenuRow(pool, routeKey) {
   const rs = await pool
     .request()
     .input('rk', sql.NVarChar(64), routeKey)
-    .query(`SELECT id, label, route_key, enabled, roles_json, menu_kind, query_template, filter_schema_json,
+    .query(`SELECT id, label, route_key, enabled, roles_json, menu_kind, query_template, filter_schema_json, 
+                   ai_prompt,
                    COALESCE(column_name_mapping_json, N'{}') AS column_name_mapping_json
             FROM dbo.nav_menu_items WHERE route_key = @rk`);
   return rs.recordset && rs.recordset[0];
