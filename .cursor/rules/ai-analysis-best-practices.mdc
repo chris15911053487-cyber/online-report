@@ -1,0 +1,112 @@
+---
+description: Best practices for reusable AI report analysis features, learned from extensive iteration on multi-provider support, prompt engineering, structured output, and error handling in manufacturing report systems.
+alwaysApply: true
+---
+
+# AI Analysis Best Practices (Hard-Won Knowledge)
+
+When implementing AI-powered analysis for reports, dashboards, or data insights (especially in manufacturing, production, or business intelligence projects), follow these patterns to avoid the many pitfalls encountered:
+
+## 1. Multi-Provider AI Client Setup (Critical)
+
+**Always support at least OpenAI + compatible providers (Grok via x.ai, DeepSeek):**
+
+- Use `openai` npm package as base (it's compatible with most).
+- Read from env vars: `AI_PROVIDER`, `OPENAI_API_KEY`, `GROK_API_KEY`, `DEEPSEEK_API_KEY`, `AI_DEFAULT_MODEL`, `AI_TEMPERATURE`, `AI_MAX_TOKENS`, `AI_TIMEOUT_MS`.
+- Implement `trimEnv()` helper to handle whitespace issues (common pitfall).
+- Provide clear error messages with exact env var names expected.
+- Fallback keys (GROK can use OPENAI_API_KEY, etc.).
+- BaseURL configuration per provider.
+
+See `server/src/ai.js` AIService constructor and `createClient()` for reference implementation.
+
+## 2. Structured JSON Output + Robust Parsing (Most Important)
+
+**Never trust raw LLM text. Always force structured output:**
+
+```js
+response_format: { type: 'json_object' }
+```
+
+- Define **strict JSON schema** in system prompt (with examples).
+- Always wrap user prompt with "Reply with valid JSON only, no markdown, no extra text".
+- Implement fallback parser: try `JSON.parse()`, catch and extract key fields or return raw with warning.
+- Common fields for report analysis: `overview`, `keyMetrics[]`, `insights[]`, `anomalies[]`, `recommendations[]`, `suggestedHighlights[]`.
+
+This avoids 90% of "hallucinated formatting" issues.
+
+## 3. Prompt Engineering & Context Management
+
+- **Separate concerns**: Store `ai_prompt` (custom per-report) in DB/config. Merge with default template.
+- Use placeholder replacement: `{report_label}`, `{filters}`, `{metrics}`, `{data_sample}`, `{columns}`.
+- **Critical: Limit context size**. For AI analysis:
+  - Send only **metrics summary + small data sample** (5-30 rows max).
+  - Never send full large datasets (token explosion + cost + quality drop).
+  - Compute simple stats client-side or in prompt builder (`generateMetrics()`).
+- Domain-specific system prompt: "You are a professional [DOMAIN] AI analyst. Provide accurate, actionable, data-driven insights..."
+
+Current default prompt in `getDefaultPrompt()` is battle-tested for manufacturing/production reporting.
+
+## 4. Error Handling & User Experience (The Pits You Stepped On)
+
+Implement comprehensive error handling for:
+
+- Missing/invalid API keys (`MISSING_API_KEY`, 401)
+- Rate limits (429)
+- Timeouts
+- Invalid JSON responses
+- Provider-specific quirks
+
+Return structured error objects with `success: false`, `error`, `fallback` (user-friendly Chinese message), `provider`.
+
+Always log with context (`[AI] ...`).
+
+Provide `expectedKeyHint()` to tell users exactly what env var to set.
+
+## 5. Result Formatting Layer
+
+Separate `generateAnalysis()` (raw AI) from `formatResultForDisplay()` (nice UX with emojis, sections for overview/insights/recommendations).
+
+Make formatter handle both structured JSON and fallback cases.
+
+## 6. Integration Patterns
+
+- **Backend**: Expose `/ai/analyze` endpoint that:
+  - Takes `routeKey` + `params`.
+  - Loads config/prompt from DB or file.
+  - Executes limited query for context.
+  - Builds prompt using `aiService.buildPrompt()`.
+  - Calls `aiService.generateAnalysis()`.
+- **Frontend**: Call the endpoint, display formatted result with loading states, error toasts, retry.
+- Store per-report `ai_prompt` in your menu/config table (see `nav_menu_items` schema migration).
+
+## 7. Reusability Strategy
+
+1. **Extract to NPM package** (`ai-report-analyzer` or `structured-ai-analyzer`):
+   - Make `AIService` take constructor options for custom prompts, data adapters, system messages.
+   - Provide `createAIService(options)` factory.
+   - Export prompt builders, formatters, context generators.
+
+2. **Cursor Rules**: This file itself ensures future agents follow these patterns.
+
+3. **Template Repo**: Create a starter with the full stack (Fastify + React + this AI layer).
+
+## Example Usage
+
+```js
+const { aiService } = require('./ai');
+
+const prompt = aiService.buildPrompt(menuConfig, reportData, filters);
+const result = await aiService.generateAnalysis(prompt);
+
+// In new projects, extend with:
+const customService = new AIService({
+  provider: 'deepseek',
+  systemPrompt: 'Your custom system prompt...',
+  temperature: 0.2
+});
+```
+
+**Key Lesson**: The value is not just the code, but the hardened error paths, prompt patterns, context limiting strategy, and UX formatting that took significant iteration to perfect. Encapsulate and reuse this, don't reinvent.
+
+When implementing similar features, ALWAYS reference this rule and the `AIService` implementation.
