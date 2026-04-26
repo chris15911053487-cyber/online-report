@@ -130,6 +130,7 @@ function rowToPublicItem(row) {
     columnLabels: mk === 'report' ? columnLabelsFromRow(row.column_labels_json) : {},
     rowDetailEnabled,
     detailKeyColumn: rowDetailEnabled ? dkc : '',
+    aiPrompt: row.ai_prompt ? String(row.ai_prompt).trim() : '',
   };
 }
 
@@ -151,6 +152,7 @@ function rowToAdminItem(row) {
     base.columnNameMapping = columnNameMappingFromRow(
       row.column_name_mapping_json != null ? row.column_name_mapping_json : '{}'
     );
+    base.aiPrompt = row.ai_prompt ? String(row.ai_prompt).trim() : '';
   } else {
     base.detailQueryTemplate = '';
     base.detailKeyColumn = '';
@@ -158,6 +160,7 @@ function rowToAdminItem(row) {
     base.detailKeyType = 'string';
     base.columnLabels = {};
     base.columnNameMapping = {};
+    base.aiPrompt = '';
   }
   return base;
 }
@@ -194,7 +197,8 @@ const MENU_SELECT_FIELDS = `id, label, route_key, icon, sort_order, enabled, rol
   COALESCE(menu_kind, N'builtin') AS menu_kind, query_template, filter_schema_json,
   COALESCE(column_labels_json, N'{}') AS column_labels_json,
   COALESCE(column_name_mapping_json, N'{}') AS column_name_mapping_json,
-  detail_query_template, detail_key_column, detail_key_param, COALESCE(detail_key_type, N'string') AS detail_key_type`;
+  detail_query_template, detail_key_column, detail_key_param, COALESCE(detail_key_type, N'string') AS detail_key_type,
+  ai_prompt`;
 
 async function menusRoutes(fastify) {
   fastify.get(
@@ -355,10 +359,11 @@ async function menusRoutes(fastify) {
           .input('detailKeyColumn', sql.NVarChar(256), detailCols.detailKeyColumn)
           .input('detailKeyParam', sql.NVarChar(128), detailCols.detailKeyParam)
           .input('detailKeyType', sql.NVarChar(32), detailCols.detailKeyType)
+          .input('aiPrompt', sql.NVarChar(1073741823), body.aiPrompt || null)
           .query(
-            `INSERT INTO dbo.nav_menu_items (label, route_key, icon, sort_order, enabled, roles_json, menu_kind, query_template, filter_schema_json, column_labels_json, column_name_mapping_json, detail_query_template, detail_key_column, detail_key_param, detail_key_type)
+            `INSERT INTO dbo.nav_menu_items (label, route_key, icon, sort_order, enabled, roles_json, menu_kind, query_template, filter_schema_json, column_labels_json, column_name_mapping_json, detail_query_template, detail_key_column, detail_key_param, detail_key_type, ai_prompt)
              OUTPUT INSERTED.id AS id
-             VALUES (@label, @routeKey, @icon, @sortOrder, @enabled, @rolesJson, @menuKind, @queryTemplate, @filterSchemaJson, @columnLabelsJson, @columnNameMappingJson, @detailQueryTemplate, @detailKeyColumn, @detailKeyParam, @detailKeyType)`
+             VALUES (@label, @routeKey, @icon, @sortOrder, @enabled, @rolesJson, @menuKind, @queryTemplate, @filterSchemaJson, @columnLabelsJson, @columnNameMappingJson, @detailQueryTemplate, @detailKeyColumn, @detailKeyParam, @detailKeyType, @aiPrompt)`
           );
         const newId = Number(ins.recordset[0].id);
         return reply.code(201).send({
@@ -382,6 +387,7 @@ async function menusRoutes(fastify) {
             detailKeyColumn: detailCols.detailKeyColumn || '',
             detailKeyParam: detailCols.detailKeyParam || 'detailKey',
             detailKeyType: detailCols.detailKeyType || 'string',
+            aiPrompt: body.aiPrompt || '',
           },
         });
       } catch (e) {
@@ -507,6 +513,7 @@ async function menusRoutes(fastify) {
           .input('detailKeyColumn', sql.NVarChar(256), detailCols.detailKeyColumn)
           .input('detailKeyParam', sql.NVarChar(128), detailCols.detailKeyParam)
           .input('detailKeyType', sql.NVarChar(32), detailCols.detailKeyType)
+          .input('aiPrompt', sql.NVarChar(1073741823), body.aiPrompt || null)
           .query(
             `UPDATE dbo.nav_menu_items
              SET label = @label, route_key = @routeKey, icon = @icon, sort_order = @sortOrder,
@@ -516,6 +523,7 @@ async function menusRoutes(fastify) {
                  column_name_mapping_json = @columnNameMappingJson,
                  detail_query_template = @detailQueryTemplate, detail_key_column = @detailKeyColumn,
                  detail_key_param = @detailKeyParam, detail_key_type = @detailKeyType,
+                 ai_prompt = @aiPrompt,
                  updated_at = SYSUTCDATETIME()
              WHERE id = @id`
           );
@@ -543,6 +551,7 @@ async function menusRoutes(fastify) {
             detailKeyColumn: detailCols.detailKeyColumn || '',
             detailKeyParam: detailCols.detailKeyParam || 'detailKey',
             detailKeyType: detailCols.detailKeyType || 'string',
+            aiPrompt: body.aiPrompt || '',
           },
         };
       } catch (e) {

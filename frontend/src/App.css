@@ -1,0 +1,28 @@
+/* Modern reset + original app aesthetic preserved */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 
+               'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Card style matching original */
+.card {
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  border: 1px solid #e2e8f0;
+}
+
+/* Bottom nav matching original design */
+.bottom-nav {
+  box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.1);
+}

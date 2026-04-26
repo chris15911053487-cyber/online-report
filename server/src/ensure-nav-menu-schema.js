@@ -28,6 +28,7 @@ const SQL_COLUMN_NAME_MAPPING_PATH = path.join(
   'migrate-nav-menu-column-name-mapping.sql'
 );
 const SQL_X_ONLINE_SIGN_PATH = path.join(__dirname, '..', 'sql', 'migrate-x-online-sign.sql');
+const SQL_AI_PROMPT_PATH = path.join(__dirname, '..', 'sql', 'migrate-nav-menu-ai-prompt.sql');
 
 /**
  * 启动时自动执行 migrate-nav-menu-items-only.sql（需账号有建表权限）。
@@ -63,10 +64,15 @@ async function ensureNavMenuSchema(getPool, log) {
     await pool.request().query(sqlColNameMap);
     const sqlXOnlineSign = fs.readFileSync(SQL_X_ONLINE_SIGN_PATH, 'utf8');
     await pool.request().query(sqlXOnlineSign);
-    log?.info?.('[nav_menu_items] 已检查/创建表结构与默认数据（含报表扩展列与 X_ 报工批次表）');
+    
+    // AI Prompt 支持 - 新增字段 ai_prompt
+    const sqlAIPrompt = fs.readFileSync(SQL_AI_PROMPT_PATH, 'utf8');
+    await pool.request().query(sqlAIPrompt);
+    
+    log?.info?.('[nav_menu_items] 已检查/创建表结构与默认数据（含报表扩展列、X_报工批次表、AI Prompt字段）');
   } catch (err) {
     warn(
-      '[nav_menu_items] 自动建表失败：请用有 DDL 权限的账号连接，或手动在目标库执行 sql/migrate-nav-menu-items-only.sql',
+      '[nav_menu_items] 自动建表失败：请用有 DDL 权限的账号连接，或手动依次执行 sql/ 目录下的 migrate-*.sql 文件（包含 migrate-nav-menu-ai-prompt.sql）',
       err
     );
   }

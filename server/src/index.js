@@ -1,5 +1,9 @@
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
+const serverEnvPath = path.join(__dirname, '..', '.env');
+const repoRootEnvPath = path.join(__dirname, '..', '..', '.env');
+// 先读仓库根目录 .env，再读 server/.env 并覆盖，避免 Key 只写在根目录时读不到
+require('dotenv').config({ path: repoRootEnvPath });
+require('dotenv').config({ path: serverEnvPath, override: true });
 
 const fs = require('fs');
 const fsp = require('fs').promises;
@@ -13,6 +17,7 @@ const menusRoutes = require('./routes/menus');
 const reportsRoutes = require('./routes/reports');
 const proSignRoutes = require('./routes/pro-sign');
 const registerOworRoutes = require('./routes/owor');
+const aiRoutes = require('./routes/ai');
 const { getPool } = require('./db');
 const ensureNavMenuSchema = require('./ensure-nav-menu-schema');
 
@@ -64,7 +69,7 @@ async function build() {
     try {
       await request.jwtVerify();
     } catch (err) {
-      reply.send(err);
+      return reply.send(err);
     }
   });
 
@@ -84,6 +89,7 @@ async function build() {
   await fastify.register(menusRoutes);
   await fastify.register(reportsRoutes);
   await fastify.register(proSignRoutes);
+  await fastify.register(aiRoutes);
   registerOworRoutes(fastify);
 
   fastify.get('/health', async () => ({ ok: true, ts: new Date().toISOString() }));
@@ -110,9 +116,34 @@ async function build() {
       .send(fs.createReadStream(apkPath));
   });
 
+  // 静态站点：优先 frontend/dist（Vite 构建）；不存在或未构建时回退到 server/public（旧版 SPA）
+  const serverDir = path.join(__dirname, '..');
+  const repoRoot = path.join(serverDir, '..');
+  const frontendDist = path.join(repoRoot, 'frontend', 'dist');
+  const publicDir = path.join(serverDir, 'public');
+  const frontendIndex = path.join(frontendDist, 'index.html');
+
+  let staticRoot = publicDir;
+  try {
+    await fsp.access(frontendIndex);
+    staticRoot = frontendDist;
+    fastify.log.info({ staticRoot: frontendDist }, 'serving Vite frontend from frontend/dist');
+  } catch {
+    fastify.log.warn(
+      { tried: frontendIndex },
+      'frontend/dist not found or not built; serving legacy server/public (run: cd frontend && npm run build)',
+    );
+  }
+
   await fastify.register(fastifyStatic, {
-    root: path.join(__dirname, '..', 'public'),
+    root: staticRoot,
     prefix: '/',
+    decorateReply: false,
+    setHeaders: (res, filePath) => {
+      if (filePath.includes('index.html')) {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
   });
 
   return fastify;

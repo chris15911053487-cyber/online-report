@@ -51,11 +51,14 @@
     });
   }
 
-  /** 报表查询：超时略大于服务端 REPORT_QUERY_TIMEOUT_MS（默认 60s） */
-  function apiFetchReport(path, options) {
+  /**
+   * 报表查询等：默认超时略大于服务端 REPORT_QUERY_TIMEOUT_MS（默认 60s）。
+   * @param {number} [timeoutMs=90000] 可选，如 AI 分析用较短时间。
+   */
+  function apiFetchReport(path, options, timeoutMs) {
     options = options || {};
     var ctrl = new AbortController();
-    var ms = 90000;
+    var ms = timeoutMs != null && Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.floor(timeoutMs) : 90000;
     var t = setTimeout(function () {
       ctrl.abort();
     }, ms);
@@ -205,6 +208,8 @@
     reportLastColumns: [],
     dynamicReportColumnLabels: {},
     dynamicReportRowDetail: { enabled: false, keyColumn: '' },
+    /** 自 GET /menus 的 aiPrompt，非空时汇总页显示「AI 分析」并调 /ai/analyze */
+    dynamicReportAiPrompt: '',
     proSignMode: false,
     proSignMenu: null,
     proSignTableRows: null,
@@ -412,6 +417,7 @@
     state.viewName = 'dynamic-report';
     state.dynamicReportRouteKey = 'pro-sign';
     state.dynamicReportLabel = (menu && menu.label) || '生产报工';
+    state.dynamicReportAiPrompt = '';
     state.dynamicReportFilterSchema =
       menu && menu.menuKind === 'report' ? menu.filterSchema || [] : [];
     state.dynamicReportRowDetail = { enabled: false, keyColumn: '' };
@@ -771,6 +777,7 @@
     state.dynamicReportRouteKey = menu.routeKey;
     state.dynamicReportLabel = menu.label || '报表';
     state.dynamicReportFilterSchema = menu.filterSchema || [];
+    state.dynamicReportAiPrompt = menu && menu.aiPrompt != null ? String(menu.aiPrompt).trim() : '';
     state.dynamicReportColumnLabels =
       menu.columnLabels && typeof menu.columnLabels === 'object' ? menu.columnLabels : {};
     state.dynamicReportRowDetail = {
@@ -1061,7 +1068,71 @@
     bindTap(btn, function () {
       runDynamicReportQuery(true);
     });
-    form.appendChild(btn);
+    var actionRow = document.createElement('div');
+    actionRow.className = 'report-query-actions';
+    actionRow.appendChild(btn);
+    if (!state.proSignMode && String(state.dynamicReportAiPrompt || '').trim() !== '') {
+      var btnAI = document.createElement('button');
+      btnAI.type = 'button';
+      btnAI.className = 'btn-secondary';
+      btnAI.textContent = 'AI 分析';
+      bindTap(btnAI, function () {
+        if (btnAI.disabled) return;
+        btnAI.disabled = true;
+        var prev = btnAI.textContent;
+        btnAI.textContent = '分析中…';
+        apiFetchReport(
+          '/ai/analyze',
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              routeKey: state.dynamicReportRouteKey,
+              params: collectDynamicReportParams(),
+            }),
+          },
+          30000
+        )
+          .then(function (data) {
+            var text = '';
+            if (data && data.success) {
+              // Prefer formatted text from backend, fallback to analysis object or string
+              if (data.formatted) {
+                text = String(data.formatted);
+              } else if (data.analysis && typeof data.analysis === 'object' && data.analysis !== null) {
+                text = formatAIResult(data.analysis);
+              } else {
+                text = String(data.analysis || '');
+              }
+            } else if (data && data.analysis) {
+              text = String(data.analysis);
+            } else {
+              text = 'AI 返回为空';
+            }
+
+            if (data && !data.success && data.aiError) {
+              text += '\n\n—— 详情（供排查）——\n' + String(data.aiError);
+            }
+            openReportTextOverlay('AI 分析', text);
+          })
+          .catch(function (e) {
+            if (e.status === 401) {
+              goLogin();
+              showToast((e && e.message) || '请重新登录');
+              return;
+            }
+            openReportTextOverlay(
+              'AI 分析未成功',
+              formatApiErrorDetailText('POST /ai/analyze', e, 30)
+            );
+          })
+          .finally(function () {
+            btnAI.disabled = false;
+            btnAI.textContent = prev;
+          });
+      });
+      actionRow.appendChild(btnAI);
+    }
+    form.appendChild(actionRow);
     wrap.appendChild(form);
 
     if (state.proSignMode && !wrap.dataset.proSignFilterListeners) {
@@ -2202,13 +2273,120 @@
     el.reportOverlay.hidden = false;
   }
 
+  function formatAIResult(obj) {
+    if (!obj || typeof obj !== 'object') return String(obj || '');
+    var lines = [];
+    if (obj.overview) lines.push('📋 概览\n' + obj.overview + '\n');
+    if (obj.keyMetrics && Array.isArray(obj.keyMetrics)) {
+      lines.push('📊 关键指标');
+      obj.keyMetrics.forEach(function(m) {
+        var change = m.change ? ' ' + m.change : '';
+        lines.push('  • ' + m.label + ': ' + m.value + change);
+      });
+      lines.push('');
+    }
+    if (obj.insights && Array.isArray(obj.insights)) {
+      lines.push('💡 主要洞察');
+      obj.insights.forEach(function(item) { lines.push('  • ' + item); });
+      lines.push('');
+    }
+    if (obj.anomalies && Array.isArray(obj.anomalies)) {
+      lines.push('⚠️ 异常发现');
+      obj.anomalies.forEach(function(item) { lines.push('  • ' + item); });
+      lines.push('');
+    }
+    if (obj.recommendations && Array.isArray(obj.recommendations)) {
+      lines.push('🎯 行动建议');
+      obj.recommendations.forEach(function(item) { lines.push('  • ' + item); });
+      lines.push('');
+    }
+    if (obj.suggestedHighlights && Array.isArray(obj.suggestedHighlights)) {
+      lines.push('🔍 建议重点关注');
+      obj.suggestedHighlights.forEach(function(item) { lines.push('  • ' + item); });
+    }
+    return lines.join('\n').trim() || JSON.stringify(obj, null, 2);
+  }
+
+  /**
+   * 将接口失败整理为可阅读的说明（主文案 + 服务端 data.detail 等，便于排障）
+   * @param {string} label 前缀，如「/ai/analyze」
+   * @param {any} e apiFetch 抛出的 Error，可能带 status / data
+   * @param {number} [timeoutSec=90] 用于超时提示中的秒数
+   */
+  function formatApiErrorDetailText(label, e, timeoutSec) {
+    var head = (label && String(label).trim()) || '请求';
+    var tSec = timeoutSec != null && Number.isFinite(timeoutSec) && timeoutSec > 0 ? Math.floor(timeoutSec) : 90;
+    if (!e) return head + ' 失败：未知错误';
+    if (e.name === 'AbortError') {
+      return (
+        head + ' 已中断（可能超过约 ' + tSec + ' 秒超时或网络中断）。\n' +
+        '可稍后重试，或先缩小当前筛选条件后再点「AI 分析」。'
+      );
+    }
+    var m = (e.message || '').trim() || '请求失败';
+    var d = e.data;
+    if (!d) return head + ' 失败：\n' + m;
+    var segs = [head + ' 失败', '—— ' + m + ' ——'];
+    if (d.detail != null && String(d.detail).trim() !== '') {
+      segs.push('【服务端详细】\n' + String(d.detail));
+    }
+    if (d.error != null && d.message != null) {
+      var ex = (d.error || '') + (d.message ? ' — ' + d.message : '');
+      if (m.indexOf(String(d.error)) === -1) segs.push('【其他】\n' + ex);
+    } else if (d.message != null && m.indexOf(String(d.message)) === -1) {
+      segs.push('【message】\n' + String(d.message));
+    }
+    return segs.join('\n\n');
+  }
+
   function openReportTextOverlay(title, text) {
     if (!el.reportOverlay) return;
     el.reportOverlayTitle.textContent = title || '全文';
     el.reportOverlayBody.innerHTML = '';
+    var fullText = text == null ? '' : String(text);
+    var toolbar = document.createElement('div');
+    toolbar.className = 'report-overlay-text-toolbar';
+    var btnCopy = document.createElement('button');
+    btnCopy.type = 'button';
+    btnCopy.className = 'btn-secondary';
+    btnCopy.textContent = '复制全部';
+    btnCopy.setAttribute('aria-label', '一键复制全部内容');
+    bindTap(btnCopy, function () {
+      function onCopied() {
+        showToast('已复制到剪贴板');
+      }
+      function onCopyFail() {
+        showToast('复制失败，请手动选择下方文本复制');
+      }
+      function tryExecCommand() {
+        try {
+          var ta = document.createElement('textarea');
+          ta.value = fullText;
+          ta.setAttribute('readonly', '');
+          ta.style.cssText = 'position:fixed;left:-9999px;top:0';
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          ta.setSelectionRange(0, fullText.length);
+          var ok = document.execCommand('copy');
+          document.body.removeChild(ta);
+          if (ok) onCopied();
+          else onCopyFail();
+        } catch (err) {
+          onCopyFail();
+        }
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(fullText).then(onCopied).catch(tryExecCommand);
+      } else {
+        tryExecCommand();
+      }
+    });
+    toolbar.appendChild(btnCopy);
+    el.reportOverlayBody.appendChild(toolbar);
     var pre = document.createElement('pre');
     pre.className = 'report-overlay-text';
-    pre.textContent = text;
+    pre.textContent = fullText;
     el.reportOverlayBody.appendChild(pre);
     armReportOverlayOpenGuard();
     el.reportOverlay.hidden = false;
@@ -2847,6 +3025,30 @@
     if (isReserved) taDetail.disabled = true;
     addField('行详情 SQL（可选）', taDetail);
 
+    // AI Prompt 配置 - 支持自然语言驱动的报表智能分析
+    var taAIPrompt = document.createElement('textarea');
+    taAIPrompt.rows = 6;
+    taAIPrompt.value = item.aiPrompt || '';
+    taAIPrompt.placeholder = 'AI 分析 Prompt 模板（支持占位符：{report_label}、{filters}、{metrics}、{data_sample}）\n\n推荐直接复制 migrate-nav-menu-ai-prompt.sql 中的示例';
+    if (isReserved) taAIPrompt.disabled = true;
+    addField('AI 分析 Prompt（可选）', taAIPrompt);
+
+    // AI Prompt 生成器按钮（仅管理员）
+    if (!isReserved && state.userRole === 'admin') {
+      var aiGenBtn = document.createElement('button');
+      aiGenBtn.type = 'button';
+      aiGenBtn.className = 'btn-secondary';
+      aiGenBtn.style.marginTop = '8px';
+      aiGenBtn.textContent = '🤖 AI 生成 Prompt';
+      aiGenBtn.addEventListener('click', function () {
+        generateAIPromptWithAI(taAIPrompt, item.label || '');
+      });
+      var fieldDiv = document.createElement('div');
+      fieldDiv.style.marginTop = '8px';
+      fieldDiv.appendChild(aiGenBtn);
+      card.appendChild(fieldDiv);
+    }
+
     var inDetailCol = document.createElement('input');
     inDetailCol.type = 'text';
     inDetailCol.maxLength = 256;
@@ -2945,6 +3147,7 @@
               filterSchema: fsParsed,
               columnLabels: columnLabelsParsed,
               columnNameMapping: columnNameMappingForPatch,
+              aiPrompt: taAIPrompt.value.trim(),
             },
             detailBody
           )
@@ -3052,6 +3255,7 @@
         detailKeyColumn: (fd.get('detailKeyColumn') || '').toString().trim(),
         detailKeyParam: (fd.get('detailKeyParam') || '').toString().trim() || 'detailKey',
         detailKeyType: (fd.get('detailKeyType') || 'string').toString(),
+        aiPrompt: (fd.get('aiPrompt') || '').toString().trim(),
       }),
     })
       .then(function () {
@@ -3207,10 +3411,14 @@
       .then(function (data) {
         setToken(data.token);
         applyUserFromAuth(data.user);
-        return fetchMenus();
-      })
-      .then(function () {
         goRoot('catalog');
+        return fetchMenus().catch(function (err) {
+          state.navMenus = [];
+          if (state.viewName === 'root' && state.rootTab === 'catalog') {
+            renderCatalogGrid();
+          }
+          showToast(err.message || '菜单加载失败');
+        });
       })
       .catch(function (err) {
         el.loginErr.textContent = err.message || '登录失败';
@@ -3342,6 +3550,152 @@
   }
   if (el.proSignListMergeBtn) {
     bindTap(el.proSignListMergeBtn, triggerProSignMergeFromList);
+  }
+
+  /**
+   * 将模型或传输层中常见的字面量 \\n / \\t 转为真实换行，便于在 textarea 中阅读
+   */
+  function normalizeGeneratedPromptText(s) {
+    if (s == null || typeof s !== 'string') return s;
+    return s
+      .replace(/\r\n/g, '\n')
+      .replace(/\\r\\n/g, '\n')
+      .replace(/\\n/g, '\n')
+      .replace(/\\t/g, '\t');
+  }
+
+  /**
+   * AI Prompt 生成器
+   * 管理员输入自然语言描述，调用后端生成结构化的 ai_prompt
+   */
+  function generateAIPromptWithAI(taAIPrompt, reportLabel) {
+    if (!taAIPrompt) return;
+
+    var exampleText =
+      '这个报表主要用于采购订单的到期情况，需要体现出正常和超期到货的情况，' +
+      '用预计到货日期[DocDueDate]和今天的对比分析，总共查询了多少条目，超期有多少条目，' +
+      '给出具体数据，并给出风险结论和建议。';
+
+    var overlay = document.createElement('div');
+    overlay.className = 'scan-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+    overlay.setAttribute('aria-labelledby', 'ai-prompt-gen-title');
+
+    var panel = document.createElement('div');
+    panel.className = 'scan-overlay-panel ai-prompt-gen-panel';
+
+    var title = document.createElement('p');
+    title.id = 'ai-prompt-gen-title';
+    title.className = 'ai-prompt-gen-title';
+    title.textContent = '请输入报表业务描述（越详细越好）：';
+
+    var exLabel = document.createElement('div');
+    exLabel.className = 'ai-prompt-gen-example-label';
+    exLabel.textContent = '示例：';
+
+    var example = document.createElement('div');
+    example.className = 'ai-prompt-gen-example';
+    example.textContent = exampleText;
+
+    var taLabel = document.createElement('label');
+    taLabel.className = 'ai-prompt-gen-field-label';
+    taLabel.setAttribute('for', 'ai-prompt-gen-desc');
+    taLabel.textContent = '您的描述：';
+
+    var ta = document.createElement('textarea');
+    ta.id = 'ai-prompt-gen-desc';
+    ta.className = 'ai-prompt-gen-textarea';
+    ta.setAttribute('autocomplete', 'off');
+    ta.value = reportLabel ? '分析 ' + reportLabel + ' 的业务情况' : '';
+
+    var actions = document.createElement('div');
+    actions.className = 'btn-row';
+    actions.style.marginTop = '16px';
+
+    var btnCancel = document.createElement('button');
+    btnCancel.type = 'button';
+    btnCancel.className = 'btn-secondary';
+    btnCancel.textContent = '取消';
+
+    var btnOk = document.createElement('button');
+    btnOk.type = 'button';
+    btnOk.className = 'btn-primary';
+    btnOk.textContent = '确定';
+
+    actions.appendChild(btnCancel);
+    actions.appendChild(btnOk);
+
+    panel.appendChild(title);
+    panel.appendChild(exLabel);
+    panel.appendChild(example);
+    panel.appendChild(taLabel);
+    panel.appendChild(ta);
+    panel.appendChild(actions);
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+
+    var closed = false;
+    function close() {
+      if (closed) return;
+      closed = true;
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      document.removeEventListener('keydown', onKey);
+    }
+
+    function onKey(ev) {
+      if (ev.key === 'Escape') close();
+    }
+    document.addEventListener('keydown', onKey);
+
+    bindTap(btnCancel, close);
+    overlay.addEventListener('click', function (ev) {
+      if (ev.target === overlay) close();
+    });
+
+    setTimeout(function () {
+      try {
+        ta.focus();
+        ta.setSelectionRange(ta.value.length, ta.value.length);
+      } catch (e0) {}
+    }, 0);
+
+    bindTap(btnOk, function () {
+      var description = ta.value != null ? String(ta.value).trim() : '';
+      if (!description) {
+        showToast('请先填写业务描述');
+        return;
+      }
+      close();
+
+      var loadingMsg = '🤖 AI 正在生成专业的 Prompt 模板...';
+      showToast(loadingMsg);
+
+      apiFetch('/ai/generate-prompt', {
+        method: 'POST',
+        body: JSON.stringify({
+          description: description,
+          reportType: reportLabel || '通用报表'
+        })
+      })
+        .then(function (data) {
+          if (data.success && data.prompt) {
+            taAIPrompt.value = normalizeGeneratedPromptText(data.prompt);
+            try {
+              taAIPrompt.dispatchEvent(new Event('input', { bubbles: true }));
+              taAIPrompt.dispatchEvent(new Event('change', { bubbles: true }));
+            } catch (e1) {}
+            showToast('✅ AI Prompt 生成成功！已自动填入下方文本框，可直接保存。');
+            console.log('[AI Prompt Generator]', data.message || 'Success');
+          } else {
+            showToast('生成失败：' + (data.error || '未知错误'));
+          }
+        })
+        .catch(function (err) {
+          console.error(err);
+          showToast('AI 生成 Prompt 失败：' + (err.message || '网络错误'));
+        });
+    });
   }
 
   function boot() {

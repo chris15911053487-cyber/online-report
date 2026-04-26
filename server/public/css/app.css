@@ -476,6 +476,14 @@ body.has-pro-sign-list-sticky .main {
   overflow: visible;
 }
 
+#view-dynamic-report .report-query-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+  margin-top: 0.25rem;
+}
+
 /* 可配置报表：横向滚动 + 首列固定 */
 .report-table-scroll {
   overflow-x: auto;
@@ -628,6 +636,18 @@ body.has-pro-sign-list-sticky .main {
   padding: 12px 16px 20px;
   flex: 1;
   min-height: 0;
+}
+
+.report-overlay-text-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  justify-content: flex-end;
+  margin: 0 0 10px;
+  padding: 0 0 8px;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .report-overlay-text {
@@ -841,6 +861,73 @@ body.has-pro-sign-list-sticky .main {
   min-width: 120px;
 }
 
+/* AI 生成 Prompt：自定义弹层（多行输入 + 可选中示例） */
+.scan-overlay-panel.ai-prompt-gen-panel {
+  max-width: 560px;
+  max-height: min(92vh, 720px);
+  overflow-y: auto;
+  text-align: left;
+}
+
+.ai-prompt-gen-title {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #0f172a;
+  line-height: 1.45;
+}
+
+.ai-prompt-gen-example-label {
+  margin: 14px 0 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.ai-prompt-gen-example {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: #334155;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  cursor: text;
+}
+
+.ai-prompt-gen-field-label {
+  display: block;
+  margin: 14px 0 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.ai-prompt-gen-textarea {
+  display: block;
+  width: 100%;
+  min-height: 168px;
+  padding: 12px;
+  font: inherit;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: #0f172a;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.ai-prompt-gen-textarea:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+}
+
 .btn-primary {
   width: 100%;
   padding: 14px;
@@ -1033,6 +1120,11 @@ body.has-pro-sign-list-sticky .main {
 
 /* hidden 属性须覆盖上面的 display:flex，否则登录页底部栏仍会占位，键盘弹出时会被顶到中间 */
 .bottom-nav[hidden] {
+  display: none !important;
+}
+
+/* 登录页使用 display:flex，hidden 必须 !important 才能彻底隐藏，否则登录成功后老界面仍叠在目录页上方 */
+#view-login[hidden] {
   display: none !important;
 }
 
