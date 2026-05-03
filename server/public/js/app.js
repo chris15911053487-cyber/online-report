@@ -885,6 +885,21 @@
             return Promise.resolve();
           }
           liveStarted = false;
+          // 显式停止所有 media tracks，确保摄像头完全释放。
+          // html5-qrcode 的 stop() 有时不会彻底释放摄像头，
+          // 导致第二次扫码无法再次获取摄像头权限。
+          try {
+            var readerEl = document.getElementById(readerId);
+            if (readerEl) {
+              var video = readerEl.querySelector('video');
+              if (video && video.srcObject) {
+                var tracks = video.srcObject.getTracks();
+                for (var ti = 0; ti < tracks.length; ti++) {
+                  tracks[ti].stop();
+                }
+              }
+            }
+          } catch (eMedia) {}
           return html5QrCode
             .stop()
             .catch(function () {})
@@ -1112,7 +1127,11 @@
         btnScan.className = 'btn-field-scan';
         btnScan.setAttribute('aria-label', '扫码');
         btnScan.title = '扫码：点击直接启动摄像头；摄像头不可用时可选相册照片识别。外接扫码枪可直接扫入。';
-        btnScan.textContent = '扫码';
+        btnScan.innerHTML =
+          '<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+          '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/>' +
+          '<path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/>' +
+          '<line x1="7" y1="12" x2="17" y2="12"/></svg>';
         bindTap(btnScan, function (ev) {
           if (ev && ev.preventDefault) ev.preventDefault();
           openDynamicReportBarcodeScan(input);

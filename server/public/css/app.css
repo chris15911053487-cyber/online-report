@@ -797,17 +797,19 @@ body.has-pro-sign-list-sticky .main {
 
 .btn-field-scan {
   flex-shrink: 0;
-  padding: 0 14px;
-  font-size: 0.9rem;
-  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-height: 48px;
+  padding: 0;
   color: #1e40af;
   background: #eff6ff;
   border: 1px solid #bfdbfe;
   border-radius: 10px;
   cursor: pointer;
-  min-height: 48px;
   touch-action: manipulation;
-  white-space: nowrap;
+  line-height: 0;
 }
 
 .btn-field-scan:active {
