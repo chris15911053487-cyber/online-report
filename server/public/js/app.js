@@ -925,7 +925,7 @@
             targetInput.dispatchEvent(new Event('change', { bubbles: true }));
           } catch (e2) {}
           showToast('已扫码');
-          cleanup();
+          setTimeout(cleanup, 0);
         }
 
         // ---- 底部按钮：选图回退 + 关闭 ----
