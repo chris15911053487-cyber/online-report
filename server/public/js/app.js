@@ -885,29 +885,29 @@
             return Promise.resolve();
           }
           liveStarted = false;
-          // 显式停止所有 media tracks，确保摄像头完全释放。
-          // html5-qrcode 的 stop() 有时不会彻底释放摄像头，
-          // 导致第二次扫码无法再次获取摄像头权限。
-          try {
-            var readerEl = document.getElementById(readerId);
-            if (readerEl) {
-              var video = readerEl.querySelector('video');
-              if (video && video.srcObject) {
-                var tracks = video.srcObject.getTracks();
-                for (var ti = 0; ti < tracks.length; ti++) {
-                  tracks[ti].stop();
+          // 给 stop() 加超时兜底（最多 3 秒），防止库内部卡死导致 cleanup 链断裂
+          var stopped = html5QrCode.stop().catch(function () {});
+          var timedOut = new Promise(function (resolve) {
+            setTimeout(resolve, 3000);
+          });
+          return Promise.race([stopped, timedOut]).then(function () {
+            // 兜底：确保所有 media tracks 都已释放
+            try {
+              var readerEl = document.getElementById(readerId);
+              if (readerEl) {
+                var video = readerEl.querySelector('video');
+                if (video && video.srcObject) {
+                  var tracks = video.srcObject.getTracks();
+                  for (var ti = 0; ti < tracks.length; ti++) {
+                    tracks[ti].stop();
+                  }
                 }
               }
-            }
-          } catch (eMedia) {}
-          return html5QrCode
-            .stop()
-            .catch(function () {})
-            .then(function () {
-              try {
-                html5QrCode.clear();
-              } catch (e0) {}
-            });
+            } catch (eMedia) {}
+            try {
+              html5QrCode.clear();
+            } catch (e0) {}
+          });
         }
 
         function removeOverlay() {
