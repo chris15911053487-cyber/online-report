@@ -865,6 +865,7 @@
         var html5QrCode = null;
         var liveStarted = false;
         var closed = false;
+        var overlayCreatedAt = Date.now();
 
         function forceStopTracks() {
           try {
@@ -953,7 +954,7 @@
           return;
         }
 
-        overlay.addEventListener('click', function (ev) { if (ev.target === overlay) cleanup(); });
+        overlay.addEventListener('click', function (ev) { if (ev.target === overlay && Date.now() - overlayCreatedAt > 500) cleanup(); });
 
         function tryStartCamera() {
           if (!canUseLiveCamera()) {
