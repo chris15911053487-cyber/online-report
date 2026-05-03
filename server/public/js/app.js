@@ -885,13 +885,13 @@
             return Promise.resolve();
           }
           liveStarted = false;
-          // 给 stop() 加超时兜底（最多 3 秒），防止库内部卡死导致 cleanup 链断裂
-          var stopped = html5QrCode.stop().catch(function () {});
+          var instance = html5QrCode;
+          html5QrCode = null;
+          var stopped = instance.stop().catch(function () {});
           var timedOut = new Promise(function (resolve) {
             setTimeout(resolve, 3000);
           });
           return Promise.race([stopped, timedOut]).then(function () {
-            // 兜底：确保所有 media tracks 都已释放
             try {
               var readerEl = document.getElementById(readerId);
               if (readerEl) {
@@ -905,7 +905,7 @@
               }
             } catch (eMedia) {}
             try {
-              html5QrCode.clear();
+              instance.clear();
             } catch (e0) {}
           });
         }
@@ -919,14 +919,7 @@
           closed = true;
           shutdownCamera()
             .catch(function () {})
-            .finally(function () {
-              if (html5QrCode) {
-                try {
-                  html5QrCode.clear();
-                } catch (e1) {}
-              }
-              removeOverlay();
-            });
+            .finally(removeOverlay);
         }
 
         function applyCode(raw) {
