@@ -221,60 +221,185 @@ cd .. && npm run dev
 
 ---
 
-**更新时间**：2026-05-03
+## 报表查询功能增强
 
----
+### 图片列（缩略图 + 灯箱）
 
-## 报表图片列（缩略图 + 灯箱）
+在报表查询结果中展示产品图、工序图等内网图片。**列名以 `_img` / `_image` / `_pic` / `_photo` 结尾**，系统自动识别为图片列并渲染缩略图，点击弹出灯箱看原图。
 
-### 快速开始
+#### 存放图片
 
-**1. 放图片**
+图片目录由环境变量 `IMAGES_DIR` 控制，默认为 `server/public/images/`。启动时自动创建。
 
-将图片放入 `server/public/images/` 目录（由 `IMAGES_DIR` 环境变量配置，默认即此目录）：
+**本地文件：**
 
 ```bash
-# 服务器上
-mkdir -p server/public/images
-cp /path/to/your/photos/*.jpg server/public/images/
-
-# 或者挂载网络共享到该目录（生产环境推荐）
-# Linux: mount -t cifs //192.168.1.100/share /app/server/public/images -o username=xxx
-# Windows: net use Z: \\192.168.1.100\share 然后设 IMAGES_DIR=Z:\
+cp /path/to/photos/*.jpg server/public/images/
+# → https://你的域名/images/photo.jpg
 ```
 
-**2. SQL 返回文件名**
+**挂载网络共享（生产环境推荐）：**
 
-**列名以 `_img` / `_image` / `_pic` / `_photo` 结尾**，值只写文件名：
+```bash
+# Linux — CIFS 挂载
+mkdir -p /mnt/factory-photos
+mount -t cifs //192.168.1.100/share /mnt/factory-photos -o username=xxx,iocharset=utf8
+# 设环境变量 IMAGES_DIR=/mnt/factory-photos
+
+# Windows — 映射网络驱动器
+net use Z: \\192.168.1.100\share
+# 设环境变量 IMAGES_DIR=Z:\
+```
+
+**Docker 部署：**
+
+```yaml
+# docker-compose.deploy.yml
+services:
+  app:
+    environment:
+      - IMAGES_DIR=/data/images
+    volumes:
+      - /mnt/factory-photos:/data/images:ro   # ro = 只读，更安全
+```
+
+#### SQL 写法
+
+列值返回文件名或相对路径即可（不要存完整 UNC 路径，直接用文件名更简单）：
 
 ```sql
-SELECT ItemCode, ItemName, 'photo.jpg' AS product_img FROM Items
+-- 简单文件名
+SELECT ItemCode, ItemName, ItemPic AS product_img FROM OITM
+
+-- 带子目录
+SELECT OrderId, 'defect/' + DefectPhoto AS defect_img FROM QC_Records
+
+-- 如果数据库里已经是完整 UNC 路径，也会自动走代理接口读取
 ```
 
-图片即可通过 `https://你的域名/images/photo.jpg` 访问。
+#### 两种路径模式
 
-**3. 效果**
+| 值特征 | 判定 | 前端生成 URL | 实现 |
+|--------|------|-------------|------|
+| 不含 `\\` | 普通文件名 | `/images/photo.jpg` | `@fastify/static` 直接 serve |
+| 含 `\\` | UNC 网络路径 | `/files/image?path=...` | `files.js` 代理读取 |
 
-表格内自动显示 80px 缩略图，点击弹出灯箱看原图。
+前端在 `buildImageSrc()`（`app.js`）中自动判断，无需额外配置。
 
-### 两种路径模式
+#### 交互效果
 
-| 路径类型 | 示例 | 前端构造 |
-|----------|------|----------|
-| 普通文件名 | `photo.jpg` | `/images/photo.jpg` |
-| UNC 网络路径 | `\\192.168.1.100\share\photo.jpg` | `/files/image?path=...` |
+| 场景 | 行为 |
+|------|------|
+| 表格内 | 缩略图 80px 高 × 120px 宽（max），`object-fit: contain`，`loading="lazy"` |
+| hover | 放大至 106% + 蓝色边框 + 阴影 |
+| 点击缩略图 | 全屏灯箱，黑色半透明遮罩 + 毛玻璃，原图最大 92vw/92vh |
+| 关闭灯箱 | 点击遮罩背景、关闭按钮（✕）、或 ESC 键 |
+| 加载失败 | 图片隐藏，显示灰色「加载失败」文字 |
+| 列值为空 | 显示「—」（与普通列一致） |
+| 行详情联动 | 点击图片不会触发行详情展开 |
 
-前端自动判断：含 `\\` 则走代理接口，否则走静态目录。
+#### 环境变量
 
-### 后端接口
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `IMAGES_DIR` | `server/public/images/` | 图片静态目录，支持绝对路径 |
 
-- **静态目录**：`/images/` → `IMAGES_DIR` 环境变量（默认 `server/public/images/`）
-- **代理接口**：`GET /files/image?path=<URL编码的UNC路径>`（`server/src/routes/files.js`）
-  - 安全检查：禁止 `..`，仅允许图片扩展名
-  - 缓存 5 分钟
+#### 安全设计
 
-### 配置
+- **静态目录**：仅 serve 文件，不接受路径参数，无目录穿越风险
+- **代理接口** `GET /files/image`：
+  - 拒绝含 `..` 的路径
+  - 扩展名白名单：`.jpg` `.jpeg` `.png` `.gif` `.bmp` `.webp` `.svg` `.tiff` `.tif`
+  - 非白名单扩展名返回 400
+  - 文件不存在返回 404
+- **Docker 挂载建议**：`ro` 只读模式
 
-无需数据库改动，列名约定自动生效。如需精确控制，后续可扩展 `column_types_json`。
+#### 缓存策略
+
+| 接口 | Cache-Control |
+|------|---------------|
+| `/images/*`（静态） | `public, max-age=3600`（1 小时） |
+| `/files/image`（代理） | `public, max-age=300`（5 分钟） |
+
+#### 配置方式
+
+列名约定自动生效，**无需修改数据库**。举例：
+
+```sql
+-- ✅ 自动识别为图片列
+PhotoUrl AS item_img
+ImagePath AS product_image
+PicFile AS defect_pic
+AvatarUrl AS staff_photo
+
+-- ❌ 不会被识别（列名无指定后缀）
+PhotoUrl AS PhotoUrl
+ImagePath AS ImagePath
+```
+
+如需对特定列精确控制（如非标准列名但存的是图片路径），可后续在 `nav_menu_items` 中扩展 `column_types_json` 字段：
+
+```json
+{ "PhotoUrl": "image", "AvatarPath": "image" }
+```
+
+#### 故障排查
+
+| 现象 | 可能原因 | 检查 |
+|------|----------|------|
+| 图片不显示，显示「加载失败」 | 文件不存在或路径错误 | 确认文件在 `IMAGES_DIR` 下，列名是否匹配后缀约定 |
+| 图片显示但点不开灯箱 | JS 报错 | 浏览器 F12 看 Console |
+| 缩略图加载很慢 | 原图过大 | 建议单张不超过 500KB；200 行时 100MB 总流量可接受 |
+| 服务器启动报错 | `IMAGES_DIR` 不可写 | 检查目录权限，启动时会自动 `mkdir` |
+| Docker 里图片不可见 | 容器没挂载图片目录 | 检查 `docker-compose.yml` 的 `volumes` 配置 |
+
+#### 相关文件
+
+| 文件 | 职责 |
+|------|------|
+| `server/src/index.js:151-164` | 注册 `/images/` 静态目录 |
+| `server/src/routes/files.js` | 图片代理接口（UNC 路径） |
+| `server/public/js/app.js` | `isImageColumn()` / `buildImageSrc()` / `openImageLightbox()` / 渲染逻辑 |
+| `server/public/css/app.css` | `.report-cell-img` / `.img-lightbox-overlay` 等样式 |
+
+### 扫码填入（快速扫码）
+
+报表筛选字段配置 `scan: true` 后，输入框旁出现「扫码」按钮。**点击直接启动后置摄像头**，扫码结果自动填入输入框并关闭。
+
+#### 行为
+
+- **HTTPS**：直接调用摄像头连续扫描，识别到条码/二维码即填入
+- **HTTP**：浏览器禁止摄像头，自动显示「选择照片识别」回退按钮，从相册选图本地解码
+- **外接扫码枪**：无需点击按钮，对准输入框直接扫入（HID 键盘模式）
+- **关闭**：弹窗内「关闭」按钮或点击遮罩背景
+
+#### 配置
+
+在报表菜单的 `filter_schema_json` 中，为筛选字段加 `"scan": true`：
+
+```json
+[
+  {
+    "name": "barcode",
+    "label": "条码",
+    "type": "string",
+    "required": true,
+    "scan": true
+  }
+]
+```
+
+仅 `string` / `int` / `decimal` 类型支持扫码。后端解析见 `server/src/report-query.js:580-585`。
+
+#### 相关文件
+
+| 文件 | 职责 |
+|------|------|
+| `server/src/report-query.js:580-585` | `scan` 字段解析校验 |
+| `server/public/js/app.js:848-1030` | `openDynamicReportBarcodeScan()` 扫码弹窗逻辑 |
+| `server/public/js/app.js:1109-1129` | 扫码按钮渲染 |
+| `server/public/css/app.css:786-939` | 扫码相关样式 |
+
+---
 
 **更新时间**：2026-05-04
