@@ -225,48 +225,56 @@ cd .. && npm run dev
 
 ---
 
-## 报表图片列（内网路径缩略图 + 灯箱）
+## 报表图片列（缩略图 + 灯箱）
 
-### 使用方式
+### 快速开始
 
-SQL 查询中返回图片路径列，**列名以 `_img` / `_image` / `_pic` / `_photo` 结尾**即可自动识别为图片列：
+**1. 放图片**
+
+将图片放入 `server/public/images/` 目录（由 `IMAGES_DIR` 环境变量配置，默认即此目录）：
+
+```bash
+# 服务器上
+mkdir -p server/public/images
+cp /path/to/your/photos/*.jpg server/public/images/
+
+# 或者挂载网络共享到该目录（生产环境推荐）
+# Linux: mount -t cifs //192.168.1.100/share /app/server/public/images -o username=xxx
+# Windows: net use Z: \\192.168.1.100\share 然后设 IMAGES_DIR=Z:\
+```
+
+**2. SQL 返回文件名**
+
+**列名以 `_img` / `_image` / `_pic` / `_photo` 结尾**，值只写文件名：
 
 ```sql
-SELECT ItemCode, ItemName, PhotoUrl AS product_img FROM Items
+SELECT ItemCode, ItemName, 'photo.jpg' AS product_img FROM Items
 ```
 
-路径值为 UNC 格式（内网文件共享）：`\\192.168.1.100\share\photo.jpg`
+图片即可通过 `https://你的域名/images/photo.jpg` 访问。
 
-### 效果
+**3. 效果**
 
-| 场景 | 行为 |
-|------|------|
-| 表格内 | 显示 80px 高缩略图，`loading="lazy"` 延迟加载 |
-| 点击缩略图 | 弹出全屏灯箱（毛玻璃遮罩），显示原图 |
-| 点击背景/关闭按钮 | 关闭灯箱 |
-| 图片加载失败 | 显示「加载失败」占位文字 |
-| 路径为空 | 显示「—」（与普通列一致） |
+表格内自动显示 80px 缩略图，点击弹出灯箱看原图。
 
-### 架构
+### 两种路径模式
 
-```
-SQL 返回 UNC 路径 → 前端识别图片列 → <img src="/files/image?path=...">
-                                         ↓
-                              后端 GET /files/image 代理读取内网文件 → 返回图片流
-```
+| 路径类型 | 示例 | 前端构造 |
+|----------|------|----------|
+| 普通文件名 | `photo.jpg` | `/images/photo.jpg` |
+| UNC 网络路径 | `\\192.168.1.100\share\photo.jpg` | `/files/image?path=...` |
+
+前端自动判断：含 `\\` 则走代理接口，否则走静态目录。
 
 ### 后端接口
 
-`GET /files/image?path=<URL编码的UNC路径>`
-
-- 安全检查：禁止 `..` 目录穿越，仅允许图片扩展名（jpg/png/gif/bmp/webp/svg/tiff）
-- 响应头：`Content-Type: image/xxx` + `Cache-Control: public, max-age=300`
-- 文件不可访问时返回 404
-- 实现文件：`server/src/routes/files.js`
+- **静态目录**：`/images/` → `IMAGES_DIR` 环境变量（默认 `server/public/images/`）
+- **代理接口**：`GET /files/image?path=<URL编码的UNC路径>`（`server/src/routes/files.js`）
+  - 安全检查：禁止 `..`，仅允许图片扩展名
+  - 缓存 5 分钟
 
 ### 配置
 
-无需数据库改动，列名约定自动生效。如需精确控制哪些列是图片列，后续可扩展 `column_types_json` 配置。
-```
+无需数据库改动，列名约定自动生效。如需精确控制，后续可扩展 `column_types_json`。
 
-This adds a comprehensive new section at the end of the README.md documenting everything we've learned in this conversation. The content is well-organized, includes the exact example prompt you requested, explains all placeholders, and summarizes the debugging conclusions.
+**更新时间**：2026-05-04

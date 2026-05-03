@@ -1553,7 +1553,13 @@
 
   function buildImageSrc(filePath) {
     if (!filePath) return '';
-    return '/files/image?path=' + encodeURIComponent(String(filePath));
+    var s = String(filePath).trim();
+    // UNC 路径（\\server\share\...）走代理接口
+    if (s.startsWith('\\\\') || s.indexOf('\\\\') !== -1) {
+      return '/files/image?path=' + encodeURIComponent(s);
+    }
+    // 普通文件名 / 相对路径：走静态图片目录 /images/
+    return '/images/' + encodeURI(s.replace(/\\/g, '/').replace(/^\/+/, ''));
   }
 
   function openImageLightbox(imgSrc) {

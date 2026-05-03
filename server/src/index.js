@@ -148,6 +148,22 @@ async function build() {
     },
   });
 
+  // 图片静态目录：内网共享图片，独立于前端构建，生产可挂载网络驱动器
+  const imagesDir = process.env.IMAGES_DIR || path.join(__dirname, '..', 'public', 'images');
+  try {
+    await fsp.mkdir(imagesDir, { recursive: true });
+  } catch {}
+  await fastify.register(fastifyStatic, {
+    root: imagesDir,
+    prefix: '/images/',
+    decorateReply: false,
+    setHeaders: () => {
+      // 图片可浏览器缓存 1 小时
+      return { 'Cache-Control': 'public, max-age=3600' };
+    },
+  });
+  fastify.log.info({ imagesDir }, 'serving images static directory at /images/');
+
   return fastify;
 }
 
