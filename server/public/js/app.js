@@ -847,8 +847,7 @@
 
   /**
    * 报表 / 生产报工筛选：扫码填入文本框
-   * - HTTP：浏览器禁止网页直接调摄像头；可用「选择照片识别」（本地解码，不上传）
-   * - HTTPS：可选「实时摄像头」或选图；外接扫码枪仍可直接扫入输入框
+   * 点击即直接启动摄像头；摄像头不可用时回退到选图识别
    */
   function openDynamicReportBarcodeScan(targetInput) {
     if (!targetInput || targetInput.tagName !== 'INPUT') return;
@@ -866,22 +865,11 @@
 
         var hint = document.createElement('p');
         hint.className = 'scan-overlay-hint scan-overlay-hint--multiline';
-        if (!window.isSecureContext) {
-          hint.textContent =
-            '当前为 HTTP 访问：浏览器不允许网页直接打开摄像头（与是否安装插件无关）。\n\n' +
-            '请点下方「选择照片识别」：用手机相机拍清条码后，从相册里选这张图即可识别填入（仅在手机本地解码，不上传服务器）。\n\n' +
-            '若需要「一扫即填」，请部署 HTTPS，或使用外接扫码枪对准输入框扫码。';
-        } else {
-          hint.textContent =
-            '可选「实时摄像头」连续识别，或「选择照片识别」从相册选图。\n解码在浏览器本地完成。';
-        }
+        hint.style.display = 'none';
 
         var readerDiv = document.createElement('div');
         readerDiv.id = readerId;
         readerDiv.className = 'scan-html5-reader';
-
-        var actionsRow = document.createElement('div');
-        actionsRow.className = 'scan-overlay-actions-row';
 
         var fileInput = document.createElement('input');
         fileInput.type = 'file';
@@ -938,10 +926,15 @@
           cleanup();
         }
 
+        // ---- 底部按钮：选图回退 + 关闭 ----
+        var actions = document.createElement('div');
+        actions.className = 'scan-overlay-actions';
+
         var btnFile = document.createElement('button');
         btnFile.type = 'button';
         btnFile.className = 'btn-primary';
         btnFile.textContent = '选择照片识别';
+        btnFile.style.display = 'none';
         bindTap(btnFile, function (ev) {
           if (ev && ev.preventDefault) ev.preventDefault();
           fileInput.click();
@@ -961,52 +954,19 @@
             });
         });
 
-        actionsRow.appendChild(btnFile);
-
-        if (canUseLiveCamera()) {
-          var btnCam = document.createElement('button');
-          btnCam.type = 'button';
-          btnCam.className = 'btn-secondary';
-          btnCam.textContent = '实时摄像头';
-          bindTap(btnCam, function (ev) {
-            if (ev && ev.preventDefault) ev.preventDefault();
-            if (closed || liveStarted) return;
-            liveStarted = true;
-            btnCam.disabled = true;
-            var box = Math.min(280, Math.max(200, window.innerWidth - 48));
-            html5QrCode
-              .start(
-                { facingMode: 'environment' },
-                { fps: 8, qrbox: { width: box, height: Math.min(240, box) } },
-                function (decodedText) {
-                  applyCode(decodedText);
-                },
-                function () {}
-              )
-              .catch(function () {
-                liveStarted = false;
-                btnCam.disabled = false;
-                showToast('无法启动摄像头，请改用「选择照片识别」或外接扫码枪', 5000);
-              });
-          });
-          actionsRow.appendChild(btnCam);
-        }
-
         var btnClose = document.createElement('button');
         btnClose.type = 'button';
         btnClose.className = 'btn-secondary scan-overlay-close';
         btnClose.textContent = '关闭';
         bindTap(btnClose, cleanup);
 
-        var actionsBottom = document.createElement('div');
-        actionsBottom.className = 'scan-overlay-actions';
-        actionsBottom.appendChild(btnClose);
+        actions.appendChild(btnFile);
+        actions.appendChild(btnClose);
 
         panel.appendChild(hint);
         panel.appendChild(readerDiv);
-        panel.appendChild(actionsRow);
+        panel.appendChild(actions);
         panel.appendChild(fileInput);
-        panel.appendChild(actionsBottom);
         overlay.appendChild(panel);
         document.body.appendChild(overlay);
 
@@ -1021,6 +981,37 @@
         overlay.addEventListener('click', function (ev) {
           if (ev.target === overlay) cleanup();
         });
+
+        // ---- 直接启动摄像头 ----
+        function tryStartCamera() {
+          if (!canUseLiveCamera()) {
+            hint.textContent =
+              '当前为 HTTP 访问，无法使用摄像头。\n请点击下方「选择照片识别」从相册选图，或使用外接扫码枪直接扫入。';
+            hint.style.display = '';
+            btnFile.style.display = '';
+            return;
+          }
+          liveStarted = true;
+          var box = Math.min(280, Math.max(200, window.innerWidth - 48));
+          html5QrCode
+            .start(
+              { facingMode: 'environment' },
+              { fps: 8, qrbox: { width: box, height: Math.min(240, box) } },
+              function (decodedText) {
+                applyCode(decodedText);
+              },
+              function () {}
+            )
+            .catch(function () {
+              liveStarted = false;
+              hint.textContent =
+                '无法启动摄像头。\n请点击下方「选择照片识别」从相册选图，或使用外接扫码枪直接扫入。';
+              hint.style.display = '';
+              btnFile.style.display = '';
+            });
+        }
+
+        tryStartCamera();
       })
       .catch(function (err) {
         showToast((err && err.message) || '无法加载扫码组件', 6000);
@@ -1120,8 +1111,7 @@
         btnScan.type = 'button';
         btnScan.className = 'btn-field-scan';
         btnScan.setAttribute('aria-label', '扫码');
-        btnScan.title =
-          '扫码：HTTP 下请选相册照片识别；HTTPS 可用摄像头。外接扫码枪可直接扫入输入框。';
+        btnScan.title = '扫码：点击直接启动摄像头；摄像头不可用时可选相册照片识别。外接扫码枪可直接扫入。';
         btnScan.textContent = '扫码';
         bindTap(btnScan, function (ev) {
           if (ev && ev.preventDefault) ev.preventDefault();
@@ -1552,6 +1542,49 @@
       }
     }
     return s;
+  }
+
+  /** 列名约定：以 _img / _image / _pic / _photo 结尾的列为图片列 */
+  var IMAGE_COLUMN_PATTERN = /_(img|image|pic|photo)$/i;
+
+  function isImageColumn(colName) {
+    return IMAGE_COLUMN_PATTERN.test(String(colName));
+  }
+
+  function buildImageSrc(filePath) {
+    if (!filePath) return '';
+    return '/files/image?path=' + encodeURIComponent(String(filePath));
+  }
+
+  function openImageLightbox(imgSrc) {
+    var overlay = document.createElement('div');
+    overlay.className = 'img-lightbox-overlay';
+    overlay.setAttribute('role', 'dialog');
+    overlay.setAttribute('aria-modal', 'true');
+
+    var img = document.createElement('img');
+    img.className = 'img-lightbox-image';
+    img.src = imgSrc;
+    img.alt = '原图';
+
+    var btnClose = document.createElement('button');
+    btnClose.type = 'button';
+    btnClose.className = 'img-lightbox-close';
+    btnClose.textContent = '✕';
+    btnClose.setAttribute('aria-label', '关闭');
+
+    function close() {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }
+
+    bindTap(btnClose, close);
+    overlay.addEventListener('click', function (ev) {
+      if (ev.target === overlay) close();
+    });
+
+    overlay.appendChild(img);
+    overlay.appendChild(btnClose);
+    document.body.appendChild(overlay);
   }
 
   function armReportOverlayOpenGuard() {
@@ -2635,7 +2668,7 @@
       if (rowDetailOn) {
         tr.className = 'report-row-clickable';
         tr.addEventListener('click', function (e) {
-          if (e.target.closest && e.target.closest('.report-cell-expand')) return;
+          if (e.target.closest && (e.target.closest('.report-cell-expand') || e.target.closest('.report-cell-img'))) return;
           var raw = getRowValueForColumn(row, keyCol);
           if (raw === undefined || raw === null || raw === '') {
             showToast('当前行缺少主键列「' + keyCol + '」');
@@ -2650,28 +2683,61 @@
         var td = document.createElement('td');
         var v = getRowValueForColumn(row, c);
         var display = v == null || v === '' ? '—' : String(v);
-        var inner = document.createElement('div');
-        inner.className = 'report-cell-inner';
-        var textSpan = document.createElement('span');
-        textSpan.className = 'report-cell-text';
-        textSpan.textContent = display;
-        textSpan.title = display !== '—' ? display : '';
-        inner.appendChild(textSpan);
-        if (display !== '—' && display.length > 36) {
-          var exp = document.createElement('button');
-          exp.type = 'button';
-          exp.className = 'report-cell-expand';
-          exp.textContent = '···';
-          exp.setAttribute('aria-label', '查看全文');
-          exp.addEventListener('click', function (ev) {
-            ev.stopPropagation();
+
+        if (isImageColumn(c) && display !== '—') {
+          // 图片列：渲染缩略图
+          var imgSrc = buildImageSrc(display);
+          var inner = document.createElement('div');
+          inner.className = 'report-cell-inner report-cell-inner--img';
+
+          var imgEl = document.createElement('img');
+          imgEl.className = 'report-cell-img';
+          imgEl.src = imgSrc;
+          imgEl.alt = display;
+          imgEl.loading = 'lazy';
+          imgEl.title = '点击查看原图';
+          bindTap(imgEl, function (ev) {
+            if (ev && ev.preventDefault) ev.preventDefault();
+            openImageLightbox(imgSrc);
           });
-          bindTap(exp, function () {
-            openReportTextOverlay(c, display);
+
+          var errPlaceholder = document.createElement('span');
+          errPlaceholder.className = 'report-cell-img-err';
+          errPlaceholder.textContent = '加载失败';
+          errPlaceholder.style.display = 'none';
+
+          imgEl.addEventListener('error', function () {
+            imgEl.style.display = 'none';
+            errPlaceholder.style.display = '';
           });
-          inner.appendChild(exp);
+
+          inner.appendChild(imgEl);
+          inner.appendChild(errPlaceholder);
+          td.appendChild(inner);
+        } else {
+          var inner = document.createElement('div');
+          inner.className = 'report-cell-inner';
+          var textSpan = document.createElement('span');
+          textSpan.className = 'report-cell-text';
+          textSpan.textContent = display;
+          textSpan.title = display !== '—' ? display : '';
+          inner.appendChild(textSpan);
+          if (display !== '—' && display.length > 36) {
+            var exp = document.createElement('button');
+            exp.type = 'button';
+            exp.className = 'report-cell-expand';
+            exp.textContent = '···';
+            exp.setAttribute('aria-label', '查看全文');
+            exp.addEventListener('click', function (ev) {
+              ev.stopPropagation();
+            });
+            bindTap(exp, function () {
+              openReportTextOverlay(c, display);
+            });
+            inner.appendChild(exp);
+          }
+          td.appendChild(inner);
         }
-        td.appendChild(inner);
         tr.appendChild(td);
       });
       tbody.appendChild(tr);

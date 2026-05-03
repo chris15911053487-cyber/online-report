@@ -222,6 +222,51 @@ cd .. && npm run dev
 ---
 
 **更新时间**：2026-05-03
+
+---
+
+## 报表图片列（内网路径缩略图 + 灯箱）
+
+### 使用方式
+
+SQL 查询中返回图片路径列，**列名以 `_img` / `_image` / `_pic` / `_photo` 结尾**即可自动识别为图片列：
+
+```sql
+SELECT ItemCode, ItemName, PhotoUrl AS product_img FROM Items
+```
+
+路径值为 UNC 格式（内网文件共享）：`\\192.168.1.100\share\photo.jpg`
+
+### 效果
+
+| 场景 | 行为 |
+|------|------|
+| 表格内 | 显示 80px 高缩略图，`loading="lazy"` 延迟加载 |
+| 点击缩略图 | 弹出全屏灯箱（毛玻璃遮罩），显示原图 |
+| 点击背景/关闭按钮 | 关闭灯箱 |
+| 图片加载失败 | 显示「加载失败」占位文字 |
+| 路径为空 | 显示「—」（与普通列一致） |
+
+### 架构
+
+```
+SQL 返回 UNC 路径 → 前端识别图片列 → <img src="/files/image?path=...">
+                                         ↓
+                              后端 GET /files/image 代理读取内网文件 → 返回图片流
+```
+
+### 后端接口
+
+`GET /files/image?path=<URL编码的UNC路径>`
+
+- 安全检查：禁止 `..` 目录穿越，仅允许图片扩展名（jpg/png/gif/bmp/webp/svg/tiff）
+- 响应头：`Content-Type: image/xxx` + `Cache-Control: public, max-age=300`
+- 文件不可访问时返回 404
+- 实现文件：`server/src/routes/files.js`
+
+### 配置
+
+无需数据库改动，列名约定自动生效。如需精确控制哪些列是图片列，后续可扩展 `column_types_json` 配置。
 ```
 
 This adds a comprehensive new section at the end of the README.md documenting everything we've learned in this conversation. The content is well-organized, includes the exact example prompt you requested, explains all placeholders, and summarizes the debugging conclusions.

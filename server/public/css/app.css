@@ -1977,3 +1977,80 @@ body.has-pro-sign-list-sticky .main {
   border: 1px solid #e2e8f0;
   border-radius: 8px;
 }
+
+/* ---------- 报表图片列 ---------- */
+.report-cell-inner--img {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 60px;
+  min-height: 50px;
+}
+
+.report-cell-img {
+  display: block;
+  max-height: 80px;
+  max-width: 120px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+  border: 1px solid #e2e8f0;
+}
+
+.report-cell-img:hover {
+  transform: scale(1.06);
+  border-color: #3b82f6;
+  box-shadow: 0 2px 12px rgba(59, 130, 246, 0.25);
+}
+
+.report-cell-img-err {
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+/* ---------- 图片灯箱 ---------- */
+.img-lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  background: rgba(0, 0, 0, 0.82);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  backdrop-filter: blur(4px);
+}
+
+.img-lightbox-image {
+  max-width: 92vw;
+  max-height: 92vh;
+  object-fit: contain;
+  border-radius: 10px;
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+}
+
+.img-lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.img-lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
