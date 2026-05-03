@@ -297,6 +297,10 @@ async function insertXOnlineSignHeaderAndGetDocEntry(transaction, header, mode) 
     header && header.operatorCodes != null && String(header.operatorCodes).trim() !== ''
       ? String(header.operatorCodes).trim().slice(0, 500)
       : null;
+  const signType =
+    header && header.signType != null && String(header.signType).trim() !== ''
+      ? String(header.signType).trim().slice(0, 20)
+      : null;
   if (!mode || !mode.hasTable) {
     const e = new Error('X_ONLINE_SIGN missing');
     e.code = 'ONLINE_SIGN_NO_TABLE';
@@ -309,9 +313,10 @@ async function insertXOnlineSignHeaderAndGetDocEntry(transaction, header, mode) 
       .input('stepName', sql.NVarChar(200), stepName)
       .input('signAt', sql.DateTime2, signAt)
       .input('operatorCodes', sql.NVarChar(500), operatorCodes)
+      .input('signType', sql.NVarChar(20), signType)
       .query(
-        `INSERT INTO dbo.X_ONLINE_SIGN (Remarks, StepCode, StepName, SignAt, OperatorCodes)
-         VALUES (@remarks, @stepCode, @stepName, @signAt, @operatorCodes);
+        `INSERT INTO dbo.X_ONLINE_SIGN (Remarks, StepCode, StepName, SignAt, OperatorCodes, SignType)
+         VALUES (@remarks, @stepCode, @stepName, @signAt, @operatorCodes, @signType);
          SELECT CAST(SCOPE_IDENTITY() AS INT) AS DocEntry;`
       );
     let de = pickDocEntryFromMssqlResult(out);
@@ -357,9 +362,10 @@ async function insertXOnlineSignHeaderAndGetDocEntry(transaction, header, mode) 
     .input('stepName', sql.NVarChar(200), stepName)
     .input('signAt', sql.DateTime2, signAt)
     .input('operatorCodes', sql.NVarChar(500), operatorCodes)
+    .input('signType', sql.NVarChar(20), signType)
     .query(
-      `INSERT INTO dbo.X_ONLINE_SIGN (DocEntry, Remarks, StepCode, StepName, SignAt, OperatorCodes)
-       VALUES (@d, @remarks, @stepCode, @stepName, @signAt, @operatorCodes);`
+      `INSERT INTO dbo.X_ONLINE_SIGN (DocEntry, Remarks, StepCode, StepName, SignAt, OperatorCodes, SignType)
+       VALUES (@d, @remarks, @stepCode, @stepName, @signAt, @operatorCodes, @signType);`
     );
   return de;
 }
@@ -660,6 +666,10 @@ async function proSignRoutes(fastify) {
           : null;
       const signAt = parseSignAtFromBody(body);
       const operatorCodesJoined = normalizeOperatorCodesForDb(body, userCode);
+      const signType =
+        body.signType != null && String(body.signType).trim() !== ''
+          ? String(body.signType).trim().slice(0, 20)
+          : null;
 
       const pool = await getPool();
       const signMode = await getXOnlineSignHeaderMode(pool);
@@ -683,6 +693,7 @@ async function proSignRoutes(fastify) {
               stepName,
               signAt,
               operatorCodes: operatorCodesJoined,
+              signType,
             },
             signMode
           );

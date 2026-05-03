@@ -166,7 +166,62 @@ cd .. && npm run dev
 
 ---
 
-**更新时间**：2026-04-26
+## 合并报工（生产报工 / Pro-Sign）
+
+### 两种报工流程
+
+系统支持两种报工方式：
+
+**1. 批次报工**（`X_report_batch` + `work_reports`）
+- 从列表选择订单工序 → 创建批次 → 接单开工 → 计时（可暂停/继续） → 提交报工数量
+- 路由：`POST /pro-sign/batches` → `/batches/:id/accept` → `/pause` / `/resume` → `/submit`
+
+**2. 合并报工**（`X_ONLINE_SIGN` + `X_ONLINE_SIGN1`）
+- 列表勾选多行 → 预检（调用存储过程 `Z_ONLINE_TOOWORSIGN_DETAIL`） → 全屏接单页 → 确认保存
+- 路由：`POST /pro-sign/toowor-sign-detail`（预检） → `POST /pro-sign/online-sign-save`（保存）
+
+### 合并报工表结构
+
+**抬头表 `X_ONLINE_SIGN`**：
+
+| 列名 | 类型 | 说明 |
+|---|---|---|
+| DocEntry | INT IDENTITY | 主键 |
+| Remarks | NVARCHAR(500) | 备注 |
+| StepCode | NVARCHAR(100) | 工序编码（取首行） |
+| StepName | NVARCHAR(200) | 工序名称（取首行） |
+| SignAt | DATETIME2 | 报工时间 |
+| OperatorCodes | NVARCHAR(500) | 操作员代码（逗号分隔，多人） |
+| **SignType** | NVARCHAR(20) | **接单/完工 区分** |
+
+**明细表 `X_ONLINE_SIGN1`**：DocEntry, LineId, BaseEntry, Quantity, LastStepCode/Name/Time, PC, ItemName
+
+### SignType 字段说明
+
+保存时根据列表页 Status 筛选条件自动判断：
+
+| Status 筛选值 | SignType 写入值 | 含义 |
+|---|---|---|
+| `0` | `接单` | 接单开工 |
+| `1` | `完工` | 完工汇报 |
+| 未筛选/其他 | `合并报工` | 常规合并报工 |
+
+**前端传递链路**：列表页 `Status` 筛选 → `proSignMergeButtonLabel()`（`app.js:1341`） → `state.proSignReceiveMergeButtonLabel` → `collectProSignOnlineSaveRequest()` 写入 `body.signType` → 后端解析并存入 `X_ONLINE_SIGN.SignType`
+
+### 相关文件
+
+- `server/src/routes/pro-sign.js` — 全部报工 API（批次 + 合并）
+- `server/public/js/app.js` — 旧前端完整报工 UI（列表、接单页、保存预览）
+- `server/sql/migrate-x-online-sign.sql` — X_ONLINE_SIGN / X_ONLINE_SIGN1 建表及升级
+- `frontend/src/views/CatalogView.tsx` — React 前端暂未迁移 ProSign 视图（TODO）
+
+### 操作员数据源
+
+接单页操作员多选列表来自视图 `dbo.X_ONLINE_VIEW_OHEM`（`GET /pro-sign/online-sign-operators`）。若视图不可用，返回空列表但不报错。
+
+---
+
+**更新时间**：2026-05-03
 ```
 
 This adds a comprehensive new section at the end of the README.md documenting everything we've learned in this conversation. The content is well-organized, includes the exact example prompt you requested, explains all placeholders, and summarizes the debugging conclusions.

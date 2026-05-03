@@ -2179,6 +2179,7 @@
         stepCode: stepCode,
         stepName: stepName,
         operatorCodes: operatorCodes,
+        signType: state.proSignReceiveMergeButtonLabel || null,
         lines: lines,
       },
     };
