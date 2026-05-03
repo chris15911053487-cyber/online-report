@@ -880,33 +880,27 @@
         var liveStarted = false;
         var closed = false;
 
+        function forceStopReaderTracks() {
+          try {
+            var video = readerDiv.querySelector('video');
+            if (video && video.srcObject) {
+              video.srcObject.getTracks().forEach(function (t) { t.stop(); });
+              video.srcObject = null;
+            }
+          } catch (e) {}
+        }
+
         function shutdownCamera() {
+          forceStopReaderTracks();
           if (!liveStarted || !html5QrCode) {
             return Promise.resolve();
           }
           liveStarted = false;
-          var instance = html5QrCode;
-          html5QrCode = null;
-          var stopped = instance.stop().catch(function () {});
-          var timedOut = new Promise(function (resolve) {
-            setTimeout(resolve, 3000);
-          });
-          return Promise.race([stopped, timedOut]).then(function () {
-            try {
-              var readerEl = document.getElementById(readerId);
-              if (readerEl) {
-                var video = readerEl.querySelector('video');
-                if (video && video.srcObject) {
-                  var tracks = video.srcObject.getTracks();
-                  for (var ti = 0; ti < tracks.length; ti++) {
-                    tracks[ti].stop();
-                  }
-                }
-              }
-            } catch (eMedia) {}
-            try {
-              instance.clear();
-            } catch (e0) {}
+          var stopPromise = html5QrCode.stop().catch(function () {});
+          var timeout = new Promise(function (resolve) { setTimeout(resolve, 3000); });
+          return Promise.race([stopPromise, timeout]).then(function () {
+            forceStopReaderTracks();
+            try { html5QrCode.clear(); } catch (e) {}
           });
         }
 
@@ -999,7 +993,6 @@
             btnFile.style.display = '';
             return;
           }
-          liveStarted = true;
           var box = Math.min(280, Math.max(200, window.innerWidth - 48));
           html5QrCode
             .start(
@@ -1010,8 +1003,10 @@
               },
               function () {}
             )
+            .then(function () {
+              if (!closed) liveStarted = true;
+            })
             .catch(function () {
-              liveStarted = false;
               hint.textContent =
                 '无法启动摄像头。\n请点击下方「选择照片识别」从相册选图，或使用外接扫码枪直接扫入。';
               hint.style.display = '';
