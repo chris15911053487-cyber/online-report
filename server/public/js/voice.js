@@ -152,6 +152,18 @@
   // ---- 录音 ----
   var micStream = null;       // cached stream to avoid re-requesting permission
   var micStreamRefs = 0;
+  var sharedAudioCtx = null;  // 复用 AudioContext，避免反复 close → new 的异步冲突
+
+  function getOrCreateAudioCtx() {
+    if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
+      var Ctor = window.AudioContext || window.webkitAudioContext;
+      sharedAudioCtx = new Ctor({ sampleRate: 16000 });
+    }
+    if (sharedAudioCtx.state === 'suspended') {
+      sharedAudioCtx.resume();
+    }
+    return sharedAudioCtx;
+  }
 
   function releaseStream() {
     micStreamRefs--;
@@ -167,30 +179,34 @@
       micStream = stream;
       micStreamRefs++;
 
-      var audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
-      var actualRate = audioCtx.sampleRate;
-      var source = audioCtx.createMediaStreamSource(stream);
-      var processor = audioCtx.createScriptProcessor(4096, 1, 1);
-      var chunks = [];
+      try {
+        var ctx = getOrCreateAudioCtx();
+        var actualRate = ctx.sampleRate;
+        var source = ctx.createMediaStreamSource(stream);
+        var processor = ctx.createScriptProcessor(4096, 1, 1);
+        var chunks = [];
 
-      processor.onaudioprocess = function (e) {
-        chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
-      };
+        processor.onaudioprocess = function (e) {
+          chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+        };
 
-      source.connect(processor);
-      processor.connect(audioCtx.destination);
+        source.connect(processor);
+        processor.connect(ctx.destination);
 
-      var rec = {
-        stop: function () {
-          source.disconnect();
-          processor.disconnect();
-          audioCtx.close();
-          releaseStream();
-          return { chunks: chunks, sampleRate: actualRate };
-        }
-      };
+        var rec = {
+          stop: function () {
+            source.disconnect();
+            processor.disconnect();
+            // 不复用 audioCtx.close()，避免异步 close 与下次 new 冲突
+            releaseStream();
+            return { chunks: chunks, sampleRate: actualRate };
+          }
+        };
 
-      cb(null, rec);
+        cb(null, rec);
+      } catch (e) {
+        cb(new Error('录音启动失败: ' + (e.message || 'unknown')));
+      }
     }
 
     if (micStream && micStream.active) {
