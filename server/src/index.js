@@ -19,6 +19,7 @@ const proSignRoutes = require('./routes/pro-sign');
 const registerOworRoutes = require('./routes/owor');
 const aiRoutes = require('./routes/ai');
 const filesRoutes = require('./routes/files');
+const speechRoutes = require('./routes/speech');
 const { getPool } = require('./db');
 const ensureNavMenuSchema = require('./ensure-nav-menu-schema');
 
@@ -92,6 +93,7 @@ async function build() {
   await fastify.register(proSignRoutes);
   await fastify.register(aiRoutes);
   await fastify.register(filesRoutes);
+  await fastify.register(speechRoutes);
   registerOworRoutes(fastify);
 
   fastify.get('/health', async () => ({ ok: true, ts: new Date().toISOString() }));
