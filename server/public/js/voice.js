@@ -154,8 +154,6 @@
   }
 
   // ---- 录音 ----
-  var micStream = null;       // cached stream to avoid re-requesting permission
-  var micStreamRefs = 0;
   var sharedAudioCtx = null;  // 复用 AudioContext，避免反复 close → new 的异步冲突
 
   function getOrCreateAudioCtx() {
@@ -169,58 +167,40 @@
     return sharedAudioCtx;
   }
 
-  function releaseStream() {
-    micStreamRefs--;
-    if (micStreamRefs <= 0 && micStream) {
-      micStream.getTracks().forEach(function (t) { t.stop(); });
-      micStream = null;
-      micStreamRefs = 0;
-    }
-  }
-
   function startRecording(cb) {
-    function doStart(stream) {
-      micStream = stream;
-      micStreamRefs++;
-
-      try {
-        var ctx = getOrCreateAudioCtx();
-        var actualRate = ctx.sampleRate;
-        var source = ctx.createMediaStreamSource(stream);
-        var processor = ctx.createScriptProcessor(4096, 1, 1);
-        var chunks = [];
-
-        processor.onaudioprocess = function (e) {
-          chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
-        };
-
-        source.connect(processor);
-        processor.connect(ctx.destination);
-
-        var rec = {
-          stop: function () {
-            source.disconnect();
-            processor.disconnect();
-            // 不复用 audioCtx.close()，避免异步 close 与下次 new 冲突
-            releaseStream();
-            return { chunks: chunks, sampleRate: actualRate };
-          }
-        };
-
-        cb(null, rec);
-      } catch (e) {
-        cb(new Error('录音启动失败: ' + (e.message || 'unknown')));
-      }
-    }
-
-    if (micStream && micStream.active) {
-      doStart(micStream);
-      return;
-    }
-
     navigator.mediaDevices.getUserMedia({ audio: true })
-      .then(function (stream) { doStart(stream); })
-      .catch(function () { cb(new Error('麦克风权限未授权')); });
+      .then(function (stream) {
+        try {
+          var ctx = getOrCreateAudioCtx();
+          var actualRate = ctx.sampleRate;
+          var source = ctx.createMediaStreamSource(stream);
+          var processor = ctx.createScriptProcessor(4096, 1, 1);
+          var chunks = [];
+
+          processor.onaudioprocess = function (e) {
+            chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+          };
+
+          source.connect(processor);
+          processor.connect(ctx.destination);
+
+          var rec = {
+            stop: function () {
+              source.disconnect();
+              processor.disconnect();
+              stream.getTracks().forEach(function (t) { t.stop(); });
+              return { chunks: chunks, sampleRate: actualRate };
+            }
+          };
+
+          cb(null, rec);
+        } catch (e) {
+          cb(new Error('录音启动失败: ' + (e.message || 'unknown')));
+        }
+      })
+      .catch(function () {
+        cb(new Error('麦克风权限未授权'));
+      });
   }
 
   // ---- 调用百度 ASR ----
@@ -363,18 +343,6 @@
       }, 10000);
     });
   });
-
-  // ---- 预获取麦克风权限（避免 pointerup 时流还没就绪）----
-  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-    navigator.mediaDevices.getUserMedia({ audio: true })
-      .then(function (stream) {
-        micStream = stream;
-        micStreamRefs = 1;
-      })
-      .catch(function () {
-        // 用户拒绝权限，后续按钮操作会提示错误
-      });
-  }
 
   // ---- 挂载到页面 ----
   document.body.appendChild(wrapper);
