@@ -5,11 +5,13 @@
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
-    "ios": "expo start --ios"
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "dependencies": {
+    "@react-native-async-storage/async-storage": "1.23.1",
     "expo": "~52.0.0",
+    "expo-sensors": "~14.0.2",
     "expo-speech-recognition": "~1.1.1",
     "expo-status-bar": "~2.0.0",
     "react": "18.3.1",
