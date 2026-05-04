@@ -85,11 +85,9 @@
   var micEl = btnEl.querySelector('.voice-btn__mic');
 
   // ---- 状态 ----
-  var hasGetUserMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
   var state = 'idle';     // 'idle' | 'recording' | 'processing'
   var recording = null;   // { stop: fn, chunks: [], sampleRate: number }
   var maxRecordTimer = null;
-  var fileInput = null;   // 手机端：隐藏的 <input type="file" accept="audio/*" capture>
 
   function showBubble(msg, autoHide) {
     bubble.textContent = msg;
@@ -254,46 +252,6 @@
       .catch(function (err) { cb(err); });
   }
 
-  // ---- 手机端：读取录音文件并发送给百度 ASR ----
-  function recognizeFile(file, cb) {
-    var reader = new FileReader();
-    reader.onload = function () {
-      var dataUrl = reader.result;
-      var base64 = dataUrl.split(',')[1];
-
-      var mime = file.type || 'audio/mp4';
-      var format = 'm4a';
-      if (mime.indexOf('wav') !== -1) format = 'wav';
-      else if (mime.indexOf('amr') !== -1) format = 'amr';
-      else if (mime.indexOf('mp4') !== -1 || mime.indexOf('m4a') !== -1 || mime.indexOf('aac') !== -1) format = 'm4a';
-      else if (mime.indexOf('mp3') !== -1 || mime.indexOf('mpeg') !== -1) format = 'mp3';
-      else if (mime.indexOf('webm') !== -1) format = 'webm';
-      else if (mime.indexOf('ogg') !== -1) format = 'ogg';
-
-      sendDebugLog('[NATIVE_FORMAT] mime=' + mime + ' format=' + format);
-
-      var headers = { 'Content-Type': 'application/json' };
-      var token = localStorage.getItem('online_report_token');
-      if (token) headers.Authorization = 'Bearer ' + token;
-
-      fetch('/api/speech/recognize', {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify({ audio: base64, format: format, rate: 16000 }),
-      })
-        .then(function (res) { return res.json(); })
-        .then(function (json) {
-          if (json.error) { cb(new Error(json.error)); return; }
-          cb(null, json.text || '');
-        })
-        .catch(function (err) { cb(err); });
-    };
-    reader.onerror = function () {
-      cb(new Error('文件读取失败'));
-    };
-    reader.readAsDataURL(file);
-  }
-
   // ---- 按钮交互 ----
   function stopAndRecognize() {
     if (maxRecordTimer) {
@@ -361,19 +319,7 @@
       return;
     }
 
-    // state === 'idle'
-    if (!hasGetUserMedia) {
-      // 手机端：调起原生录音器
-      state = 'recording';
-      showBubble('正在聆听...', false);
-      btnEl.classList.add('voice-btn--listening');
-      micEl.classList.add('voice-btn__mic--listening');
-      sendDebugLog('[NATIVE] opening recorder');
-      fileInput.click();
-      return;
-    }
-
-    // 桌面端：AudioContext 录音
+    // state === 'idle' — 开始录音
     sendDebugLog('[START] user clicked to start');
     state = 'recording';
     showBubble('正在聆听...', false);
@@ -402,8 +348,8 @@
     });
   });
 
-  // ---- 预获取麦克风权限 / 手机端文件输入器 ----
-  if (hasGetUserMedia) {
+  // ---- 预获取麦克风权限（避免 pointerup 时流还没就绪）----
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
     navigator.mediaDevices.getUserMedia({ audio: true })
       .then(function (stream) {
         micStream = stream;
@@ -412,50 +358,6 @@
       .catch(function () {
         // 用户拒绝权限，后续按钮操作会提示错误
       });
-  } else {
-    // 手机端：隐藏的 <input type="file"> 用于调起原生录音器
-    fileInput = document.createElement('input');
-    fileInput.type = 'file';
-    fileInput.accept = 'audio/*';
-    fileInput.capture = true;
-    fileInput.style.display = 'none';
-    fileInput.addEventListener('change', function () {
-      var file = fileInput.files && fileInput.files[0];
-      if (!file) {
-        // 用户取消录音
-        state = 'idle';
-        btnEl.classList.remove('voice-btn--listening');
-        micEl.classList.remove('voice-btn__mic--listening');
-        bubble.hidden = true;
-        sendDebugLog('[NATIVE_CANCEL] no file selected');
-        return;
-      }
-      state = 'processing';
-      showBubble('识别中...', false);
-      btnEl.classList.remove('voice-btn--listening');
-      micEl.classList.remove('voice-btn__mic--listening');
-      sendDebugLog('[NATIVE_FILE] ' + file.name + ' size=' + file.size);
-
-      recognizeFile(file, function (err, text) {
-        state = 'idle';
-        if (err) {
-          sendDebugLog('[ASR_FAIL] ' + (err.message || 'unknown'));
-          showBubble('识别失败: ' + (err.message || '请重试'), true);
-          return;
-        }
-
-        var matched = match(text);
-        if (matched) {
-          showBubble('已执行: ' + text, true);
-          matched.handler();
-        } else if (text) {
-          showBubble('"' + text + '" 未匹配到指令', true);
-        } else {
-          showBubble('未识别到语音，请重试', true);
-        }
-      });
-    });
-    wrapper.appendChild(fileInput);
   }
 
   // ---- 挂载到页面 ----
@@ -473,5 +375,5 @@
   document.head.appendChild(style);
 
   // 页面加载完成标记，方便排查 voice.js 是否正确初始化
-  sendDebugLog('[PAGE_READY] voice.js loaded, getUserMedia=' + hasGetUserMedia);
+  sendDebugLog('[PAGE_READY] voice.js loaded, getUserMedia=' + (!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)));
 })();
