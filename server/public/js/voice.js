@@ -208,9 +208,13 @@
     var wav = pcmChunksToWav(chunks, sampleRate || 16000);
     var base64 = arrayBufferToBase64(wav);
 
+    var headers = { 'Content-Type': 'application/json' };
+    var token = localStorage.getItem('online_report_token');
+    if (token) headers.Authorization = 'Bearer ' + token;
+
     fetch('/api/speech/recognize', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: headers,
       body: JSON.stringify({ audio: base64, format: 'wav', rate: sampleRate || 16000 }),
     })
       .then(function (res) { return res.json(); })
