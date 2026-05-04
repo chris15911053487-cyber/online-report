@@ -1,6 +1,10 @@
 (function () {
   'use strict';
 
+  // ==================== 功能开关 ====================
+  var voiceMeta = document.querySelector('meta[name="voice-enabled"]');
+  if (voiceMeta && voiceMeta.content === 'false') return;
+
   var isInApp = !!window.ReactNativeWebView;
 
   // ==================== 指令注册表 ====================
@@ -281,6 +285,12 @@
 
     var result = recording.stop();
     recording = null;
+
+    var totalSamples = 0;
+    for (var i = 0; i < result.chunks.length; i++) {
+      totalSamples += result.chunks[i].length;
+    }
+    sendDebugLog('[AUDIO] chunks=' + result.chunks.length + ' samples=' + totalSamples + ' rate=' + result.sampleRate);
 
     recognizeAudio(result.chunks, result.sampleRate, function (err, text) {
       state = 'idle';

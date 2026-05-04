@@ -93,8 +93,26 @@ async function build() {
   await fastify.register(proSignRoutes);
   await fastify.register(aiRoutes);
   await fastify.register(filesRoutes);
-  await fastify.register(speechRoutes);
+
+  // 语音功能开关（默认启用，设 VOICE_ENABLED=false 关闭）
+  const voiceEnabled = process.env.VOICE_ENABLED !== 'false';
+  if (voiceEnabled) {
+    await fastify.register(speechRoutes);
+    fastify.log.info('voice feature enabled');
+  } else {
+    fastify.log.info('voice feature disabled via VOICE_ENABLED=false');
+  }
+
   registerOworRoutes(fastify);
+
+  // 向 HTML 页面注入 voice-enabled meta 标签，前端据此决定是否挂载语音按钮
+  fastify.addHook('onSend', async (_request, _reply, payload) => {
+    const str = typeof payload === 'string' ? payload : payload.toString('utf-8');
+    if (str.includes('</head>')) {
+      return str.replace('</head>', '<meta name="voice-enabled" content="' + (voiceEnabled ? 'true' : 'false') + '">\n</head>');
+    }
+    return payload;
+  });
 
   fastify.get('/health', async () => ({ ok: true, ts: new Date().toISOString() }));
 
