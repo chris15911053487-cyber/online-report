@@ -154,41 +154,43 @@
   }
 
   // ---- 录音 ----
-  var sharedAudioCtx = null;  // 复用 AudioContext，避免反复 close → new 的异步冲突
-
-  function getOrCreateAudioCtx() {
-    if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
-      var Ctor = window.AudioContext || window.webkitAudioContext;
-      sharedAudioCtx = new Ctor({ sampleRate: 16000 });
-    }
-    if (sharedAudioCtx.state === 'suspended') {
-      sharedAudioCtx.resume();
-    }
-    return sharedAudioCtx;
-  }
-
   function startRecording(cb) {
     navigator.mediaDevices.getUserMedia({ audio: true })
       .then(function (stream) {
+        var audioTrack = stream.getAudioTracks()[0];
+        // 强制启用音轨，确保未被浏览器静音
+        if (audioTrack) audioTrack.enabled = true;
+        sendDebugLog('[TRACK] kind=' + (audioTrack ? audioTrack.kind : 'none') + ' enabled=' + (audioTrack ? audioTrack.enabled : '?') + ' muted=' + (audioTrack ? audioTrack.muted : '?') + ' readyState=' + (audioTrack ? audioTrack.readyState : '?'));
+
         try {
-          var ctx = getOrCreateAudioCtx();
+          var Ctor = window.AudioContext || window.webkitAudioContext;
+          // 每次创建全新 AudioContext，不共享，避免旧上下文状态污染
+          var ctx = new Ctor();
           var actualRate = ctx.sampleRate;
           var source = ctx.createMediaStreamSource(stream);
-          var processor = ctx.createScriptProcessor(4096, 1, 1);
+          // bufferSize=0 让浏览器自动选择最佳值
+          var processor = ctx.createScriptProcessor(0, 1, 1);
           var chunks = [];
 
           processor.onaudioprocess = function (e) {
-            chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+            var inputData = new Float32Array(e.inputBuffer.getChannelData(0));
+            chunks.push(inputData);
           };
 
           source.connect(processor);
-          processor.connect(ctx.destination);
+          // 连接到静音 GainNode 而非 destination，避免回声
+          var silenceGain = ctx.createGain();
+          silenceGain.gain.value = 0;
+          processor.connect(silenceGain);
+          silenceGain.connect(ctx.destination);
 
           var rec = {
             stop: function () {
               source.disconnect();
               processor.disconnect();
+              silenceGain.disconnect();
               stream.getTracks().forEach(function (t) { t.stop(); });
+              ctx.close();
               return { chunks: chunks, sampleRate: actualRate };
             }
           };
@@ -331,7 +333,7 @@
         sendDebugLog('[REC_ERROR] ' + err.message);
         return;
       }
-      sendDebugLog('[REC_OK] AudioContext state=' + (sharedAudioCtx ? sharedAudioCtx.state : 'none'));
+      sendDebugLog('[REC_OK] recording started');
       recording = rec;
 
       // 10 秒最大录音时长，超时自动停止
