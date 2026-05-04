@@ -43,18 +43,51 @@
     }
   }
 
+  // ==================== DOM 查找工具 ====================
+  // 按 data 属性查找按钮，同时回退到按文字内容匹配（兼容未重新构建的前端）
+  function findNavButton(label) {
+    // 1) 优先 data-nav-tab（React 重新构建后）
+    var btn = document.querySelector('[data-nav-tab="' + label + '"]');
+    if (btn) return btn;
+    // 2) 兼容旧版 SPA 的 data-root-tab
+    btn = document.querySelector('[data-root-tab="' + label + '"]');
+    if (btn) return btn;
+    // 3) 回退：在底部导航栏中按文字内容查找
+    var nav = document.querySelector('.bottom-nav') || document.querySelector('#bottom-nav');
+    if (nav) {
+      var buttons = nav.querySelectorAll('button');
+      for (var i = 0; i < buttons.length; i++) {
+        if (buttons[i].textContent.indexOf(label) !== -1) return buttons[i];
+      }
+    }
+    // 4) 全局查找包含该文字的按钮
+    var allButtons = document.querySelectorAll('button');
+    for (var i = 0; i < allButtons.length; i++) {
+      if (allButtons[i].textContent.indexOf(label) !== -1) return allButtons[i];
+    }
+    return null;
+  }
+
   // ==================== 全局指令 ====================
   addCmd(['返回', '主界面', '目录', '首页', '主页'], function () {
-    var btn = document.querySelector('[data-nav-tab="catalog"]') || document.querySelector('[data-root-tab="catalog"]');
+    var btn = findNavButton('目录') || findNavButton('首页') || findNavButton('主页');
     if (btn) btn.click();
   });
 
   addCmd(['退出登录', '注销', '登出'], function () {
-    var settingsTab = document.querySelector('[data-nav-tab="settings"]') || document.querySelector('[data-root-tab="settings"]');
+    var settingsTab = findNavButton('设置');
     if (settingsTab) settingsTab.click();
     setTimeout(function () {
       var logoutBtn = document.getElementById('btn-settings-logout');
-      if (logoutBtn) logoutBtn.click();
+      if (logoutBtn) { logoutBtn.click(); return; }
+      // 回退：在页面中找"退出"按钮
+      var allButtons = document.querySelectorAll('button');
+      for (var i = 0; i < allButtons.length; i++) {
+        if (allButtons[i].textContent.indexOf('退出') !== -1) {
+          allButtons[i].click();
+          return;
+        }
+      }
     }, 100);
   });
 
@@ -297,13 +330,18 @@
         return;
       }
 
+      sendDebugLog('[ASR_OK] text=' + text);
+
       var matched = match(text);
       if (matched) {
+        sendDebugLog('[MATCH_OK] text=' + text + ' keywords=' + matched.keywords.join(','));
         showBubble('已执行: ' + text, true);
         matched.handler();
       } else if (text) {
+        sendDebugLog('[NO_MATCH] text=' + text);
         showBubble('"' + text + '" 未匹配到指令', true);
       } else {
+        sendDebugLog('[EMPTY] text is empty');
         showBubble('未识别到语音，请重试', true);
       }
     });
