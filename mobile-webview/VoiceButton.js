@@ -1,18 +1,12 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import { StyleSheet, TouchableOpacity, Animated, View, Text } from 'react-native';
-import { useSpeechRecognition } from 'expo-speech-recognition';
+import { ExpoWebSpeechRecognition } from 'expo-speech-recognition';
 
 export default function VoiceButton({ webViewRef }) {
   const [isListening, setIsListening] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
-
-  const {
-    startListening,
-    stopListening,
-    transcript,
-    error,
-    resetTranscript,
-  } = useSpeechRecognition({ lang: 'zh-CN', interimResults: true });
+  const recognitionRef = useRef(null);
+  const transcriptRef = useRef('');
 
   // Pulse animation when listening
   useEffect(() => {
@@ -28,39 +22,55 @@ export default function VoiceButton({ webViewRef }) {
     }
   }, [isListening]);
 
-  // Handle errors
-  useEffect(() => {
-    if (error) {
-      setIsListening(false);
-      stopListening();
-      resetTranscript();
+  const injectToWebView = useCallback((text) => {
+    if (text && webViewRef.current) {
+      const escaped = text.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      webViewRef.current.injectJavaScript(
+        `window.__voiceExec && window.__voiceExec('${escaped}')`
+      );
     }
-  }, [error]);
+  }, [webViewRef]);
 
   const handlePressIn = useCallback(() => {
+    const recognition = new ExpoWebSpeechRecognition();
+    recognition.lang = 'zh-CN';
+    recognition.interimResults = true;
+    recognition.continuous = false;
+
+    recognition.onresult = (event) => {
+      if (event.results && event.results[0]) {
+        transcriptRef.current = event.results[0][0]?.transcript || '';
+      }
+    };
+
+    recognition.onerror = () => {
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      // Inject result after recognition ends
+      setTimeout(() => {
+        const text = transcriptRef.current;
+        if (text) {
+          injectToWebView(text.trim());
+          transcriptRef.current = '';
+        }
+      }, 300);
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
     setIsListening(true);
-    resetTranscript();
-    startListening();
-  }, [startListening, resetTranscript]);
+    transcriptRef.current = '';
+  }, [injectToWebView]);
 
   const handlePressOut = useCallback(() => {
-    setIsListening(false);
-    stopListening();
-  }, [stopListening]);
-
-  // When recognition completes, inject result into WebView
-  useEffect(() => {
-    if (!isListening && transcript) {
-      const text = transcript.trim();
-      if (text && webViewRef.current) {
-        const escaped = text.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-        webViewRef.current.injectJavaScript(
-          `window.__voiceExec && window.__voiceExec('${escaped}')`
-        );
-      }
-      resetTranscript();
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
     }
-  }, [isListening, transcript]);
+  }, []);
 
   const isActive = isListening;
 
