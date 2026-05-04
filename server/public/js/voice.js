@@ -204,6 +204,17 @@
   }
 
   // ---- 调用百度 ASR ----
+  function sendDebugLog(msg) {
+    var headers = { 'Content-Type': 'application/json' };
+    var token = localStorage.getItem('online_report_token');
+    if (token) headers.Authorization = 'Bearer ' + token;
+    fetch('/api/speech/debug', {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify({ text: msg }),
+    }).catch(function () { /* ignore */ });
+  }
+
   function recognizeAudio(chunks, sampleRate, cb) {
     var wav = pcmChunksToWav(chunks, sampleRate || 16000);
     var base64 = arrayBufferToBase64(wav);
@@ -236,9 +247,10 @@
 
     startRecording(function (err, rec) {
       if (err) {
-        showBubble(err.message, true);
+        showBubble('录音失败: ' + err.message, true);
         btnEl.classList.remove('voice-btn--listening');
         micEl.classList.remove('voice-btn__mic--listening');
+        sendDebugLog('[REC_ERROR] ' + err.message);
         return;
       }
       recording = rec;
@@ -265,6 +277,7 @@
       btnEl.classList.remove('voice-btn--listening');
       micEl.classList.remove('voice-btn__mic--listening');
       bubble.hidden = true;
+      sendDebugLog('[REC_NULL] recording was null at pointerup');
       return;
     }
 
@@ -325,4 +338,7 @@
     '.voice-btn__mic--listening{animation:voice-pulse .8s ease-in-out infinite}' +
     '@keyframes voice-pulse{0%,100%{opacity:1}50%{opacity:.4}}';
   document.head.appendChild(style);
+
+  // 页面加载完成标记，方便排查 voice.js 是否正确初始化
+  sendDebugLog('[PAGE_READY] voice.js loaded, getUserMedia=' + (!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)));
 })();

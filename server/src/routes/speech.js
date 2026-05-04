@@ -2,6 +2,33 @@ const { recognize } = require('../baidu-asr');
 const { getPool, sql } = require('../db');
 
 async function speechRoutes(fastify) {
+  // 调试端点：前端各步骤状态写入 voice_logs，方便排查流程中断位置
+  fastify.post('/api/speech/debug', async (request, reply) => {
+    const { text } = request.body || {};
+    if (!text) return reply.code(400).send({ error: '缺少 text' });
+
+    let userCode = null;
+    try {
+      const authHeader = request.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        const token = authHeader.slice(7);
+        const decoded = fastify.jwt.verify(token);
+        userCode = decoded.user_code || null;
+      }
+    } catch (_) {}
+
+    try {
+      const pool = await getPool();
+      await pool.request()
+        .input('text', sql.NVarChar(512), text)
+        .input('user_code', sql.NVarChar(64), userCode)
+        .query(`INSERT INTO dbo.voice_logs (recognized_text, user_code) VALUES (@text, @user_code)`);
+    } catch (err) {
+      fastify.log.error({ err }, 'Failed to insert voice_log from debug');
+    }
+    return { ok: true };
+  });
+
   fastify.post('/api/speech/recognize', async (request, reply) => {
     const { audio, format, rate } = request.body || {};
 
