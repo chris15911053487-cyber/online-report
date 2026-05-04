@@ -65,6 +65,12 @@ async function speechRoutes(fastify) {
       const padding = (audio.endsWith('==') ? 2 : audio.endsWith('=') ? 1 : 0);
       const audioBytes = (audio.length / 4) * 3 - padding;
 
+      // 对比计算值和实际解码长度（用于排查 len 参数是否正确）
+      try {
+        const debugBuf = Buffer.from(audio, 'base64');
+        fastify.log.info({ calcLen: audioBytes, actualLen: debugBuf.length, match: audioBytes === debugBuf.length }, 'audio len check');
+      } catch (_) {}
+
       const text = await recognize(audio, audioBytes, {
         format: format || 'wav',
         rate: rate || 16000,

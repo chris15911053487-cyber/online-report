@@ -54,6 +54,7 @@ async function recognize(base64Audio, audioBytes, opts = {}) {
     token,
     speech: base64Audio,
     len: audioBytes,
+    dev_pid: opts.dev_pid || 1537,
   });
 
   const res = await fetch(ASR_URL, {
