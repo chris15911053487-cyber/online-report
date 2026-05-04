@@ -43,6 +43,18 @@ async function speechRoutes(fastify) {
       return { text };
     } catch (err) {
       fastify.log.error({ err }, 'Baidu ASR failed');
+
+      // 失败也写日志，方便排查
+      try {
+        const pool = await getPool();
+        await pool.request()
+          .input('text', sql.NVarChar(512), '[ASR_ERROR] ' + (err.message || 'unknown'))
+          .input('user_code', sql.NVarChar(64), userCode)
+          .query(`INSERT INTO dbo.voice_logs (recognized_text, user_code) VALUES (@text, @user_code)`);
+      } catch (logErr) {
+        fastify.log.error({ err: logErr }, 'Failed to insert voice_log for error case');
+      }
+
       return reply.code(502).send({ error: err.message || '语音识别失败' });
     }
   });

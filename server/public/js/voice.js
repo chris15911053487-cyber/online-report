@@ -300,6 +300,16 @@
     e.stopPropagation();
   });
 
+  // ---- 预获取麦克风权限（避免 pointerup 时流还没就绪）----
+  navigator.mediaDevices.getUserMedia({ audio: true })
+    .then(function (stream) {
+      micStream = stream;
+      micStreamRefs = 1;
+    })
+    .catch(function () {
+      // 用户拒绝权限，后续按钮操作会提示错误
+    });
+
   // ---- 挂载到页面 ----
   document.body.appendChild(wrapper);
 
@@ -307,7 +317,7 @@
   style.textContent =
     '.voice-wrapper{position:fixed;bottom:100px;right:16px;z-index:9999;display:flex;flex-direction:column;align-items:flex-end;gap:8px}' +
     '.voice-bubble{background:#0f172a;color:#fff;font-size:14px;padding:8px 16px;border-radius:16px 16px 4px 16px;box-shadow:0 4px 12px rgba(0,0,0,.25);max-width:200px;line-height:1.4}' +
-    '.voice-btn{width:56px;height:56px;border-radius:50%;border:none;background:#2563eb;color:#fff;display:flex;align-items:center;just-content:center;box-shadow:0 4px 12px rgba(0,0,0,.3);cursor:pointer;transition:all .2s;-webkit-tap-highlight-color:transparent;touch-action:none;user-select:none}' +
+    '.voice-btn{width:56px;height:56px;border-radius:50%;border:none;background:#2563eb;color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,.3);cursor:pointer;transition:all .2s;-webkit-tap-highlight-color:transparent;touch-action:none;user-select:none}' +
     '.voice-btn:active{transform:scale(.95)}' +
     '.voice-btn--listening{width:64px;height:64px;background:#ef4444;transform:scale(1.1)}' +
     '.voice-btn__mic--listening{animation:voice-pulse .8s ease-in-out infinite}' +
