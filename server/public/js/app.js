@@ -845,6 +845,8 @@
         overlay.className = 'scan-overlay';
         overlay.setAttribute('role', 'dialog');
         overlay.setAttribute('aria-modal', 'true');
+        overlay.style.pointerEvents = 'none';
+        setTimeout(function () { if (!closed) overlay.style.pointerEvents = ''; }, 600);
 
         var panel = document.createElement('div');
         panel.className = 'scan-overlay-panel';
