@@ -164,17 +164,21 @@
 
         try {
           var Ctor = window.AudioContext || window.webkitAudioContext;
-          // 每次创建全新 AudioContext，不共享，避免旧上下文状态污染
-          var ctx = new Ctor();
+          // 强制 16000 采样率，百度 ASR 只支持 8000/16000
+          var ctx = new Ctor({ sampleRate: 16000 });
           var actualRate = ctx.sampleRate;
           var source = ctx.createMediaStreamSource(stream);
-          // bufferSize=0 让浏览器自动选择最佳值
-          var processor = ctx.createScriptProcessor(0, 1, 1);
+          var processor = ctx.createScriptProcessor(4096, 1, 1);
           var chunks = [];
 
           processor.onaudioprocess = function (e) {
-            var inputData = new Float32Array(e.inputBuffer.getChannelData(0));
-            chunks.push(inputData);
+            var inCh = e.inputBuffer.getChannelData(0);
+            var outCh = e.outputBuffer.getChannelData(0);
+            // 数据直通：输入 → 输出（部分浏览器需要此通路才产生真实数据）
+            for (var i = 0; i < inCh.length; i++) {
+              outCh[i] = inCh[i];
+            }
+            chunks.push(new Float32Array(inCh));
           };
 
           source.connect(processor);
