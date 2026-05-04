@@ -287,10 +287,16 @@
     recording = null;
 
     var totalSamples = 0;
+    var peakAbs = 0;
     for (var i = 0; i < result.chunks.length; i++) {
-      totalSamples += result.chunks[i].length;
+      var ch = result.chunks[i];
+      totalSamples += ch.length;
+      for (var j = 0; j < ch.length; j++) {
+        var absVal = ch[j] < 0 ? -ch[j] : ch[j];
+        if (absVal > peakAbs) peakAbs = absVal;
+      }
     }
-    sendDebugLog('[AUDIO] chunks=' + result.chunks.length + ' samples=' + totalSamples + ' rate=' + result.sampleRate);
+    sendDebugLog('[AUDIO] chunks=' + result.chunks.length + ' samples=' + totalSamples + ' rate=' + result.sampleRate + ' peak=' + peakAbs.toFixed(4));
 
     recognizeAudio(result.chunks, result.sampleRate, function (err, text) {
       state = 'idle';
