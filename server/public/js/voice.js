@@ -257,6 +257,8 @@
     e.preventDefault();
     sendDebugLog('[DOWN] processing=' + processing);
     if (processing) return;
+    // 捕获指针，确保 pointerup/pointercancel 不会丢失
+    btnEl.setPointerCapture(e.pointerId);
     downAt = Date.now();
     showBubble('正在聆听...', false);
     btnEl.classList.add('voice-btn--listening');
@@ -275,12 +277,33 @@
     });
   });
 
+  // pointercancel：移动端触摸被浏览器中断时（如手势识别），当作取消录音
+  btnEl.addEventListener('pointercancel', function (e) {
+    e.preventDefault();
+    sendDebugLog('[CANCEL]');
+    if (recording) {
+      recording.stop();
+      recording = null;
+    }
+    processing = false;
+    bubble.hidden = true;
+    btnEl.classList.remove('voice-btn--listening');
+    micEl.classList.remove('voice-btn__mic--listening');
+  });
+
+  // 阻止移动端长按弹出菜单
+  btnEl.addEventListener('contextmenu', function (e) {
+    e.preventDefault();
+  });
+
   btnEl.addEventListener('pointerup', function (e) {
     e.preventDefault();
     var heldMs = Date.now() - downAt;
     sendDebugLog('[UP] heldMs=' + heldMs + ' recording=' + !!recording);
 
-    if (heldMs < 500) {
+    btnEl.releasePointerCapture(e.pointerId);
+
+    if (heldMs < 300) {
       // 太短，取消
       if (recording) {
         recording.stop();
@@ -289,6 +312,7 @@
       bubble.hidden = true;
       btnEl.classList.remove('voice-btn--listening');
       micEl.classList.remove('voice-btn__mic--listening');
+      sendDebugLog('[SHORT] heldMs=' + heldMs + ' skipped');
       return;
     }
 
