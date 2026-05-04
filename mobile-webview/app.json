@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "生产报工",
+    "slug": "online-report-webview",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "用于语音控制报工操作"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0f172a"
+      },
+      "package": "com.onlinereport.webview"
+    }
+  }
+}
