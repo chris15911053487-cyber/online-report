@@ -85,9 +85,9 @@
   var micEl = btnEl.querySelector('.voice-btn__mic');
 
   // ---- 状态 ----
+  var state = 'idle';     // 'idle' | 'recording' | 'processing'
   var recording = null;   // { stop: fn, chunks: [], sampleRate: number }
-  var processing = false;
-  var downAt = 0;
+  var maxRecordTimer = null;
 
   function showBubble(msg, autoHide) {
     bubble.textContent = msg;
@@ -253,94 +253,37 @@
   }
 
   // ---- 按钮交互 ----
-  btnEl.addEventListener('pointerdown', function (e) {
-    e.preventDefault();
-    sendDebugLog('[DOWN] processing=' + processing);
-    if (processing) return;
-    // 捕获指针，确保 pointerup/pointercancel 不会丢失
-    btnEl.setPointerCapture(e.pointerId);
-    downAt = Date.now();
-    showBubble('正在聆听...', false);
-    btnEl.classList.add('voice-btn--listening');
-    micEl.classList.add('voice-btn__mic--listening');
-
-    startRecording(function (err, rec) {
-      if (err) {
-        showBubble('录音失败: ' + err.message, true);
-        btnEl.classList.remove('voice-btn--listening');
-        micEl.classList.remove('voice-btn__mic--listening');
-        sendDebugLog('[REC_ERROR] ' + err.message);
-        return;
-      }
-      sendDebugLog('[REC_OK] AudioContext state=' + (sharedAudioCtx ? sharedAudioCtx.state : 'none'));
-      recording = rec;
-    });
-  });
-
-  // pointercancel：移动端触摸被浏览器中断时（如手势识别），当作取消录音
-  btnEl.addEventListener('pointercancel', function (e) {
-    e.preventDefault();
-    sendDebugLog('[CANCEL]');
-    if (recording) {
-      recording.stop();
-      recording = null;
-    }
-    processing = false;
-    bubble.hidden = true;
-    btnEl.classList.remove('voice-btn--listening');
-    micEl.classList.remove('voice-btn__mic--listening');
-  });
-
-  // 阻止移动端长按弹出菜单
-  btnEl.addEventListener('contextmenu', function (e) {
-    e.preventDefault();
-  });
-
-  btnEl.addEventListener('pointerup', function (e) {
-    e.preventDefault();
-    var heldMs = Date.now() - downAt;
-    sendDebugLog('[UP] heldMs=' + heldMs + ' recording=' + !!recording);
-
-    btnEl.releasePointerCapture(e.pointerId);
-
-    if (heldMs < 300) {
-      // 太短，取消
-      if (recording) {
-        recording.stop();
-        recording = null;
-      }
-      bubble.hidden = true;
-      btnEl.classList.remove('voice-btn--listening');
-      micEl.classList.remove('voice-btn__mic--listening');
-      sendDebugLog('[SHORT] heldMs=' + heldMs + ' skipped');
-      return;
+  function stopAndRecognize() {
+    if (maxRecordTimer) {
+      clearTimeout(maxRecordTimer);
+      maxRecordTimer = null;
     }
 
-    if (!recording) {
-      btnEl.classList.remove('voice-btn--listening');
-      micEl.classList.remove('voice-btn__mic--listening');
-      bubble.hidden = true;
-      sendDebugLog('[REC_NULL] recording was null at pointerup');
-      return;
-    }
-
-    processing = true;
-    // 安全超时：15 秒后强制重置 processing，避免卡死
-    var safetyTimer = setTimeout(function () {
-      if (processing) {
-        processing = false;
-        sendDebugLog('[TIMEOUT] processing reset after 15s');
-      }
-    }, 15000);
+    state = 'processing';
     btnEl.classList.remove('voice-btn--listening');
     micEl.classList.remove('voice-btn__mic--listening');
     showBubble('识别中...', false);
+
+    if (!recording) {
+      state = 'idle';
+      bubble.hidden = true;
+      sendDebugLog('[REC_NULL] recording was null at stop');
+      return;
+    }
+
+    // 安全超时：15 秒后强制重置，避免卡死
+    var safetyTimer = setTimeout(function () {
+      if (state === 'processing') {
+        state = 'idle';
+        sendDebugLog('[TIMEOUT] processing reset after 15s');
+      }
+    }, 15000);
 
     var result = recording.stop();
     recording = null;
 
     recognizeAudio(result.chunks, result.sampleRate, function (err, text) {
-      processing = false;
+      state = 'idle';
       clearTimeout(safetyTimer);
       if (err) {
         sendDebugLog('[ASR_FAIL] ' + (err.message || 'unknown'));
@@ -353,16 +296,56 @@
         showBubble('已执行: ' + text, true);
         matched.handler();
       } else if (text) {
-        showBubble(text + ' 暂不支持此操作', true);
+        showBubble('"' + text + '" 未匹配到指令', true);
       } else {
         showBubble('未识别到语音，请重试', true);
       }
     });
-  });
+  }
 
   btnEl.addEventListener('click', function (e) {
     e.preventDefault();
     e.stopPropagation();
+
+    if (state === 'processing') {
+      sendDebugLog('[BUSY] state=processing ignored');
+      return;
+    }
+
+    if (state === 'recording') {
+      // 停止录音并识别
+      sendDebugLog('[STOP] user clicked to stop');
+      stopAndRecognize();
+      return;
+    }
+
+    // state === 'idle' — 开始录音
+    sendDebugLog('[START] user clicked to start');
+    state = 'recording';
+    showBubble('正在聆听...', false);
+    btnEl.classList.add('voice-btn--listening');
+    micEl.classList.add('voice-btn__mic--listening');
+
+    startRecording(function (err, rec) {
+      if (err) {
+        showBubble('录音失败: ' + err.message, true);
+        btnEl.classList.remove('voice-btn--listening');
+        micEl.classList.remove('voice-btn__mic--listening');
+        state = 'idle';
+        sendDebugLog('[REC_ERROR] ' + err.message);
+        return;
+      }
+      sendDebugLog('[REC_OK] AudioContext state=' + (sharedAudioCtx ? sharedAudioCtx.state : 'none'));
+      recording = rec;
+
+      // 10 秒最大录音时长，超时自动停止
+      maxRecordTimer = setTimeout(function () {
+        if (state === 'recording') {
+          sendDebugLog('[MAXTIME] auto-stop after 10s');
+          stopAndRecognize();
+        }
+      }, 10000);
+    });
   });
 
   // ---- 预获取麦克风权限（避免 pointerup 时流还没就绪）----

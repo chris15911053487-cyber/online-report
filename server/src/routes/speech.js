@@ -13,7 +13,7 @@ async function speechRoutes(fastify) {
       if (authHeader && authHeader.startsWith('Bearer ')) {
         const token = authHeader.slice(7);
         const decoded = fastify.jwt.verify(token);
-        userCode = decoded.user_code || null;
+        userCode = decoded.username || null;
       }
     } catch (_) {}
 
@@ -43,7 +43,7 @@ async function speechRoutes(fastify) {
       if (authHeader && authHeader.startsWith('Bearer ')) {
         const token = authHeader.slice(7);
         const decoded = fastify.jwt.verify(token);
-        userCode = decoded.user_code || null;
+        userCode = decoded.username || null;
       }
     } catch (_) {
       // token 无效或过期，userCode 保持 null
