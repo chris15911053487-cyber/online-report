@@ -4,7 +4,7 @@ import { WebView } from 'react-native-webview';
 import { StatusBar } from 'expo-status-bar';
 import VoiceButton from './VoiceButton';
 
-const WEBVIEW_URL = process.env.EXPO_PUBLIC_WEBVIEW_URL || 'http://192.168.1.100:3000';
+const WEBVIEW_URL = process.env.EXPO_PUBLIC_WEBVIEW_URL || 'http://192.168.31.50:3000';
 
 export default function App() {
   const webViewRef = useRef(null);
