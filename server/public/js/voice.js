@@ -255,6 +255,7 @@
   // ---- 按钮交互 ----
   btnEl.addEventListener('pointerdown', function (e) {
     e.preventDefault();
+    sendDebugLog('[DOWN] processing=' + processing);
     if (processing) return;
     downAt = Date.now();
     showBubble('正在聆听...', false);
@@ -269,6 +270,7 @@
         sendDebugLog('[REC_ERROR] ' + err.message);
         return;
       }
+      sendDebugLog('[REC_OK] AudioContext state=' + (sharedAudioCtx ? sharedAudioCtx.state : 'none'));
       recording = rec;
     });
   });
@@ -276,6 +278,7 @@
   btnEl.addEventListener('pointerup', function (e) {
     e.preventDefault();
     var heldMs = Date.now() - downAt;
+    sendDebugLog('[UP] heldMs=' + heldMs + ' recording=' + !!recording);
 
     if (heldMs < 500) {
       // 太短，取消
@@ -298,6 +301,13 @@
     }
 
     processing = true;
+    // 安全超时：15 秒后强制重置 processing，避免卡死
+    var safetyTimer = setTimeout(function () {
+      if (processing) {
+        processing = false;
+        sendDebugLog('[TIMEOUT] processing reset after 15s');
+      }
+    }, 15000);
     btnEl.classList.remove('voice-btn--listening');
     micEl.classList.remove('voice-btn__mic--listening');
     showBubble('识别中...', false);
@@ -307,7 +317,9 @@
 
     recognizeAudio(result.chunks, result.sampleRate, function (err, text) {
       processing = false;
+      clearTimeout(safetyTimer);
       if (err) {
+        sendDebugLog('[ASR_FAIL] ' + (err.message || 'unknown'));
         showBubble('识别失败: ' + (err.message || '请重试'), true);
         return;
       }
