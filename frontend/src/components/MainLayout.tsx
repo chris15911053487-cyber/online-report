@@ -2,10 +2,12 @@ import { useStore } from '../store'
 import BottomNav from './BottomNav'
 import CatalogView from '../views/CatalogView'
 import DynamicReportView from '../views/DynamicReportView'
+import SettingsView from '../views/SettingsView'
 
 const viewComponents: Record<string, React.ComponentType> = {
   catalog: CatalogView,
   'dynamic-report': DynamicReportView,
+  settings: SettingsView,
 }
 
 export default function MainLayout() {

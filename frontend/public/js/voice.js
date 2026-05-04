@@ -5,6 +5,10 @@
   var voiceMeta = document.querySelector('meta[name="voice-enabled"]');
   if (voiceMeta && voiceMeta.content === 'false') return;
 
+  // 仅在移动端显示语音按钮
+  var isMobile = /Android|iPhone|iPad|iPod|webOS/i.test(navigator.userAgent);
+  if (!isMobile) return;
+
   var isInApp = !!window.ReactNativeWebView;
 
   // ==================== 指令注册表 ====================
@@ -41,12 +45,12 @@
 
   // ==================== 全局指令 ====================
   addCmd(['返回', '主界面', '目录', '首页', '主页'], function () {
-    var btn = document.querySelector('[data-root-tab="catalog"]');
+    var btn = document.querySelector('[data-nav-tab="catalog"]') || document.querySelector('[data-root-tab="catalog"]');
     if (btn) btn.click();
   });
 
   addCmd(['退出登录', '注销', '登出'], function () {
-    var settingsTab = document.querySelector('[data-root-tab="settings"]');
+    var settingsTab = document.querySelector('[data-nav-tab="settings"]') || document.querySelector('[data-root-tab="settings"]');
     if (settingsTab) settingsTab.click();
     setTimeout(function () {
       var logoutBtn = document.getElementById('btn-settings-logout');

@@ -16,10 +16,11 @@ export default function BottomNav() {
       {tabs.map(({ id, label, icon: Icon }) => (
         <button
           key={id}
+          data-nav-tab={id}
           onClick={() => setView(id)}
           className={`flex-1 flex flex-col items-center py-2 transition-colors ${
-            currentView === id 
-              ? 'text-sky-600' 
+            currentView === id
+              ? 'text-sky-600'
               : 'text-slate-500 hover:text-slate-700'
           }`}
         >
