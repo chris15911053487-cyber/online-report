@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const { recognize } = require('../baidu-asr');
 const { getPool, sql } = require('../db');
 
@@ -50,6 +52,15 @@ async function speechRoutes(fastify) {
     }
 
     try {
+      // 保存最近一次录音到 public/debug-audio.wav 供调试播放
+      try {
+        const buf = Buffer.from(audio, 'base64');
+        const debugPath = path.join(__dirname, '..', '..', 'public', 'debug-audio.wav');
+        fs.writeFileSync(debugPath, buf);
+      } catch (e) {
+        fastify.log.warn({ err: e }, 'Failed to save debug audio');
+      }
+
       // Calculate original byte length from base64
       const padding = (audio.endsWith('==') ? 2 : audio.endsWith('=') ? 1 : 0);
       const audioBytes = (audio.length / 4) * 3 - padding;
