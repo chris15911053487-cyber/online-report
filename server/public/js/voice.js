@@ -301,14 +301,16 @@
   });
 
   // ---- 预获取麦克风权限（避免 pointerup 时流还没就绪）----
-  navigator.mediaDevices.getUserMedia({ audio: true })
-    .then(function (stream) {
-      micStream = stream;
-      micStreamRefs = 1;
-    })
-    .catch(function () {
-      // 用户拒绝权限，后续按钮操作会提示错误
-    });
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then(function (stream) {
+        micStream = stream;
+        micStreamRefs = 1;
+      })
+      .catch(function () {
+        // 用户拒绝权限，后续按钮操作会提示错误
+      });
+  }
 
   // ---- 挂载到页面 ----
   document.body.appendChild(wrapper);
