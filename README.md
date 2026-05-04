@@ -402,4 +402,101 @@ ImagePath AS ImagePath
 
 ---
 
+## 语音控制功能
+
+移动端语音指令控制，点击按钮说话即可通过语音操作页面。
+
+### 前提条件
+
+- **必须 HTTPS**：`getUserMedia` 仅在安全上下文可用（localhost 除外）
+- **百度 AI 平台账号**：需申请"短语音识别"接口，获取 API Key / Secret Key
+
+### 环境变量
+
+```bash
+VOICE_ENABLED=true                         # 语音功能开关（默认 true）
+BAIDU_ASR_API_KEY=你的API_KEY              # 百度 ASR API Key
+BAIDU_ASR_SECRET_KEY=你的SECRET_KEY        # 百度 ASR Secret Key
+```
+
+### 工作原理
+
+```
+点击麦克风按钮 → getUserMedia 录音 (16000Hz PCM)
+              → 前端封装 WAV → base64
+              → POST /api/speech/recognize → 百度 ASR
+              → 返回识别文字 → 关键词匹配 → 触发页面操作
+```
+
+### 当前支持的指令
+
+| 语音关键词 | 操作 |
+|-----------|------|
+| "返回" / "主界面" / "目录" | 切换到目录页 |
+| "退出登录" / "注销" | 执行退出登录 |
+
+### 交互模式
+
+**点击切换**（tap to start / tap to stop），不使用按住说话——手机浏览器会在按住时不断触发 `pointercancel` 事件导致录音不可靠。
+
+- 点击 → 录音中（按钮变红、最长 10 秒自动停止）
+- 再点击 → 识别中 → 显示结果 → 匹配执行指令
+- 识别中忽略点击（防重复提交）
+
+### 显示条件
+
+- `VOICE_ENABLED=true`（环境变量控制）
+- 检测为移动端（UserAgent 匹配）
+- 两项都满足才渲染语音按钮，电脑端不显示
+
+### 数据库
+
+```sql
+-- voice_logs 表记录每次识别的调试信息和识别结果
+CREATE TABLE dbo.voice_logs (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    recognized_text NVARCHAR(512),
+    user_code NVARCHAR(64),
+    created_at DATETIME DEFAULT GETDATE()
+);
+```
+
+### 调试
+
+| 方式 | 说明 |
+|------|------|
+| `voice_logs` 表 | 查看 `[START]` `[REC_OK]` `[AUDIO]` `[ASR_FAIL]` 等各阶段日志 |
+| `public/debug-audio.wav` | 最近一次录音保存为 WAV 文件，可直接播放检查音质 |
+| 浏览器 Console | 语音流程各阶段均有 `sendDebugLog` 写入后端 |
+
+### 常见问题
+
+| 现象 | 原因 | 解决 |
+|------|------|------|
+| 手机端没有语音按钮 | 非 HTTPS 或 `VOICE_ENABLED=false` | 配置 HTTPS 证书 + 检查环境变量 |
+| 电脑端有按钮（不想要） | UserAgent 未匹配移动端 | voice.js 内 `isMobile` 检测已拦截 |
+| 识别文字但不执行操作 | DOM 选择器不匹配 | 检查页面按钮是否有 `data-nav-tab` 属性 |
+| 录音全是静音（peak=0） | 系统麦克风权限/路由问题 | 访问 onlinemictest.com 检测硬件 |
+| 识别返回"我不知道" | 采样率不是 16000 | 检查 AudioContext 构造参数 |
+| Baidu ASR 报 Invalid parameter | 采样率 48000 不支持 | 强制 16000（百度仅支持 8000/16000） |
+
+### 移植到其他项目
+
+voice.js 和 speech.js 与业务解耦。详见 `docs/voice-recognition-guide.md`。
+
+### 相关文件
+
+| 文件 | 职责 |
+|------|------|
+| `server/public/js/voice.js` | 前端语音交互（录音、编码、指令匹配、按钮渲染） |
+| `frontend/public/js/voice.js` | 同上副本，Vite 构建时复制到 `dist/` |
+| `server/src/routes/speech.js` | 后端 API：`/api/speech/recognize` + `/api/speech/debug` |
+| `server/src/baidu-asr.js` | 百度 ASR Token 管理 + 识别调用 |
+| `server/src/index.js` | `onSend` 钩子注入 meta/script 标签 + 兜底路由 |
+| `frontend/src/components/BottomNav.tsx` | 导航按钮 `data-nav-tab` 属性 |
+| `frontend/src/views/SettingsView.tsx` | 设置页 + 退出登录按钮 |
+| `docs/voice-recognition-guide.md` | 完整技术指南 |
+
+---
+
 **更新时间**：2026-05-04
