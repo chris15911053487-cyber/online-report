@@ -105,11 +105,18 @@ async function build() {
 
   registerOworRoutes(fastify);
 
-  // 向 HTML 页面注入 voice-enabled meta 标签，前端据此决定是否挂载语音按钮
+  // 向 HTML 页面注入 voice-enabled meta 标签和 voice.js 脚本（仅在尚未包含时）
   fastify.addHook('onSend', async (_request, _reply, payload) => {
     const str = typeof payload === 'string' ? payload : payload.toString('utf-8');
-    if (str.includes('</head>')) {
-      return str.replace('</head>', '<meta name="voice-enabled" content="' + (voiceEnabled ? 'true' : 'false') + '">\n</head>');
+    if (str.includes('</head>') && str.includes('</body>')) {
+      let result = str;
+      if (!result.includes('name="voice-enabled"')) {
+        result = result.replace('</head>', '<meta name="voice-enabled" content="' + (voiceEnabled ? 'true' : 'false') + '">\n</head>');
+      }
+      if (voiceEnabled && !result.includes('/js/voice.js')) {
+        result = result.replace('</body>', '<script src="/js/voice.js"></script>\n</body>');
+      }
+      return result;
     }
     return payload;
   });
@@ -137,6 +144,20 @@ async function build() {
       )
       .send(fs.createReadStream(apkPath));
   });
+
+  // 确保 voice.js 始终可访问：即使静态根目录是 frontend/dist（未重新构建时可能缺少此文件）
+  // 必须注册在 @fastify/static 之前，否则静态插件会先拦截返回 404
+  if (voiceEnabled) {
+    const voiceJsPath = path.join(__dirname, '..', 'public', 'js', 'voice.js');
+    fastify.get('/js/voice.js', async (_, reply) => {
+      try {
+        await fsp.access(voiceJsPath);
+        return reply.type('application/javascript').send(fs.createReadStream(voiceJsPath));
+      } catch {
+        return reply.code(404).send('Not Found');
+      }
+    });
+  }
 
   // 静态站点：优先 frontend/dist（Vite 构建）；不存在或未构建时回退到 server/public（旧版 SPA）
   const serverDir = path.join(__dirname, '..');
