@@ -134,6 +134,14 @@
     settingsUsername: document.getElementById('settings-username'),
     settingsRole: document.getElementById('settings-role'),
     btnSettingsLogout: document.getElementById('btn-settings-logout'),
+    btnSettingsChangePwd: document.getElementById('btn-settings-change-pwd'),
+    settingsChangePwdBlock: document.getElementById('settings-change-pwd-block'),
+    settingsChangePwdForm: document.getElementById('settings-change-pwd-form'),
+    changePwdErr: document.getElementById('change-pwd-err'),
+    changePwdNew: document.getElementById('change-pwd-new'),
+    changePwdConfirm: document.getElementById('change-pwd-confirm'),
+    btnChangePwdCancel: document.getElementById('btn-change-pwd-cancel'),
+    btnChangePwdSubmit: document.getElementById('btn-change-pwd-submit'),
     owor: document.getElementById('view-owor'),
     oworList: document.getElementById('owor-list'),
     oworTablePanel: document.getElementById('owor-table-panel'),
@@ -281,6 +289,60 @@
     el.settingsRole.textContent = roleLabel;
   }
 
+  function showChangePwdForm() {
+    el.settingsChangePwdBlock.hidden = true;
+    el.settingsChangePwdForm.hidden = false;
+    el.changePwdNew.value = '';
+    el.changePwdConfirm.value = '';
+    el.changePwdErr.hidden = true;
+    el.btnChangePwdSubmit.disabled = true;
+  }
+
+  function hideChangePwdForm() {
+    el.settingsChangePwdBlock.hidden = false;
+    el.settingsChangePwdForm.hidden = true;
+  }
+
+  function checkChangePwdInputs() {
+    var pwd = el.changePwdNew.value;
+    var confirm = el.changePwdConfirm.value;
+    el.btnChangePwdSubmit.disabled = !pwd || !confirm;
+  }
+
+  function handleChangePassword() {
+    el.changePwdErr.hidden = true;
+    var pwd = el.changePwdNew.value.trim();
+    var confirm = el.changePwdConfirm.value.trim();
+
+    if (!pwd) {
+      el.changePwdErr.textContent = '请输入新密码';
+      el.changePwdErr.hidden = false;
+      return;
+    }
+    if (pwd !== confirm) {
+      el.changePwdErr.textContent = '两次输入的密码不一致';
+      el.changePwdErr.hidden = false;
+      return;
+    }
+
+    el.btnChangePwdSubmit.disabled = true;
+    el.btnChangePwdSubmit.textContent = '修改中...';
+
+    apiFetch('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ newPassword: pwd }),
+    })
+      .then(function () {
+        goLogin();
+      })
+      .catch(function (err) {
+        el.changePwdErr.textContent = err.message || '密码修改失败';
+        el.changePwdErr.hidden = false;
+        el.btnChangePwdSubmit.disabled = false;
+        el.btnChangePwdSubmit.textContent = '确认修改';
+      });
+  }
+
   function applyUI() {
     var v = state.viewName;
     el.login.hidden = v !== 'login';
@@ -290,6 +352,7 @@
     el.favorites.hidden = !isRoot || rt !== 'favorites';
     el.messages.hidden = !isRoot || rt !== 'messages';
     el.tabSettings.hidden = !isRoot || rt !== 'settings';
+    if (!isRoot || rt !== 'settings') hideChangePwdForm();
     el.owor.hidden = v !== 'owor';
     el.orders.hidden = v !== 'orders';
     el.menuSettings.hidden = v !== 'menu-settings';
@@ -3553,6 +3616,19 @@
   el.btnSettingsLogout.addEventListener('click', function () {
     goLogin();
   });
+
+  el.btnSettingsChangePwd.addEventListener('click', function () {
+    showChangePwdForm();
+  });
+
+  el.btnChangePwdCancel.addEventListener('click', function () {
+    hideChangePwdForm();
+  });
+
+  el.changePwdNew.addEventListener('input', checkChangePwdInputs);
+  el.changePwdConfirm.addEventListener('input', checkChangePwdInputs);
+
+  el.btnChangePwdSubmit.addEventListener('click', handleChangePassword);
 
   el.bottomNav.querySelectorAll('[data-root-tab]').forEach(function (btn) {
     btn.addEventListener('click', function () {
