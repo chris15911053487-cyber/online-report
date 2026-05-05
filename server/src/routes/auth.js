@@ -127,6 +127,37 @@ async function authRoutes(fastify) {
     }
   });
 
+  fastify.post(
+    '/auth/change-password',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const { newPassword } = request.body || {};
+      if (!newPassword || String(newPassword).trim() === '') {
+        return reply.code(400).send({ error: '请输入新密码' });
+      }
+
+      const username = request.user?.username;
+      if (!username) {
+        return reply.code(401).send({ error: '无效登录' });
+      }
+
+      try {
+        const pool = await getPool();
+        await pool
+          .request()
+          .input('pwd', sql.NVarChar(255), String(newPassword).trim())
+          .input('code', sql.NVarChar(255), username)
+          .query(
+            `UPDATE [OUSR] SET [MobileIMEI] = @pwd WHERE [USER_CODE] = @code`
+          );
+        return { success: true };
+      } catch (err) {
+        request.log.error(err);
+        return reply.code(500).send({ error: '密码修改失败，请稍后重试' });
+      }
+    }
+  );
+
   fastify.get(
     '/auth/me',
     { preHandler: [fastify.authenticate] },
