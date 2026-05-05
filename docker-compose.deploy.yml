@@ -19,7 +19,7 @@ services:
   app:
     image: online-report:1.0
     build:
-      context: ./server
+      context: .
       dockerfile: Dockerfile
     container_name: online-report-app
     ports:
