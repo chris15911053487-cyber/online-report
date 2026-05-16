@@ -63,6 +63,7 @@ export default function MainLayout() {
     goBack,
     activeMenu,
     proSignMergeButtonLabel,
+    proSignMode,
   } = useStore()
 
   const isRootTab = rootTabs.includes(currentView)
@@ -71,6 +72,11 @@ export default function MainLayout() {
   const title = getPageTitle(currentView, activeMenu?.label, proSignMergeButtonLabel)
 
   const CurrentView = viewComponents[currentView] || CatalogView
+
+  /** 合并报工页仍挂载列表报表（display:none），避免返回时 DynamicReportView 卸载导致筛选条件被初始化逻辑重置 */
+  const dynamicReportVisible = currentView === 'dynamic-report'
+  const dynamicReportShellHidden =
+    activeMenu != null && proSignMode && currentView === 'pro-sign-receive'
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -95,7 +101,15 @@ export default function MainLayout() {
       </header>
 
       <main className={`max-w-2xl mx-auto ${showBottomNav ? 'pb-16' : 'pb-4'}`}>
-        <CurrentView />
+        {(dynamicReportVisible || dynamicReportShellHidden) && (
+          <div
+            className={dynamicReportShellHidden ? 'hidden' : undefined}
+            aria-hidden={dynamicReportShellHidden}
+          >
+            <DynamicReportView />
+          </div>
+        )}
+        {!dynamicReportVisible && <CurrentView />}
       </main>
 
       {showBottomNav && <BottomNav />}

@@ -130,6 +130,68 @@
   var recording = null;   // { stop: fn, chunks: [], sampleRate: number }
   var maxRecordTimer = null;
 
+  var VOICE_POS_STORAGE_KEY = 'voice_btn_pos_v1';
+  var DRAG_THRESHOLD_PX = 8;
+  var dragState = null;
+  var suppressVoiceClick = false;
+
+  function parseVoiceSavedPos(raw) {
+    try {
+      var p = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (!p || typeof p !== 'object') return null;
+      var left = Number(p.left);
+      var top = Number(p.top);
+      if (!isFinite(left) || !isFinite(top)) return null;
+      return { left: left, top: top };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function applySavedVoicePosition() {
+    var p = parseVoiceSavedPos(localStorage.getItem(VOICE_POS_STORAGE_KEY));
+    if (!p) return;
+    wrapper.style.left = p.left + 'px';
+    wrapper.style.top = p.top + 'px';
+    wrapper.style.right = 'auto';
+    wrapper.style.bottom = 'auto';
+  }
+
+  function saveVoiceWrapperPosition() {
+    var rect = wrapper.getBoundingClientRect();
+    try {
+      localStorage.setItem(
+        VOICE_POS_STORAGE_KEY,
+        JSON.stringify({ left: rect.left, top: rect.top })
+      );
+    } catch (e) { /* ignore quota / private mode */ }
+  }
+
+  function voiceWrapperUsesCustomCoords() {
+    return !!(wrapper.style && wrapper.style.left !== '' && wrapper.style.top !== '');
+  }
+
+  function clampVoiceWrapperToViewport() {
+    if (!voiceWrapperUsesCustomCoords()) return;
+    var rect = wrapper.getBoundingClientRect();
+    var w = rect.width;
+    var h = rect.height;
+    if (!w || !h) return;
+    var maxL = Math.max(0, window.innerWidth - w);
+    var maxT = Math.max(0, window.innerHeight - h);
+    var l = rect.left;
+    var t = rect.top;
+    var nl = Math.min(maxL, Math.max(0, l));
+    var nt = Math.min(maxT, Math.max(0, t));
+    if (nl !== l || nt !== t) {
+      wrapper.style.left = nl + 'px';
+      wrapper.style.top = nt + 'px';
+      wrapper.style.right = 'auto';
+      wrapper.style.bottom = 'auto';
+      saveVoiceWrapperPosition();
+    }
+  }
+
   function showBubble(msg, autoHide) {
     bubble.textContent = msg;
     bubble.hidden = false;
@@ -341,15 +403,73 @@
         sendDebugLog('[NO_MATCH] text=' + text);
         showBubble('"' + text + '" 未匹配到指令', true);
       } else {
-        sendDebugLog('[EMPTY] text is empty');
         showBubble('未识别到语音，请重试', true);
       }
     });
   }
 
+  btnEl.addEventListener('pointerdown', function (e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (state !== 'idle') return;
+    var r = wrapper.getBoundingClientRect();
+    dragState = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      origLeft: r.left,
+      origTop: r.top,
+      moved: false,
+    };
+    try {
+      btnEl.setPointerCapture(e.pointerId);
+    } catch (err) { /* older browsers */ }
+  });
+
+  btnEl.addEventListener('pointermove', function (e) {
+    if (!dragState || e.pointerId !== dragState.pointerId) return;
+    var dx = e.clientX - dragState.startX;
+    var dy = e.clientY - dragState.startY;
+    if (!dragState.moved) {
+      if (dx * dx + dy * dy < DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) return;
+      dragState.moved = true;
+      wrapper.classList.add('voice-wrapper--dragging');
+    }
+    var newLeft = dragState.origLeft + dx;
+    var newTop = dragState.origTop + dy;
+    var w = wrapper.offsetWidth;
+    var h = wrapper.offsetHeight;
+    newLeft = Math.max(0, Math.min(window.innerWidth - w, newLeft));
+    newTop = Math.max(0, Math.min(window.innerHeight - h, newTop));
+    wrapper.style.left = newLeft + 'px';
+    wrapper.style.top = newTop + 'px';
+    wrapper.style.right = 'auto';
+    wrapper.style.bottom = 'auto';
+  });
+
+  function endVoicePointerDrag(e) {
+    if (!dragState || e.pointerId !== dragState.pointerId) return;
+    try {
+      btnEl.releasePointerCapture(e.pointerId);
+    } catch (err) { /* ignore */ }
+    if (dragState.moved) {
+      suppressVoiceClick = true;
+      saveVoiceWrapperPosition();
+    }
+    wrapper.classList.remove('voice-wrapper--dragging');
+    dragState = null;
+  }
+
+  btnEl.addEventListener('pointerup', endVoicePointerDrag);
+  btnEl.addEventListener('pointercancel', endVoicePointerDrag);
+
   btnEl.addEventListener('click', function (e) {
     e.preventDefault();
     e.stopPropagation();
+
+    if (suppressVoiceClick) {
+      suppressVoiceClick = false;
+      return;
+    }
 
     if (state === 'processing') {
       sendDebugLog('[BUSY] state=processing ignored');
@@ -392,12 +512,11 @@
     });
   });
 
-  // ---- 挂载到页面 ----
-  document.body.appendChild(wrapper);
-
   var style = document.createElement('style');
   style.textContent =
-    '.voice-wrapper{position:fixed;bottom:100px;right:16px;z-index:9999;display:flex;flex-direction:column;align-items:flex-end;gap:8px}' +
+    '.voice-wrapper{position:fixed;bottom:100px;right:16px;z-index:9999;display:flex;flex-direction:column;align-items:flex-end;gap:8px;touch-action:none}' +
+    '.voice-wrapper--dragging .voice-btn{transition:none}' +
+    '.voice-wrapper--dragging .voice-btn:active{transform:none}' +
     '.voice-bubble{background:#0f172a;color:#fff;font-size:14px;padding:8px 16px;border-radius:16px 16px 4px 16px;box-shadow:0 4px 12px rgba(0,0,0,.25);max-width:200px;line-height:1.4}' +
     '.voice-btn{width:56px;height:56px;border-radius:50%;border:none;background:#2563eb;color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,.3);cursor:pointer;transition:all .2s;-webkit-tap-highlight-color:transparent;touch-action:none;user-select:none}' +
     '.voice-btn:active{transform:scale(.95)}' +
@@ -405,6 +524,14 @@
     '.voice-btn__mic--listening{animation:voice-pulse .8s ease-in-out infinite}' +
     '@keyframes voice-pulse{0%,100%{opacity:1}50%{opacity:.4}}';
   document.head.appendChild(style);
+
+  document.body.appendChild(wrapper);
+  applySavedVoicePosition();
+  clampVoiceWrapperToViewport();
+
+  window.addEventListener('resize', function () {
+    window.requestAnimationFrame(clampVoiceWrapperToViewport);
+  });
 
   // 页面加载完成标记，方便排查 voice.js 是否正确初始化
   sendDebugLog('[PAGE_READY] voice.js loaded, getUserMedia=' + (!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)));

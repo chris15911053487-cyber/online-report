@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import { useStore } from '../store'
 import { apiFetch, apiFetchReport } from '../utils/api'
 import {
@@ -13,6 +13,7 @@ import {
 import type { FilterField, FilterOption, ReportResult } from '../types'
 import ImageLightbox from '../components/ImageLightbox'
 import TextOverlay from '../components/TextOverlay'
+import { openBarcodeScan } from '../utils/barcodeScan'
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200]
 
@@ -156,6 +157,9 @@ export default function DynamicReportView() {
     openReportRowDetail,
     openProSignReceive,
     navigateTo,
+    currentView,
+    shouldRefreshProSignListAfterReceive,
+    clearProSignListRefreshFlag,
   } = useStore()
 
   const schema = activeMenu?.filterSchema ?? []
@@ -382,6 +386,24 @@ export default function DynamicReportView() {
     [schema, formValues, routeKey, proSignMode, pageSize, navigateTo],
   )
 
+  // 从合并报工返回：保持筛选条件，自动重新查询最新列表（回到第 1 页）
+  useEffect(() => {
+    if (!proSignMode || currentView !== 'dynamic-report') return
+    if (!shouldRefreshProSignListAfterReceive || !optionsReady) return
+    clearProSignListRefreshFlag()
+    hasQueried.current = true
+    setPage(1)
+    void runQuery(1, pageSize)
+  }, [
+    proSignMode,
+    currentView,
+    shouldRefreshProSignListAfterReceive,
+    optionsReady,
+    clearProSignListRefreshFlag,
+    runQuery,
+    pageSize,
+  ])
+
   const handleSubmit = () => {
     hasQueried.current = true
     setPage(1)
@@ -599,6 +621,7 @@ export default function DynamicReportView() {
                 sqlOptions={sqlOptions[f.name]}
                 sqlLoading={sqlOptionsLoading[f.name]}
                 sqlError={sqlOptionsError[f.name]}
+                showToast={showToast}
               />
             ))}
           </div>
@@ -832,6 +855,56 @@ export default function DynamicReportView() {
   )
 }
 
+// ── ScanFieldWrap（filter_schema scan:true，对齐 legacy app.js）────────
+
+function ScanFieldWrap({
+  enabled,
+  showToast,
+  onScanSuccess,
+  children,
+}: {
+  enabled: boolean
+  showToast: (msg: string, durationMs?: number) => void
+  onScanSuccess: (text: string) => void
+  children: ReactNode
+}) {
+  if (!enabled) return <>{children}</>
+  return (
+    <div className="flex items-stretch gap-2">
+      <div className="min-w-0 flex-1">{children}</div>
+      <button
+        type="button"
+        className="flex shrink-0 items-center justify-center self-stretch rounded-lg border border-gray-200 bg-gray-50 px-3 text-gray-700 active:bg-gray-100"
+        aria-label="扫码"
+        title="扫码：点击直接启动摄像头；摄像头不可用时可选相册照片识别。外接扫码枪可直接扫入。"
+        onClick={(ev) => {
+          ev.preventDefault()
+          openBarcodeScan({ showToast, onDecoded: onScanSuccess })
+        }}
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width={22}
+          height={22}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M3 7V5a2 2 0 0 1 2-2h2" />
+          <path d="M17 3h2a2 2 0 0 1 2 2v2" />
+          <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+          <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+          <line x1="7" y1="12" x2="17" y2="12" />
+        </svg>
+      </button>
+    </div>
+  )
+}
+
 // ── FilterFieldInput ─────────────────────────────────────
 
 interface FilterFieldInputProps {
@@ -842,6 +915,7 @@ interface FilterFieldInputProps {
   sqlOptions?: FilterOption[]
   sqlLoading?: boolean
   sqlError?: boolean
+  showToast: (msg: string, durationMs?: number) => void
 }
 
 function FilterFieldInput({
@@ -852,10 +926,13 @@ function FilterFieldInput({
   sqlOptions,
   sqlLoading,
   sqlError,
+  showToast,
 }: FilterFieldInputProps) {
   const f = field
   const t = (f.type || 'string').toLowerCase()
   const showAll = shouldShowAllOption(f, proSignMode)
+  const useScan =
+    f.scan === true && (t === 'string' || t === 'int' || t === 'decimal')
 
   const labelEl = (
     <span className="mb-1 block text-xs font-medium text-gray-600">
@@ -960,13 +1037,19 @@ function FilterFieldInput({
     return (
       <label className="block">
         {labelEl}
-        <input
-          type="number"
-          step={t === 'int' ? '1' : 'any'}
-          className={inputCls}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-        />
+        <ScanFieldWrap
+          enabled={useScan}
+          showToast={showToast}
+          onScanSuccess={(text) => onChange(text)}
+        >
+          <input
+            type="number"
+            step={t === 'int' ? '1' : 'any'}
+            className={inputCls}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+          />
+        </ScanFieldWrap>
       </label>
     )
   }
@@ -974,12 +1057,18 @@ function FilterFieldInput({
   return (
     <label className="block">
       {labelEl}
-      <input
-        type="text"
-        className={inputCls}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
+      <ScanFieldWrap
+        enabled={useScan}
+        showToast={showToast}
+        onScanSuccess={(text) => onChange(text)}
+      >
+        <input
+          type="text"
+          className={inputCls}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      </ScanFieldWrap>
     </label>
   )
 }
