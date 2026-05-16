@@ -31,19 +31,19 @@ function firstSelectableCode(items: FilterOption[] | undefined | null): string {
   return c != null && typeof c !== 'object' ? String(c) : ''
 }
 
-/**
- * 仅从下拉选项的「显示文案」判断是否对应接单 / 完工（不做数值 0/1 推断）。
- * 接单 / 完工分开写清：完工侧依赖「未完」排除；接单侧排除含「不接单」类否定（与「待接单」不冲突）。
- */
-function mergeLabelFromOptionDisplayText(nameRaw: string): '接单' | '完工' | null {
-  const name = String(nameRaw).trim()
-  if (!name) return null
-  if (name === '接单' || name === '待接单' || name === '未接单') return '接单'
-  if (name.includes('接单') && !/不接单|暂不接(?:单)?/.test(name)) return '接单'
-  if (name === '完工' || name === '已完工' || name === '待完工') return '完工'
-  if (name.includes('待完工')) return '完工'
-  if (name.includes('完工') && !name.includes('未完')) return '完工'
-  return null
+/** 生产报工 Status 筛选项 code → 吸底/合并页按钮文案（固定映射） */
+const PRO_SIGN_STATUS_CODE_TO_LABEL: Record<number, string> = {
+  0: '接单',
+  1: '完工',
+  8: '恢复报工',
+}
+
+function mergeButtonLabelFromStatusCode(code: unknown): string | null {
+  if (code === '' || code === null || code === undefined) return null
+  if (typeof code === 'boolean') return null
+  const num = typeof code === 'number' ? code : Number(String(code).trim())
+  if (!Number.isFinite(num)) return null
+  return PRO_SIGN_STATUS_CODE_TO_LABEL[num] ?? null
 }
 
 function resolveFilterOpts(
@@ -73,8 +73,8 @@ function findMatchingFilterOption(opts: FilterOption[], v: unknown): FilterOptio
 }
 
 /**
- * 与列表页吸底按钮文案一致；合并页「暂停报工」依赖是否为「完工」。
- * 兼容：数值 0/1、字符串 "0"/"00"、以及 **静态 options 或 optionsSql 拉取的选项** 名称（含「接单」等）。
+ * 与列表页吸底按钮文案一致；合并页「暂停报工」仅在 Status code=1（完工）时显示。
+ * Status code 固定：0 接单、1 完工、8 恢复报工；其它 → 合并报工。
  * @param resolvedOptions 筛选项来自 optionsSql 时传 sqlOptions[field.name]，勿仅用 field.options（往往为空）
  */
 function resolveProSignMergeButtonLabel(
@@ -88,25 +88,13 @@ function resolveProSignMergeButtonLabel(
   if (typeof v === 'boolean') return '合并报工'
 
   const opts = resolveFilterOpts(field, resolvedOptions)
-  let name = ''
   if (opts && opts.length > 0) {
     const hit = findMatchingFilterOption(opts, v)
-    name = hit?.name != null ? String(hit.name).trim() : ''
-    const fromDisp = mergeLabelFromOptionDisplayText(name)
-    if (fromDisp) return fromDisp
+    const fromOptionCode = mergeButtonLabelFromStatusCode(hit?.code ?? v)
+    if (fromOptionCode) return fromOptionCode
   }
 
-  const s = String(v).trim()
-  if (s === '') return '合并报工'
-  /** 兜底：选项尚未加载或与 value 存的是文案而非 code */
-  const fromPlain = mergeLabelFromOptionDisplayText(s)
-  if (fromPlain) return fromPlain
-  const num = Number(s)
-  if (Number.isFinite(num)) {
-    if (num === 0) return '接单'
-    if (num === 1) return '完工'
-  }
-  return '合并报工'
+  return mergeButtonLabelFromStatusCode(v) ?? '合并报工'
 }
 
 function normalizePageSize(size: number): number {

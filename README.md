@@ -30,7 +30,7 @@ frontend/src/
 - 登录 / 退出 / 修改密码
 - 菜单页 + 业务导航（builtin / report / pro-sign 路由）
 - 动态报表（筛选、分页、图片列+灯箱、长文本展开、扫码）
-- AI 智能分析（`/ai/analyze`）与 AI 助手对话（`/ai/chat`）
+- AI 智能分析（`/ai/analyze`）与 **AI 使用说明助手**（`/ai/chat` + `server/help/` 知识库 RAG）
 - 合并报工（多选 → 预检 → 接单/完工/暂停 → 保存）
 - 菜单管理后台（CRUD、AI Prompt 生成器）
 - OITM 物料、报工订单、行详情、批次报工登记
@@ -78,6 +78,19 @@ npm run init-db
 - Prompt 占位符：`{report_label}`, `{filters}`, `{metrics}`, `{data_sample}`, `{columns}`, `{context}`
 - 路由：`POST /ai/analyze`、`POST /ai/generate-prompt`、`POST /ai/chat`
 
+### AI 使用说明助手
+
+底部 Tab「AI」面向**系统操作说明**（改密码、生产报工、暂停与恢复等），与报表页的「AI 分析」不同。
+
+| 接口 | 说明 |
+|------|------|
+| `GET /ai/help/bootstrap` | 快捷问题列表、文档版本 |
+| `POST /ai/chat` | 多轮对话；按用户最后一问检索 `server/help/*.md` 片段拼入 system prompt |
+
+**知识库维护**：编辑 `server/help/` 下 Markdown（`<!-- tags: ... -->` 与同义词组用于检索）。改完后重启 Node 服务（或调用 `clearHelpCache()`）生效。
+
+**前端**：`AiChatView` 快捷提问、`sources` 参考章节、绿色按钮跳转（设置 / 菜单 / 生产报工）。
+
 ## 合并报工
 
 ### 两种报工流程
@@ -90,10 +103,11 @@ npm run init-db
 
 ### SignType 判断
 
-| Status 筛选值 | SignType 写入值 | 含义 |
+| Status 筛选值 (code) | 列表吸底 / SignType | 合并页操作 |
 |---|---|---|
-| `0` | `接单` | 接单开工 |
-| `1` | `完工` | 完工汇报 |
+| `0` | `接单` | 确认接单 |
+| `1` | `完工` | 完工 + 暂停报工 |
+| `8` | `恢复报工` | 恢复报工 |
 | 未筛选/其他 | `合并报工` | 常规合并报工 |
 
 ## 报表图片列
@@ -161,8 +175,9 @@ addCmd(['打开消息', '未读消息'], function () {
 
 ### 浮动按钮交互
 
-- 拖到屏幕边缘松手 → 吸附到最近一边，仅露出约 18px
-- 点击半隐藏按钮 → 滑回屏幕内；也可直接往外拖动展开
+- 需自行拖到贴近屏幕边缘（约 14px 内）松手才会吸附；拖动过程中可滑出屏幕外
+- 贴边后露出约 34px，并带更大半透明拖拽条（`voice-dock-pull`）便于拉出
+- 轻点拖拽条 → 展开回屏幕内；按住往外拖 → 脱离贴边
 - 位置保存在 `localStorage`（`voice_btn_pos_v2`）
 
 ### 内置固定指令（节选）

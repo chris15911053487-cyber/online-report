@@ -1,6 +1,13 @@
 const { getPool, sql } = require('../db');
 const { aiService } = require('../ai');
 const {
+  buildHelpSystemPrompt,
+  retrieveRelevantChunks,
+  suggestNavActions,
+  getHelpBootstrap,
+  HELP_DOC_VERSION,
+} = require('../help-knowledge');
+const {
   parseFilterSchemaJson,
   buildReportSessionInject,
   executeReportQuery,
@@ -9,9 +16,6 @@ const {
   detectTemplateKind,
   normalizeTemplate,
 } = require('../report-query');
-
-/** 主界面「AI 助手」多轮对话 */
-const CHAT_SYSTEM_PROMPT = `你是「在线报工与生产报表」系统中的智能助手。用户可能询问报工流程、生产管理、系统使用、数据分析思路等问题。请用清晰、专业、易懂的中文回答，适度分段。不要使用整篇 markdown 代码块包裹。若无法确定事实，请说明并建议用户查阅正式文档或联系管理员；不要编造系统内不存在的菜单或权限。`;
 
 /**
  * AI 分析路由
@@ -154,7 +158,17 @@ async function aiRoutes(fastify) {
     }
   );
 
-  /** 主界面 AI 对话（通用问答，非报表 analyse） */
+  /** AI 助手：快捷问题与知识库元信息 */
+  fastify.get(
+    '/ai/help/bootstrap',
+    { preHandler: [fastify.authenticate] },
+    async (request) => {
+      const userRole = String(request.user.role || 'operator');
+      return getHelpBootstrap(userRole);
+    }
+  );
+
+  /** 主界面 AI 对话（使用说明 RAG + 可选跳转建议） */
   fastify.post(
     '/ai/chat',
     { preHandler: [fastify.authenticate] },
@@ -183,7 +197,15 @@ async function aiRoutes(fastify) {
       }
       const trimmed = history.slice(firstUser);
 
-      const messages = [{ role: 'system', content: CHAT_SYSTEM_PROMPT }, ...trimmed];
+      const lastUser = [...trimmed].reverse().find((m) => m.role === 'user');
+      const userQuery = lastUser ? lastUser.content : '';
+      const userRole = String(request.user.role || 'operator');
+
+      const systemPrompt = buildHelpSystemPrompt(userQuery, userRole);
+      const sources = retrieveRelevantChunks(userQuery, 5).map((c) => c.title);
+      const actions = suggestNavActions(userQuery);
+
+      const messages = [{ role: 'system', content: systemPrompt }, ...trimmed];
 
       const result = await aiService.generateChat(messages, { maxTokens: 2048 });
       if (!result.success) {
@@ -199,6 +221,9 @@ async function aiRoutes(fastify) {
         message: result.content,
         provider: result.provider,
         model: result.model,
+        sources,
+        actions,
+        helpVersion: HELP_DOC_VERSION,
       };
     }
   );

@@ -124,14 +124,19 @@ export default function ProSignReceiveView() {
       ? `已选 ${selectedCodes.size} 人：${operatorCodesArr.join('、')}`
       : '未勾选人员；保存时将默认使用当前登录账号'
 
-  const signType = proSignMergeButtonLabel === '接单'
-    ? '接单'
-    : proSignMergeButtonLabel === '完工'
-      ? '完工'
-      : '合并报工'
+  const signType =
+    proSignMergeButtonLabel === '接单'
+      ? '接单'
+      : proSignMergeButtonLabel === '完工'
+        ? '完工'
+        : proSignMergeButtonLabel === '恢复报工'
+          ? '恢复报工'
+          : '合并报工'
 
-  /** 与列表页「完工」一致时显示暂停（signType 由 proSignMergeButtonLabel 解析） */
+  /** Status=1：主按钮「完工」+ 副按钮「暂停报工」 */
   const isCompletionFlow = signType === '完工'
+  /** Status=8：仅「恢复报工」主按钮 */
+  const isResumeFlow = signType === '恢复报工'
 
   const buildOnlineSignBody = useCallback(
     (signTypeForSave: string, remarksStr: string) => {
@@ -320,7 +325,13 @@ export default function ProSignReceiveView() {
             type="button"
             onClick={() => setShowPreview(true)}
             disabled={saving || pauseSaving}
-            className={`py-3 rounded-xl bg-sky-600 text-white font-medium active:bg-sky-700 transition-colors disabled:opacity-50 ${isCompletionFlow ? 'flex-1' : 'w-full'}`}
+            className={`py-3 rounded-xl font-medium transition-colors disabled:opacity-50 ${
+              isCompletionFlow ? 'flex-1' : 'w-full'
+            } ${
+              isResumeFlow
+                ? 'bg-emerald-600 text-white active:bg-emerald-700'
+                : 'bg-sky-600 text-white active:bg-sky-700'
+            }`}
           >
             {proSignMergeButtonLabel || '合并报工'}
           </button>

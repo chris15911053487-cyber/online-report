@@ -336,15 +336,15 @@
     goToNavTab('菜单');
   }, { label: '菜单' });
 
-  addCmd(['人工智能', '智能助手', 'AI助手', '打开AI', '打开助手'], function () {
+  addCmd(['AI', 'ai', '人工智能', '智能助手', 'AI助手', '打开AI', '打开助手'], function () {
     goToNavTab('AI');
   }, { label: 'AI 助手' });
 
-  addCmd(['打开消息', '消息中心', '通知中心'], function () {
+  addCmd(['消息', '打开消息', '消息中心', '通知中心'], function () {
     goToNavTab('消息');
   }, { label: '消息' });
 
-  addCmd(['打开设置', '系统设置', '个人设置'], function () {
+  addCmd(['设置', '打开设置', '系统设置', '个人设置'], function () {
     goToNavTab('设置');
   }, { label: '设置' });
 
@@ -399,6 +399,14 @@
   btnEl.setAttribute('aria-label', '语音控制');
   btnEl.innerHTML =
     '<svg class="voice-btn__mic" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>';
+  /** 贴边时扩大的拖拽热区（比露出的一小条更好点） */
+  var pullTab = document.createElement('button');
+  pullTab.type = 'button';
+  pullTab.className = 'voice-dock-pull';
+  pullTab.setAttribute('aria-label', '拖出语音按钮');
+  pullTab.hidden = true;
+  wrapper.appendChild(pullTab);
+
   wrapper.appendChild(btnEl);
 
   var micEl = btnEl.querySelector('.voice-btn__mic');
@@ -410,8 +418,10 @@
 
   var VOICE_POS_STORAGE_KEY = 'voice_btn_pos_v2';
   var DRAG_THRESHOLD_PX = 8;
-  var EDGE_PEEK_PX = 18;
-  var EDGE_SNAP_THRESHOLD_PX = 56;
+  /** 贴边后露出的宽度（越大越好点） */
+  var EDGE_PEEK_PX = 34;
+  /** 松手时距屏幕边 ≤ 此值才吸附（需用户自己拖到靠边） */
+  var EDGE_SNAP_INSET_PX = 14;
   var EDGE_EXPAND_MARGIN_PX = 16;
   var dragState = null;
   var suppressVoiceClick = false;
@@ -476,12 +486,17 @@
     setVoiceWrapperCoords(left, top);
   }
 
+  function updateDockPullVisibility() {
+    if (pullTab) pullTab.hidden = !voiceDockEdge;
+  }
+
   function dockVoiceWrapper(edge, skipSave) {
     voiceDockEdge = edge;
     clearVoiceDockClasses();
     wrapper.classList.add('voice-wrapper--docked', 'voice-wrapper--docked-' + edge);
     btnEl.setAttribute('aria-label', '展开语音按钮');
     bubble.hidden = true;
+    updateDockPullVisibility();
     applyDockedPosition(edge);
     if (!skipSave) saveVoiceWrapperPosition();
   }
@@ -490,9 +505,10 @@
     voiceDockEdge = null;
     clearVoiceDockClasses();
     btnEl.setAttribute('aria-label', '语音控制');
+    updateDockPullVisibility();
   }
 
-  /** 贴边吸附：松手时靠近哪条边就吸到哪条，只露出 EDGE_PEEK_PX */
+  /** 松手：仅当已拖到贴近某条边时才吸附；否则保持浮层位置 */
   function snapVoiceWrapperToEdge() {
     var rect = wrapper.getBoundingClientRect();
     var distLeft = rect.left;
@@ -501,8 +517,9 @@
     var distBottom = window.innerHeight - rect.bottom;
     var minDist = Math.min(distLeft, distRight, distTop, distBottom);
 
-    if (minDist > EDGE_SNAP_THRESHOLD_PX) {
+    if (minDist > EDGE_SNAP_INSET_PX) {
       undockVoiceWrapper();
+      clampVoiceWrapperFullyVisible();
       saveVoiceWrapperPosition();
       return;
     }
@@ -565,6 +582,21 @@
     return !!(wrapper.style && wrapper.style.left !== '' && wrapper.style.top !== '');
   }
 
+  function clampVoiceWrapperFullyVisible() {
+    if (!voiceWrapperUsesCustomCoords() || voiceDockEdge) return;
+    var rect = wrapper.getBoundingClientRect();
+    var w = rect.width;
+    var h = rect.height;
+    if (!w || !h) return;
+    var maxL = Math.max(0, window.innerWidth - w);
+    var maxT = Math.max(0, window.innerHeight - h);
+    var nl = Math.min(maxL, Math.max(0, rect.left));
+    var nt = Math.min(maxT, Math.max(0, rect.top));
+    if (nl !== rect.left || nt !== rect.top) {
+      setVoiceWrapperCoords(nl, nt);
+    }
+  }
+
   function clampVoiceWrapperToViewport() {
     if (!voiceWrapperUsesCustomCoords()) return;
     if (voiceDockEdge) {
@@ -572,20 +604,22 @@
       saveVoiceWrapperPosition();
       return;
     }
-    var rect = wrapper.getBoundingClientRect();
-    var w = rect.width;
-    var h = rect.height;
-    if (!w || !h) return;
-    var maxL = Math.max(0, window.innerWidth - w);
-    var maxT = Math.max(0, window.innerHeight - h);
-    var l = rect.left;
-    var t = rect.top;
-    var nl = Math.min(maxL, Math.max(0, l));
-    var nt = Math.min(maxT, Math.max(0, t));
-    if (nl !== l || nt !== t) {
-      setVoiceWrapperCoords(nl, nt);
-      saveVoiceWrapperPosition();
-    }
+    clampVoiceWrapperFullyVisible();
+    saveVoiceWrapperPosition();
+  }
+
+  /** 拖动时允许滑出屏幕，便于用户自己「推」进贴边区 */
+  function clampVoiceWrapperWhileDragging(left, top, w, h) {
+    var vw = window.innerWidth;
+    var vh = window.innerHeight;
+    var minLeft = -(w - EDGE_PEEK_PX);
+    var maxLeft = vw - EDGE_PEEK_PX;
+    var minTop = -(h - EDGE_PEEK_PX);
+    var maxTop = vh - EDGE_PEEK_PX;
+    return {
+      left: Math.max(minLeft, Math.min(maxLeft, left)),
+      top: Math.max(minTop, Math.min(maxTop, top)),
+    };
   }
 
   function showBubble(msg, autoHide) {
@@ -807,7 +841,15 @@
     });
   }
 
-  btnEl.addEventListener('pointerdown', function (e) {
+  function isVoiceDragTarget(el) {
+    if (!el || !wrapper.contains(el)) return false;
+    if (voiceDockEdge) {
+      return el === pullTab || el === btnEl || el === wrapper || pullTab.contains(el) || btnEl.contains(el);
+    }
+    return el === btnEl || btnEl.contains(el);
+  }
+
+  function beginVoicePointerDrag(e, captureEl) {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     if (state !== 'idle') return;
     var r = wrapper.getBoundingClientRect();
@@ -818,13 +860,20 @@
       origLeft: r.left,
       origTop: r.top,
       moved: false,
+      wasDocked: !!voiceDockEdge,
+      captureEl: captureEl,
     };
     try {
-      btnEl.setPointerCapture(e.pointerId);
+      captureEl.setPointerCapture(e.pointerId);
     } catch (err) { /* older browsers */ }
-  });
+  }
 
-  btnEl.addEventListener('pointermove', function (e) {
+  function onVoicePointerDown(e) {
+    if (!isVoiceDragTarget(e.target)) return;
+    beginVoicePointerDrag(e, e.target === pullTab ? pullTab : btnEl);
+  }
+
+  function onVoicePointerMove(e) {
     if (!dragState || e.pointerId !== dragState.pointerId) return;
     var dx = e.clientX - dragState.startX;
     var dy = e.clientY - dragState.startY;
@@ -832,41 +881,48 @@
       if (dx * dx + dy * dy < DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) return;
       dragState.moved = true;
       if (voiceDockEdge) {
-        expandVoiceFromDock();
+        undockVoiceWrapper();
         var r0 = wrapper.getBoundingClientRect();
         dragState.origLeft = r0.left;
         dragState.origTop = r0.top;
         dragState.startX = e.clientX;
         dragState.startY = e.clientY;
+        dx = 0;
+        dy = 0;
       }
       wrapper.classList.add('voice-wrapper--dragging');
     }
-    var newLeft = dragState.origLeft + dx;
-    var newTop = dragState.origTop + dy;
     var w = wrapper.offsetWidth;
     var h = wrapper.offsetHeight;
-    newLeft = Math.max(0, Math.min(window.innerWidth - w, newLeft));
-    newTop = Math.max(0, Math.min(window.innerHeight - h, newTop));
-    wrapper.style.left = newLeft + 'px';
-    wrapper.style.top = newTop + 'px';
-    wrapper.style.right = 'auto';
-    wrapper.style.bottom = 'auto';
-  });
+    var clamped = clampVoiceWrapperWhileDragging(dragState.origLeft + dx, dragState.origTop + dy, w, h);
+    setVoiceWrapperCoords(clamped.left, clamped.top);
+  }
 
   function endVoicePointerDrag(e) {
     if (!dragState || e.pointerId !== dragState.pointerId) return;
     try {
-      btnEl.releasePointerCapture(e.pointerId);
+      if (dragState.captureEl) {
+        dragState.captureEl.releasePointerCapture(e.pointerId);
+      }
     } catch (err) { /* ignore */ }
     if (dragState.moved) {
       suppressVoiceClick = true;
       snapVoiceWrapperToEdge();
+    } else if (dragState.wasDocked) {
+      suppressVoiceClick = true;
+      expandVoiceFromDock();
     }
     wrapper.classList.remove('voice-wrapper--dragging');
     dragState = null;
   }
 
+  pullTab.addEventListener('pointerdown', onVoicePointerDown);
+  btnEl.addEventListener('pointerdown', onVoicePointerDown);
+  pullTab.addEventListener('pointermove', onVoicePointerMove);
+  btnEl.addEventListener('pointermove', onVoicePointerMove);
+  pullTab.addEventListener('pointerup', endVoicePointerDrag);
   btnEl.addEventListener('pointerup', endVoicePointerDrag);
+  pullTab.addEventListener('pointercancel', endVoicePointerDrag);
   btnEl.addEventListener('pointercancel', endVoicePointerDrag);
 
   btnEl.addEventListener('click', function (e) {
@@ -879,7 +935,6 @@
     }
 
     if (isVoiceWrapperDocked()) {
-      expandVoiceFromDock();
       return;
     }
 
@@ -936,6 +991,14 @@
     '.voice-wrapper--docked-right{align-items:flex-end}' +
     '.voice-wrapper--docked-top{align-items:center}' +
     '.voice-wrapper--docked-bottom{align-items:center}' +
+    '.voice-dock-pull{display:none;position:absolute;border:none;padding:0;margin:0;background:rgba(37,99,235,.25);z-index:2;touch-action:none;-webkit-tap-highlight-color:transparent;cursor:grab}' +
+    '.voice-wrapper--docked .voice-dock-pull{display:block}' +
+    '.voice-wrapper--dragging .voice-dock-pull{cursor:grabbing;background:rgba(37,99,235,.35)}' +
+    '.voice-wrapper--docked-left .voice-dock-pull{right:0;top:50%;transform:translateY(-50%);width:40px;height:88px;border-radius:0 12px 12px 0}' +
+    '.voice-wrapper--docked-right .voice-dock-pull{left:0;top:50%;transform:translateY(-50%);width:40px;height:88px;border-radius:12px 0 0 12px}' +
+    '.voice-wrapper--docked-top .voice-dock-pull{bottom:0;left:50%;transform:translateX(-50%);width:88px;height:40px;border-radius:0 0 12px 12px}' +
+    '.voice-wrapper--docked-bottom .voice-dock-pull{top:0;left:50%;transform:translateX(-50%);width:88px;height:40px;border-radius:12px 12px 0 0}' +
+    '.voice-wrapper--docked .voice-btn{pointer-events:none}' +
     '.voice-bubble{background:#0f172a;color:#fff;font-size:14px;padding:8px 16px;border-radius:16px 16px 4px 16px;box-shadow:0 4px 12px rgba(0,0,0,.25);max-width:200px;line-height:1.4}' +
     '.voice-btn{width:56px;height:56px;border-radius:50%;border:none;background:#2563eb;color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,.3);cursor:pointer;transition:all .2s;-webkit-tap-highlight-color:transparent;touch-action:none;user-select:none}' +
     '.voice-btn:active{transform:scale(.95)}' +
