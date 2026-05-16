@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from 'react'
 import { useStore } from '../store'
 import { apiFetch, apiFetchReport } from '../utils/api'
 import {
@@ -38,11 +38,110 @@ const PRO_SIGN_STATUS_CODE_TO_LABEL: Record<number, string> = {
   8: '恢复报工',
 }
 
-function mergeButtonLabelFromStatusCode(code: unknown): string | null {
+/** 与 filter_schema 静态 options 中 string code 对齐（如 "0"/"1"/"8"） */
+const PRO_SIGN_STATUS_STRING_TO_LABEL: Record<string, string> = {
+  '0': '接单',
+  '1': '完工',
+  '8': '恢复报工',
+}
+
+/** 生产报工 Status 固定三项（与吸底按钮映射一致） */
+const PRO_SIGN_STATUS_SEGMENT_CODES = [0, 1, 8] as const
+
+type ProSignStatusSlot = (typeof PRO_SIGN_STATUS_SEGMENT_CODES)[number]
+
+function parseProSignStatusCode(code: unknown): number | null {
   if (code === '' || code === null || code === undefined) return null
   if (typeof code === 'boolean') return null
-  const num = typeof code === 'number' ? code : Number(String(code).trim())
-  if (!Number.isFinite(num)) return null
+  if (typeof code === 'number' && Number.isFinite(code)) return Math.trunc(code)
+  const s = String(code).trim()
+  if (!s) return null
+  const n = parseInt(s, 10)
+  if (!Number.isFinite(n)) return null
+  return n
+}
+
+/** 下拉显示名 → 吸底/合并页文案（code 非 0/1/8 时兜底） */
+function mergeLabelFromOptionDisplayName(nameRaw: string): string | null {
+  const name = String(nameRaw).trim()
+  if (!name) return null
+  if (/恢复/.test(name)) return '恢复报工'
+  if (name === '完工' || name === '已完工' || name === '待完工' || /待完工/.test(name)) return '完工'
+  if (/完工/.test(name) && !/未完|恢复/.test(name)) return '完工'
+  if (name === '接单' || name === '待接单' || name === '未接单') return '接单'
+  if (/接单/.test(name) && !/不接单|暂不接(?:单)?/.test(name)) return '接单'
+  return null
+}
+
+function findOptionForProSignSlot(
+  opts: FilterOption[] | null | undefined,
+  slot: ProSignStatusSlot,
+): FilterOption | undefined {
+  if (!opts?.length) return undefined
+  const byCode = opts.find((o) => parseProSignStatusCode(o.code) === slot)
+  if (byCode) return byCode
+  const patterns: Record<ProSignStatusSlot, RegExp> = {
+    0: /待接单|未接单|^接单$|接单/,
+    1: /待完工|^完工$|已完工|完工/,
+    8: /恢复报工|恢复|暂停后继续|继续报工/,
+  }
+  const re = patterns[slot]
+  return opts.find((o) => {
+    const n = String(o.name ?? '').trim()
+    return n && re.test(n) && (slot !== 1 || !/未完/.test(n)) && (slot !== 0 || !/不接单|暂不接(?:单)?/.test(n))
+  })
+}
+
+function buildProSignStatusSegmentItems(
+  opts: FilterOption[] | null | undefined,
+): { code: string; label: string }[] {
+  return PRO_SIGN_STATUS_SEGMENT_CODES.map((slot) => {
+    const hit = findOptionForProSignSlot(opts, slot)
+    const fallback = PRO_SIGN_STATUS_CODE_TO_LABEL[slot] ?? String(slot)
+    const label =
+      hit?.name != null && String(hit.name).trim() ? String(hit.name).trim() : fallback
+    /** 固定业务 code 0/1/8；静态 options 配置为 "8" 时与筛参、吸底映射一致 */
+    return { code: String(slot), label }
+  })
+}
+
+function isProSignStatusFieldName(name: string | undefined): boolean {
+  return (name || '').trim().toLowerCase() === 'status'
+}
+
+/** 读取表单值（字段名大小写不敏感，兼容 Status / status） */
+function getFormFieldValue(formValues: Record<string, any>, fieldName: string): unknown {
+  if (!fieldName) return undefined
+  if (Object.prototype.hasOwnProperty.call(formValues, fieldName)) {
+    return formValues[fieldName]
+  }
+  const lower = fieldName.toLowerCase()
+  for (const k of Object.keys(formValues)) {
+    if (k.toLowerCase() === lower) return formValues[k]
+  }
+  return undefined
+}
+
+function setFormFieldValue(
+  formValues: Record<string, any>,
+  fieldName: string,
+  value: unknown,
+): Record<string, any> {
+  if (Object.prototype.hasOwnProperty.call(formValues, fieldName)) {
+    return { ...formValues, [fieldName]: value }
+  }
+  const lower = fieldName.toLowerCase()
+  const hit = Object.keys(formValues).find((k) => k.toLowerCase() === lower)
+  if (hit) return { ...formValues, [hit]: value }
+  return { ...formValues, [fieldName]: value }
+}
+
+function mergeButtonLabelFromStatusCode(code: unknown): string | null {
+  if (code === '' || code == null || typeof code === 'boolean') return null
+  const s = String(code).trim()
+  if (PRO_SIGN_STATUS_STRING_TO_LABEL[s]) return PRO_SIGN_STATUS_STRING_TO_LABEL[s]
+  const num = parseProSignStatusCode(code)
+  if (num == null) return null
   return PRO_SIGN_STATUS_CODE_TO_LABEL[num] ?? null
 }
 
@@ -83,18 +182,28 @@ function resolveProSignMergeButtonLabel(
   resolvedOptions?: FilterOption[] | null,
 ): string {
   if (!field) return '合并报工'
-  const v = formValues[field.name]
+  const v = getFormFieldValue(formValues, field.name)
   if (v === '' || v === null || v === undefined) return '合并报工'
   if (typeof v === 'boolean') return '合并报工'
+
+  /** 分段按钮写入的 0/1/8 或 parseInt 可解析的值优先 */
+  const direct = mergeButtonLabelFromStatusCode(v)
+  if (direct) return direct
 
   const opts = resolveFilterOpts(field, resolvedOptions)
   if (opts && opts.length > 0) {
     const hit = findMatchingFilterOption(opts, v)
-    const fromOptionCode = mergeButtonLabelFromStatusCode(hit?.code ?? v)
-    if (fromOptionCode) return fromOptionCode
+    if (hit?.name) {
+      const fromName = mergeLabelFromOptionDisplayName(String(hit.name))
+      if (fromName) return fromName
+    }
+    if (hit?.code != null) {
+      const fromCode = mergeButtonLabelFromStatusCode(hit.code)
+      if (fromCode) return fromCode
+    }
   }
 
-  return mergeButtonLabelFromStatusCode(v) ?? '合并报工'
+  return '合并报工'
 }
 
 function normalizePageSize(size: number): number {
@@ -148,6 +257,7 @@ export default function DynamicReportView() {
     currentView,
     shouldRefreshProSignListAfterReceive,
     clearProSignListRefreshFlag,
+    proSignMergeButtonLabel: storeMergeLabel,
   } = useStore()
 
   const schema = activeMenu?.filterSchema ?? []
@@ -189,6 +299,8 @@ export default function DynamicReportView() {
 
   const hasQueried = useRef(false)
   const initDone = useRef(false)
+  const proSignAutoQueried = useRef(false)
+  const menuInitKey = `${activeMenu?.id ?? ''}:${routeKey}`
 
   useEffect(() => {
     if (!proSignMode) {
@@ -221,7 +333,17 @@ export default function DynamicReportView() {
     return Math.max(1, Math.ceil(totalRowCount / ps))
   }, [totalRowCount, pageSize])
 
-  // --- Filter options loading ---
+  // --- Filter options loading（切换菜单时重新初始化） ---
+  useEffect(() => {
+    initDone.current = false
+    proSignAutoQueried.current = false
+    hasQueried.current = false
+    setOptionsReady(false)
+    setSqlOptions({})
+    setSqlOptionsLoading({})
+    setSqlOptionsError({})
+  }, [menuInitKey])
+
   useEffect(() => {
     if (initDone.current) return
     initDone.current = true
@@ -236,7 +358,11 @@ export default function DynamicReportView() {
         proSignMode && (f.name || '').trim().toLowerCase() === 'status'
       const fromSql = !!(f.optionsSql || f.optionsFromSql)
       if (isProSignStatus && !fromSql && f.options && f.options.length > 0) {
-        defaults[f.name] = firstSelectableCode(f.options)
+        const slot0 = findOptionForProSignSlot(f.options, 0)
+        defaults[f.name] =
+          slot0?.code != null && typeof slot0.code !== 'object'
+            ? String(slot0.code)
+            : firstSelectableCode(f.options)
       } else {
         defaults[f.name] = ''
       }
@@ -271,7 +397,7 @@ export default function DynamicReportView() {
     )
 
     Promise.all(promises).then(() => setOptionsReady(true))
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [menuInitKey, routeKey, proSignMode, showToast]) // schema 随 menuInitKey 变化，勿直接依赖数组引用
 
   /**
    * 生产报工 Status 不带「全部」：受控值为 '' 时浏览器仍可能显示第一项，但未写入 formValues，
@@ -293,14 +419,18 @@ export default function DynamicReportView() {
       return
     }
 
-    const firstCode = firstSelectableCode(items)
+    const slot0 = findOptionForProSignSlot(items, 0)
+    const firstCode =
+      slot0?.code != null && typeof slot0.code !== 'object'
+        ? String(slot0.code)
+        : firstSelectableCode(items)
     if (!firstCode) return
 
     setFormValues((prev) => {
-      const cur = prev[sf.name]
+      const cur = getFormFieldValue(prev, sf.name)
       if (cur !== '' && cur != null) return prev
-      if (prev[sf.name] === firstCode) return prev
-      return { ...prev, [sf.name]: firstCode }
+      if (String(getFormFieldValue(prev, sf.name) ?? '') === firstCode) return prev
+      return setFormFieldValue(prev, sf.name, firstCode)
     })
   }, [proSignMode, optionsReady, schema, sqlOptions])
 
@@ -315,12 +445,17 @@ export default function DynamicReportView() {
 
   // --- Query execution ---
   const runQuery = useCallback(
-    async (targetPage: number = 1, targetSize: number = pageSize) => {
+    async (
+      targetPage: number = 1,
+      targetSize: number = pageSize,
+      overrideFormValues?: Record<string, any>,
+    ) => {
       setLoading(true)
       setError('')
       setSelectedRows(new Set())
 
-      const params = collectFilterParams(schema, formValues)
+      const values = overrideFormValues ?? formValues
+      const params = collectFilterParams(schema, values)
       const body = {
         routeKey,
         params,
@@ -391,6 +526,58 @@ export default function DynamicReportView() {
     runQuery,
     pageSize,
   ])
+
+  const proSignStatusField = proSignMode ? findProSignStatusField(schema) : undefined
+
+  const stickyMergeButtonLabel = useMemo(() => {
+    if (!proSignMode || !proSignStatusField) return '合并报工'
+    let resolvedOpts: FilterOption[] | undefined
+    if (proSignStatusField.optionsSql || proSignStatusField.optionsFromSql) {
+      resolvedOpts = sqlOptions[proSignStatusField.name]
+    } else if (proSignStatusField.options?.length) {
+      resolvedOpts = proSignStatusField.options
+    }
+    return resolveProSignMergeButtonLabel(proSignStatusField, formValues, resolvedOpts)
+  }, [proSignMode, proSignStatusField, formValues, sqlOptions])
+
+  useEffect(() => {
+    if (!proSignMode) return
+    if (storeMergeLabel === stickyMergeButtonLabel) return
+    useStore.setState({ proSignMergeButtonLabel: stickyMergeButtonLabel })
+  }, [proSignMode, stickyMergeButtonLabel, storeMergeLabel])
+
+  /** 进入生产报工且 Status 已就绪时自动查一次，避免先点「查询」 */
+  useEffect(() => {
+    if (!proSignMode || !optionsReady || proSignAutoQueried.current) return
+    if (!proSignStatusField) return
+    const v = getFormFieldValue(formValues, proSignStatusField.name)
+    if (v === '' || v == null) return
+    proSignAutoQueried.current = true
+    hasQueried.current = true
+    void runQuery(1, pageSize)
+  }, [proSignMode, optionsReady, proSignStatusField, formValues, runQuery, pageSize])
+
+  const handleProSignStatusPick = useCallback(
+    (code: string) => {
+      if (!proSignStatusField) return
+      const cur = getFormFieldValue(formValues, proSignStatusField.name)
+      const curStr = cur != null && typeof cur !== 'object' ? String(cur) : ''
+      if (curStr === code) {
+        if (!hasQueried.current) {
+          hasQueried.current = true
+          setPage(1)
+          void runQuery(1, pageSize)
+        }
+        return
+      }
+      const nextValues = setFormFieldValue(formValues, proSignStatusField.name, code)
+      setFormValues(nextValues)
+      hasQueried.current = true
+      setPage(1)
+      void runQuery(1, pageSize, nextValues)
+    },
+    [proSignStatusField, formValues, runQuery, pageSize],
+  )
 
   const handleSubmit = () => {
     hasQueried.current = true
@@ -482,18 +669,6 @@ export default function DynamicReportView() {
     }
   }
 
-  // --- ProSign merge ---
-  const getMergeButtonLabel = (): string => {
-    const sf = findProSignStatusField(schema)
-    let resolvedOpts: FilterOption[] | undefined
-    if (sf && (sf.optionsSql || sf.optionsFromSql)) {
-      resolvedOpts = sqlOptions[sf.name]
-    } else if (sf?.options?.length) {
-      resolvedOpts = sf.options
-    }
-    return resolveProSignMergeButtonLabel(sf, formValues, resolvedOpts)
-  }
-
   const handleMerge = async () => {
     if (mergeLoading) return
     const rows = getVisibleRows()
@@ -528,7 +703,7 @@ export default function DynamicReportView() {
         method: 'POST',
         body: JSON.stringify({ lines }),
       })
-      openProSignReceive(selected, data?.lineResults ?? [], getMergeButtonLabel())
+      openProSignReceive(selected, data?.lineResults ?? [], stickyMergeButtonLabel)
     } catch (e: any) {
       showToast(e.message || '预检失败')
     } finally {
@@ -580,6 +755,18 @@ export default function DynamicReportView() {
 
   const mp = maxPage()
 
+  const proSignStatusSegmentItems = proSignStatusField
+    ? buildProSignStatusSegmentItems(
+        proSignStatusField.optionsSql || proSignStatusField.optionsFromSql
+          ? sqlOptions[proSignStatusField.name]
+          : proSignStatusField.options,
+      )
+    : []
+  const proSignStatusOptionsLoading = proSignStatusField
+    ? !!(proSignStatusField.optionsSql || proSignStatusField.optionsFromSql) &&
+      sqlOptionsLoading[proSignStatusField.name]
+    : false
+
   // Form field value change handler
   const setFieldValue = (name: string, value: any) => {
     setFormValues((prev) => ({ ...prev, [name]: value }))
@@ -599,19 +786,32 @@ export default function DynamicReportView() {
       {schema.length > 0 && (
         <div className="px-4 pb-3">
           <div className="space-y-3">
-            {schema.map((f) => (
-              <FilterFieldInput
-                key={f.name}
-                field={f}
-                value={formValues[f.name] ?? ''}
-                onChange={(v) => setFieldValue(f.name, v)}
-                proSignMode={proSignMode}
-                sqlOptions={sqlOptions[f.name]}
-                sqlLoading={sqlOptionsLoading[f.name]}
-                sqlError={sqlOptionsError[f.name]}
-                showToast={showToast}
+            {proSignStatusField && (
+              <ProSignStatusSegment
+                field={proSignStatusField}
+                value={getFormFieldValue(formValues, proSignStatusField.name) ?? ''}
+                items={proSignStatusSegmentItems}
+                loading={proSignStatusOptionsLoading}
+                queryLoading={loading}
+                onSelect={handleProSignStatusPick}
               />
-            ))}
+            )}
+            {schema.map((f) => {
+              if (proSignMode && isProSignStatusFieldName(f.name)) return null
+              return (
+                <FilterFieldInput
+                  key={f.name}
+                  field={f}
+                  value={formValues[f.name] ?? ''}
+                  onChange={(v) => setFieldValue(f.name, v)}
+                  proSignMode={proSignMode}
+                  sqlOptions={sqlOptions[f.name]}
+                  sqlLoading={sqlOptionsLoading[f.name]}
+                  sqlError={sqlOptionsError[f.name]}
+                  showToast={showToast}
+                />
+              )
+            })}
           </div>
           <div className="mt-3 flex gap-2">
             <button
@@ -820,7 +1020,7 @@ export default function DynamicReportView() {
             onClick={handleMerge}
             disabled={mergeLoading || selectedRows.size === 0}
           >
-            {mergeLoading ? '处理中…' : getMergeButtonLabel()}
+            {mergeLoading ? '处理中…' : stickyMergeButtonLabel}
             {!mergeLoading && selectedRows.size > 0 && ` (${selectedRows.size})`}
           </button>
         </div>
@@ -889,6 +1089,63 @@ function ScanFieldWrap({
           <line x1="7" y1="12" x2="17" y2="12" />
         </svg>
       </button>
+    </div>
+  )
+}
+
+// ── ProSignStatusSegment（生产报工 Status：三段切换 + 点选即查询）──
+
+interface ProSignStatusSegmentProps {
+  field: FilterField
+  value: unknown
+  items: { code: string; label: string }[]
+  loading?: boolean
+  queryLoading?: boolean
+  onSelect: (code: string) => void
+}
+
+function ProSignStatusSegment({
+  field,
+  value,
+  items,
+  loading,
+  queryLoading,
+  onSelect,
+}: ProSignStatusSegmentProps) {
+  const active =
+    value != null && typeof value !== 'object' ? String(value) : ''
+  const isSelected = (itemCode: string) =>
+    active === itemCode ||
+    (parseProSignStatusCode(active) != null &&
+      parseProSignStatusCode(active) === parseProSignStatusCode(itemCode))
+  const label = field.label || field.name || 'Status'
+
+  return (
+    <div className="block" role="group" aria-label={label}>
+      <span className="mb-2 block text-xs font-medium text-gray-600">{label}</span>
+      <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-gray-100 p-1">
+        {items.map((item) => {
+          const selected = isSelected(item.code)
+          return (
+            <button
+              key={item.code}
+              type="button"
+              disabled={loading || queryLoading}
+              aria-pressed={selected}
+              className={
+                'min-h-[40px] rounded-lg px-1 py-2 text-center text-xs font-semibold leading-tight transition-colors sm:text-sm ' +
+                (selected
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'bg-transparent text-gray-600 active:bg-gray-200') +
+                (loading || queryLoading ? ' opacity-60' : '')
+              }
+              onClick={() => onSelect(item.code)}
+            >
+              {loading ? '…' : item.label}
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }

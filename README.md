@@ -31,7 +31,7 @@ frontend/src/
 - 菜单页 + 业务导航（builtin / report / pro-sign 路由）
 - 动态报表（筛选、分页、图片列+灯箱、长文本展开、扫码）
 - AI 智能分析（`/ai/analyze`）与 **AI 使用说明助手**（`/ai/chat` + `server/help/` 知识库 RAG）
-- 合并报工（多选 → 预检 → 接单/完工/暂停 → 保存）
+- 合并报工（Status 三段切换、点选即查询；多选 → 预检 → 接单/完工/暂停/恢复 → 保存）
 - 菜单管理后台（CRUD、AI Prompt 生成器）
 - OITM 物料、报工订单、行详情、批次报工登记
 - 底部导航（菜单 / AI / 消息 / 设置）+ 语音控制（`voice.js`）
@@ -101,14 +101,38 @@ npm run init-db
 **2. 合并报工**（`X_ONLINE_SIGN` + `X_ONLINE_SIGN1`）
 - 列表勾选 → 预检 → 接单页 → 确认保存
 
-### SignType 判断
+### Status 筛选与吸底按钮
 
-| Status 筛选值 (code) | 列表吸底 / SignType | 合并页操作 |
+生产报工列表顶部为 **三段切换**（替代 Status 下拉）：点选即 **自动查询**，其它筛选项变更后仍点「查询」。
+
+筛参字段名须为 **`Status`**（大小写不敏感，JSON 里常见 `"name": "Status"`）。`filter_schema` 静态 options 示例：
+
+```json
+{
+  "name": "Status",
+  "label": "状态",
+  "type": "string",
+  "required": false,
+  "options": [
+    { "name": "待接单", "code": "0" },
+    { "name": "待完工", "code": "1" },
+    { "name": "恢复报工", "code": "8" }
+  ]
+}
+```
+
+`options` 与 `optionsSql` **二选一**（不可同时配置）。若用 `optionsSql`，下拉数据仍须能映射到 code `0` / `1` / `8`（或显示名含「待接单」「待完工」「恢复」等，前端会按名称兜底匹配）。
+
+### SignType 判断（固定 code 映射）
+
+| Status code | 分段 / 列表吸底 | 合并页操作 |
 |---|---|---|
-| `0` | `接单` | 确认接单 |
-| `1` | `完工` | 完工 + 暂停报工 |
-| `8` | `恢复报工` | 恢复报工 |
-| 未筛选/其他 | `合并报工` | 常规合并报工 |
+| `0` | 接单 | 确认接单 |
+| `1` | 完工 | 完工 + **暂停报工** |
+| `8` | 恢复报工 | 仅「恢复报工」（暂停后继续，勿用待完工重复暂停） |
+| 未选 / 其它 | 合并报工 | 常规合并保存 |
+
+实现见 `frontend/src/views/DynamicReportView.tsx`（`ProSignStatusSegment`、`resolveProSignMergeButtonLabel`）。
 
 ## 报表图片列
 
