@@ -109,8 +109,78 @@ npm run init-db
 
 ## 语音控制
 
-- 源码：`frontend/public/js/voice.js`（构建进 `dist`）；服务端兜底路由仍从 `server/public/js/voice.js` 提供（两处请保持同步）
-- 详见 `docs/voice-recognition-guide.md`
+移动端浏览器提供浮动语音按钮（可拖动、贴边半隐藏）。按住说话 → 百度 ASR 转文字 → 匹配指令 → 模拟点击页面元素执行操作。
+
+**源码位置**（两处需保持内容一致）：
+
+| 文件 | 说明 |
+|------|------|
+| `frontend/public/js/voice.js` | 主文件，Vite 构建时复制到 `frontend/dist/js/` |
+| `server/public/js/voice.js` | 服务端兜底：`GET /js/voice.js`（`server/src/index.js`） |
+
+更完整的接入与排障见 [`docs/voice-recognition-guide.md`](docs/voice-recognition-guide.md)。
+
+### 执行流程
+
+```
+按住语音钮 → 录音(WAV) → POST /speech/recognize（百度 ASR）
+    → normalizeVoiceText（去标点、去「打开/进入」前缀、误听纠正）
+    → match() 在指令表选得分最高的一条
+    → handler() 模拟 click（底部 Tab / 菜单按钮）
+```
+
+`voice.js` **不直接调业务 API**，只通过 DOM 钩子触发与手动点击相同的行为。
+
+### 指令从哪里来（如何维护）
+
+| 类型 | 维护方式 | 说明 |
+|------|----------|------|
+| **业务菜单** | 后台 **菜单设置** 里的 **显示名称（label）** | 无需改代码。进入菜单页后，脚本从 `[data-menu-label]` 自动生成指令，可说「菜单名」「打开XXX」「进入XXX」 |
+| **底部 Tab / 退出登录等** | 编辑 `voice.js` 中 `addCmd(...)` | 约 334 行起，在关键词数组里增加说法 |
+| **ASR 听错字** | 编辑 `ASR_TEXT_REPLACEMENTS` | 如 `['盛产','生产']`，在规范化阶段替换 |
+| **固定菜单的误听别名** | `addCmd` + `openCatalogMenu('', '准确菜单名')` | 菜单 label 正确但识别总错时使用 |
+
+**动态菜单同步**：`refreshDynamicCatalogCommands()` 读取 `CatalogView` 上的 `data-voice-catalog-grid`、`data-route-key`、`data-menu-label`（见 `frontend/src/views/CatalogView.tsx`）。底部 Tab 使用 `data-nav-tab`、`data-voice-nav-label`（见 `BottomNav.tsx`）。
+
+**新增固定指令示例**：
+
+```javascript
+addCmd(['打开消息', '未读消息'], function () {
+  goToNavTab('消息');
+}, { label: '消息' });
+```
+
+修改 `voice.js` 后：开发环境刷新即可；生产需 `npm run build` 或重建 Docker 镜像，并同步 `server/public/js/voice.js`。
+
+### 匹配规则（精准度）
+
+- 每条指令只取**得分最高的一个关键词**（避免多关键词累加误触）
+- 短词（≤2 字）仅整句或极短句命中；长句若只命中短词则拒绝
+- 完整等于菜单名得分最高；支持少量模糊匹配（编辑距离）
+- 识别结果写入 `voice_logs` 表，便于对照实际说了什么
+
+### 浮动按钮交互
+
+- 拖到屏幕边缘松手 → 吸附到最近一边，仅露出约 18px
+- 点击半隐藏按钮 → 滑回屏幕内；也可直接往外拖动展开
+- 位置保存在 `localStorage`（`voice_btn_pos_v2`）
+
+### 内置固定指令（节选）
+
+| 说法示例 | 动作 |
+|----------|------|
+| 菜单 / 返回 / 首页 | 底部「菜单」Tab |
+| AI / 智能助手 | 底部「AI」Tab |
+| 消息 / 设置 | 对应 Tab |
+| 退出登录 / 注销登录 | 设置页 → 退出 |
+| （菜单 label） | 打开对应业务菜单 |
+
+### 相关环境变量
+
+| 变量 | 说明 |
+|------|------|
+| `VOICE_ENABLED` | `false` 关闭语音（默认开启） |
+| `BAIDU_*` | 百度 ASR 密钥，见 `server/.env.example` |
 
 ## Docker 部署
 

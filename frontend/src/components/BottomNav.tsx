@@ -20,6 +20,7 @@ export default function BottomNav() {
         <button
           key={id}
           data-nav-tab={id}
+          data-voice-nav-label={label}
           onClick={() => setView(id)}
           className={`flex-1 flex flex-col items-center py-2 transition-colors ${
             currentView === id

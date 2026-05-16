@@ -39,8 +39,50 @@
     ['登出', '退出登录'], ['注销', '退出登录'],
   ];
 
-  function addCmd(keywords, handler) {
-    commands.push({ keywords: keywords, handler: handler });
+  function addCmd(keywords, handler, meta) {
+    meta = meta || {};
+    commands.push({
+      keywords: keywords,
+      handler: handler,
+      label: meta.label || keywords[0] || '',
+      _dynamicCatalog: !!meta.dynamic,
+    });
+  }
+
+  /** 从当前菜单页 DOM 同步语音指令（管理员配置的菜单名可说即开） */
+  function refreshDynamicCatalogCommands() {
+    commands = commands.filter(function (c) {
+      return !c._dynamicCatalog;
+    });
+    var items = document.querySelectorAll('[data-voice-catalog-grid] [data-menu-label]');
+    var seen = {};
+    var i;
+    for (i = 0; i < items.length; i++) {
+      var label = (items[i].getAttribute('data-menu-label') || '').trim();
+      var routeKey = items[i].getAttribute('data-route-key') || '';
+      if (!label || seen[label]) continue;
+      seen[label] = true;
+      (function (rk, lbl) {
+        addCmd(
+          [lbl, '打开' + lbl, '进入' + lbl, '查看' + lbl],
+          function () {
+            openCatalogMenu(rk, lbl);
+          },
+          { dynamic: true, label: lbl }
+        );
+      })(routeKey, label);
+    }
+  }
+
+  function ensureCatalogCommandsWatcher() {
+    if (ensureCatalogCommandsWatcher._on) return;
+    ensureCatalogCommandsWatcher._on = true;
+    var obs = new MutationObserver(function () {
+      if (document.querySelector('[data-voice-catalog-grid]')) {
+        refreshDynamicCatalogCommands();
+      }
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
   }
 
   function levenshtein(a, b) {
@@ -93,44 +135,81 @@
   }
 
   function keywordMatches(normText, keyword) {
+    return scoreKeywordMatch(normText, keyword) > 0;
+  }
+
+  /** 单条关键词得分：越长、越完整匹配分越高，避免短词误触 */
+  function scoreKeywordMatch(normText, keyword) {
     var nk = normalizeVoiceText(keyword);
-    if (!nk) return false;
-    if (normText.indexOf(nk) !== -1) return true;
-    if (nk.length >= 2 && fuzzyContains(normText, nk)) return true;
-    if (normText.length >= 2 && nk.length >= 2 && fuzzyContains(nk, normText)) return true;
-    return false;
+    if (!nk || !normText) return 0;
+    if (nk.length <= 2) {
+      if (normText === nk) return nk.length + 8;
+      if (normText.indexOf(nk) !== -1 && normText.length <= nk.length + 3) return nk.length + 2;
+      return 0;
+    }
+    if (normText === nk) return nk.length + 15;
+    if (normText.indexOf(nk) !== -1) return nk.length + 6;
+    if (nk.indexOf(normText) !== -1 && normText.length >= 3) return normText.length + 4;
+    if (fuzzyContains(normText, nk)) return Math.max(4, nk.length - 1);
+    return 0;
+  }
+
+  function scoreCommand(normText, cmd) {
+    var best = 0;
+    var matchedKw = '';
+    var j;
+    for (j = 0; j < cmd.keywords.length; j++) {
+      var s = scoreKeywordMatch(normText, cmd.keywords[j]);
+      if (s > best) {
+        best = s;
+        matchedKw = cmd.keywords[j];
+      }
+    }
+    return {
+      score: best,
+      keyword: matchedKw,
+      label: cmd.label || matchedKw,
+    };
   }
 
   function match(text) {
     var norm = normalizeVoiceText(text);
     if (!norm) return null;
-    var bestScore = 0;
+    if (document.querySelector('[data-voice-catalog-grid]')) {
+      refreshDynamicCatalogCommands();
+    }
+
     var best = null;
+    var bestScore = 0;
+    var bestMeta = null;
     var i;
-    var j;
     for (i = 0; i < commands.length; i++) {
-      var score = 0;
-      var kw = commands[i].keywords;
-      for (j = 0; j < kw.length; j++) {
-        if (keywordMatches(norm, kw[j])) {
-          score += Math.max(2, normalizeVoiceText(kw[j]).length);
-        }
-      }
-      if (score > bestScore) {
-        bestScore = score;
+      var s = scoreCommand(norm, commands[i]);
+      if (s.score > bestScore) {
+        bestScore = s.score;
         best = commands[i];
+        bestMeta = s;
       }
     }
-    return bestScore >= 2 ? best : null;
+    if (!best || !bestMeta) return null;
+
+    var minScore = norm.length <= 3 ? 5 : 4;
+    if (bestScore < minScore) return null;
+
+    var nk = normalizeVoiceText(bestMeta.keyword);
+    if (norm.length >= 8 && nk.length <= 2) return null;
+    if (norm.length >= 10 && nk.length <= 3 && bestScore < nk.length + 8) return null;
+
+    return { cmd: best, label: bestMeta.label, keyword: bestMeta.keyword, score: bestScore };
   }
 
   function execVoiceText(text, options) {
     options = options || {};
     var matched = match(text);
-    if (matched) {
-      if (options.onSuccess) options.onSuccess(text, matched);
-      else showToast('已执行: ' + text);
-      matched.handler();
+    if (matched && matched.cmd) {
+      if (options.onSuccess) options.onSuccess(text, matched.cmd, matched.label);
+      else showToast('已执行：' + matched.label);
+      matched.cmd.handler();
       return true;
     }
     if (options.onFail) {
@@ -157,7 +236,9 @@
   // ==================== DOM 查找工具 ====================
   function findNavButton(label) {
     var tabId = NAV_TAB_BY_LABEL[label] || label;
-    var btn = document.querySelector('[data-nav-tab="' + tabId + '"]');
+    var btn = document.querySelector('[data-voice-nav-label="' + label + '"]');
+    if (btn) return btn;
+    btn = document.querySelector('[data-nav-tab="' + tabId + '"]');
     if (btn) return btn;
     btn = document.querySelector('[data-root-tab="' + tabId + '"]');
     if (btn) return btn;
@@ -206,6 +287,7 @@
 
   function goToCatalogTab(done) {
     if (isCatalogGridVisible()) {
+      refreshDynamicCatalogCommands();
       if (done) done();
       return;
     }
@@ -218,6 +300,7 @@
     var attempts = 0;
     function wait() {
       if (isCatalogGridVisible()) {
+        refreshDynamicCatalogCommands();
         if (done) done();
         return;
       }
@@ -248,42 +331,33 @@
     else showToast('未找到：' + tabLabel);
   }
 
-  // ==================== 全局指令 ====================
+  // ==================== 全局指令（固定 Tab / 特殊操作；业务菜单由 refreshDynamicCatalogCommands 同步） ====================
   addCmd(['返回', '主界面', '菜单', '目录', '首页', '主页'], function () {
     goToNavTab('菜单');
-  });
+  }, { label: '菜单' });
 
-  addCmd(['AI', '人工智能', '智能助手', 'AI助手', '打开AI', '打开助手'], function () {
+  addCmd(['人工智能', '智能助手', 'AI助手', '打开AI', '打开助手'], function () {
     goToNavTab('AI');
-  });
+  }, { label: 'AI 助手' });
 
-  addCmd(['消息', '打开消息', '通知'], function () {
+  addCmd(['打开消息', '消息中心', '通知中心'], function () {
     goToNavTab('消息');
-  });
+  }, { label: '消息' });
 
-  addCmd(['设置', '打开设置', '系统设置'], function () {
+  addCmd(['打开设置', '系统设置', '个人设置'], function () {
     goToNavTab('设置');
-  });
+  }, { label: '设置' });
 
-  addCmd([
-    '生产订单', '打开生产订单', '生产定单', '订单列表',
-    '盛产订单', '升产订单',
-  ], function () {
-    openCatalogMenu('orders', '生产订单');
-  });
+  /** 常见 ASR 误听 → 仍指向固定菜单名（需菜单页上存在对应 label） */
+  addCmd(['盛产订单', '升产订单', '生产定单'], function () {
+    openCatalogMenu('', '生产订单');
+  }, { label: '生产订单' });
 
-  addCmd([
-    '生产报工', '生产报工登记', '报工登记', '合并报工', '打开报工',
-    '报工列表', '在线报工',
-  ], function () {
-    openCatalogMenu('pro-sign', '生产报工登记');
-  });
+  addCmd(['报宫登记', '暴工登记'], function () {
+    openCatalogMenu('', '生产报工登记');
+  }, { label: '生产报工登记' });
 
-  addCmd(['菜单设置', '打开菜单设置'], function () {
-    openCatalogMenu('menu-settings', '菜单设置');
-  });
-
-  addCmd(['退出登录', '注销', '登出', '退出'], function () {
+  addCmd(['退出登录', '注销登录', '注销账号', '登出账号'], function () {
     var settingsTab = findNavButton('设置');
     if (settingsTab) settingsTab.click();
     setTimeout(function () {
@@ -298,8 +372,8 @@
         }
       }
       showToast('未找到退出按钮');
-    }, 150);
-  });
+    }, 200);
+  }, { label: '退出登录' });
 
   // ==================== APP 环境：桥接函数 ====================
   if (isInApp) {
@@ -334,10 +408,15 @@
   var recording = null;   // { stop: fn, chunks: [], sampleRate: number }
   var maxRecordTimer = null;
 
-  var VOICE_POS_STORAGE_KEY = 'voice_btn_pos_v1';
+  var VOICE_POS_STORAGE_KEY = 'voice_btn_pos_v2';
   var DRAG_THRESHOLD_PX = 8;
+  var EDGE_PEEK_PX = 18;
+  var EDGE_SNAP_THRESHOLD_PX = 56;
+  var EDGE_EXPAND_MARGIN_PX = 16;
   var dragState = null;
   var suppressVoiceClick = false;
+  /** @type {null|'left'|'right'|'top'|'bottom'} */
+  var voiceDockEdge = null;
 
   function parseVoiceSavedPos(raw) {
     try {
@@ -346,28 +425,139 @@
       var left = Number(p.left);
       var top = Number(p.top);
       if (!isFinite(left) || !isFinite(top)) return null;
-      return { left: left, top: top };
+      var edge = p.edge;
+      if (edge && edge !== 'left' && edge !== 'right' && edge !== 'top' && edge !== 'bottom') {
+        edge = null;
+      }
+      return { left: left, top: top, edge: edge || null };
     } catch (e) {
       return null;
     }
   }
 
+  function setVoiceWrapperCoords(left, top) {
+    wrapper.style.left = left + 'px';
+    wrapper.style.top = top + 'px';
+    wrapper.style.right = 'auto';
+    wrapper.style.bottom = 'auto';
+  }
+
+  function clearVoiceDockClasses() {
+    wrapper.classList.remove(
+      'voice-wrapper--docked',
+      'voice-wrapper--docked-left',
+      'voice-wrapper--docked-right',
+      'voice-wrapper--docked-top',
+      'voice-wrapper--docked-bottom'
+    );
+  }
+
+  function isVoiceWrapperDocked() {
+    return !!voiceDockEdge;
+  }
+
+  function applyDockedPosition(edge) {
+    var w = wrapper.offsetWidth || 56;
+    var h = wrapper.offsetHeight || 56;
+    var vw = window.innerWidth;
+    var vh = window.innerHeight;
+    var rect = wrapper.getBoundingClientRect();
+    var top = rect.top;
+    var left = rect.left;
+    var pad = 8;
+
+    if (edge === 'left' || edge === 'right') {
+      top = Math.max(pad, Math.min(vh - h - pad, top));
+      left = edge === 'left' ? -(w - EDGE_PEEK_PX) : vw - EDGE_PEEK_PX;
+    } else {
+      left = Math.max(pad, Math.min(vw - w - pad, left));
+      top = edge === 'top' ? -(h - EDGE_PEEK_PX) : vh - EDGE_PEEK_PX;
+    }
+    setVoiceWrapperCoords(left, top);
+  }
+
+  function dockVoiceWrapper(edge, skipSave) {
+    voiceDockEdge = edge;
+    clearVoiceDockClasses();
+    wrapper.classList.add('voice-wrapper--docked', 'voice-wrapper--docked-' + edge);
+    btnEl.setAttribute('aria-label', '展开语音按钮');
+    bubble.hidden = true;
+    applyDockedPosition(edge);
+    if (!skipSave) saveVoiceWrapperPosition();
+  }
+
+  function undockVoiceWrapper() {
+    voiceDockEdge = null;
+    clearVoiceDockClasses();
+    btnEl.setAttribute('aria-label', '语音控制');
+  }
+
+  /** 贴边吸附：松手时靠近哪条边就吸到哪条，只露出 EDGE_PEEK_PX */
+  function snapVoiceWrapperToEdge() {
+    var rect = wrapper.getBoundingClientRect();
+    var distLeft = rect.left;
+    var distRight = window.innerWidth - rect.right;
+    var distTop = rect.top;
+    var distBottom = window.innerHeight - rect.bottom;
+    var minDist = Math.min(distLeft, distRight, distTop, distBottom);
+
+    if (minDist > EDGE_SNAP_THRESHOLD_PX) {
+      undockVoiceWrapper();
+      saveVoiceWrapperPosition();
+      return;
+    }
+
+    var edge = 'left';
+    if (minDist === distRight) edge = 'right';
+    else if (minDist === distTop) edge = 'top';
+    else if (minDist === distBottom) edge = 'bottom';
+    dockVoiceWrapper(edge);
+  }
+
+  /** 点击贴边半隐藏按钮时展开到屏幕内 */
+  function expandVoiceFromDock() {
+    if (!voiceDockEdge) return false;
+    var edge = voiceDockEdge;
+    var w = wrapper.offsetWidth || 56;
+    var h = wrapper.offsetHeight || 56;
+    var vw = window.innerWidth;
+    var vh = window.innerHeight;
+    var rect = wrapper.getBoundingClientRect();
+    var top = rect.top;
+    var left = rect.left;
+    var m = EDGE_EXPAND_MARGIN_PX;
+
+    undockVoiceWrapper();
+
+    if (edge === 'left') left = m;
+    else if (edge === 'right') left = vw - w - m;
+    else if (edge === 'top') top = m;
+    else top = vh - h - m;
+
+    left = Math.max(m, Math.min(vw - w - m, left));
+    top = Math.max(m, Math.min(vh - h - m, top));
+    setVoiceWrapperCoords(left, top);
+    saveVoiceWrapperPosition();
+    return true;
+  }
+
   function applySavedVoicePosition() {
     var p = parseVoiceSavedPos(localStorage.getItem(VOICE_POS_STORAGE_KEY));
     if (!p) return;
-    wrapper.style.left = p.left + 'px';
-    wrapper.style.top = p.top + 'px';
-    wrapper.style.right = 'auto';
-    wrapper.style.bottom = 'auto';
+    setVoiceWrapperCoords(p.left, p.top);
+    if (p.edge) {
+      dockVoiceWrapper(p.edge, true);
+    } else {
+      undockVoiceWrapper();
+    }
   }
 
   function saveVoiceWrapperPosition() {
     var rect = wrapper.getBoundingClientRect();
     try {
-      localStorage.setItem(
-        VOICE_POS_STORAGE_KEY,
-        JSON.stringify({ left: rect.left, top: rect.top })
-      );
+      var payload = { left: rect.left, top: rect.top };
+      if (voiceDockEdge) payload.edge = voiceDockEdge;
+      localStorage.setItem(VOICE_POS_STORAGE_KEY, JSON.stringify(payload));
     } catch (e) { /* ignore quota / private mode */ }
   }
 
@@ -377,6 +567,11 @@
 
   function clampVoiceWrapperToViewport() {
     if (!voiceWrapperUsesCustomCoords()) return;
+    if (voiceDockEdge) {
+      applyDockedPosition(voiceDockEdge);
+      saveVoiceWrapperPosition();
+      return;
+    }
     var rect = wrapper.getBoundingClientRect();
     var w = rect.width;
     var h = rect.height;
@@ -388,10 +583,7 @@
     var nl = Math.min(maxL, Math.max(0, l));
     var nt = Math.min(maxT, Math.max(0, t));
     if (nl !== l || nt !== t) {
-      wrapper.style.left = nl + 'px';
-      wrapper.style.top = nt + 'px';
-      wrapper.style.right = 'auto';
-      wrapper.style.bottom = 'auto';
+      setVoiceWrapperCoords(nl, nt);
       saveVoiceWrapperPosition();
     }
   }
@@ -599,9 +791,9 @@
       sendDebugLog('[ASR_OK] text=' + text);
 
       var ok = execVoiceText(text, {
-        onSuccess: function (t, m) {
-          sendDebugLog('[MATCH_OK] text=' + t + ' keywords=' + m.keywords.join(','));
-          showBubble('已执行: ' + t, true);
+        onSuccess: function (t, m, actionLabel) {
+          sendDebugLog('[MATCH_OK] text=' + t + ' action=' + actionLabel + ' keywords=' + m.keywords.join(','));
+          showBubble('已执行：' + (actionLabel || t), true);
         },
         onFail: function (t) {
           if (t) {
@@ -639,6 +831,14 @@
     if (!dragState.moved) {
       if (dx * dx + dy * dy < DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) return;
       dragState.moved = true;
+      if (voiceDockEdge) {
+        expandVoiceFromDock();
+        var r0 = wrapper.getBoundingClientRect();
+        dragState.origLeft = r0.left;
+        dragState.origTop = r0.top;
+        dragState.startX = e.clientX;
+        dragState.startY = e.clientY;
+      }
       wrapper.classList.add('voice-wrapper--dragging');
     }
     var newLeft = dragState.origLeft + dx;
@@ -660,7 +860,7 @@
     } catch (err) { /* ignore */ }
     if (dragState.moved) {
       suppressVoiceClick = true;
-      saveVoiceWrapperPosition();
+      snapVoiceWrapperToEdge();
     }
     wrapper.classList.remove('voice-wrapper--dragging');
     dragState = null;
@@ -675,6 +875,11 @@
 
     if (suppressVoiceClick) {
       suppressVoiceClick = false;
+      return;
+    }
+
+    if (isVoiceWrapperDocked()) {
+      expandVoiceFromDock();
       return;
     }
 
@@ -722,8 +927,15 @@
   var style = document.createElement('style');
   style.textContent =
     '.voice-wrapper{position:fixed;bottom:100px;right:16px;z-index:9999;display:flex;flex-direction:column;align-items:flex-end;gap:8px;touch-action:none}' +
+    '.voice-wrapper:not(.voice-wrapper--dragging){transition:left .28s ease,top .28s ease}' +
+    '.voice-wrapper--dragging{transition:none}' +
     '.voice-wrapper--dragging .voice-btn{transition:none}' +
     '.voice-wrapper--dragging .voice-btn:active{transform:none}' +
+    '.voice-wrapper--docked .voice-bubble{display:none!important}' +
+    '.voice-wrapper--docked-left{align-items:flex-start}' +
+    '.voice-wrapper--docked-right{align-items:flex-end}' +
+    '.voice-wrapper--docked-top{align-items:center}' +
+    '.voice-wrapper--docked-bottom{align-items:center}' +
     '.voice-bubble{background:#0f172a;color:#fff;font-size:14px;padding:8px 16px;border-radius:16px 16px 4px 16px;box-shadow:0 4px 12px rgba(0,0,0,.25);max-width:200px;line-height:1.4}' +
     '.voice-btn{width:56px;height:56px;border-radius:50%;border:none;background:#2563eb;color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0,0,0,.3);cursor:pointer;transition:all .2s;-webkit-tap-highlight-color:transparent;touch-action:none;user-select:none}' +
     '.voice-btn:active{transform:scale(.95)}' +
@@ -733,6 +945,8 @@
   document.head.appendChild(style);
 
   document.body.appendChild(wrapper);
+  ensureCatalogCommandsWatcher();
+  refreshDynamicCatalogCommands();
   applySavedVoicePosition();
   clampVoiceWrapperToViewport();
 
