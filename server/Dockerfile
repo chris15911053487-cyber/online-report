@@ -1,13 +1,20 @@
-# 生产镜像：Node + Fastify，对外监听 3000（与 PORT 一致时可改）
+# --- Build React + Vite frontend (output: /frontend/dist) ---
+FROM node:20-bookworm AS frontend-builder
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci && npm cache clean --force
+COPY frontend/ ./
+RUN npm run build
+
+# --- Production: Fastify + built static app ---
 FROM node:20-bookworm-slim
 
 WORKDIR /app
-
-COPY package.json package-lock.json ./
+COPY server/package.json server/package-lock.json ./
 RUN npm ci --omit=dev && npm cache clean --force
-
-COPY . .
-RUN chown -R node:node /app
+COPY server/ ./
+COPY --from=frontend-builder /frontend/dist /frontend/dist
+RUN chown -R node:node /app /frontend/dist
 
 ENV NODE_ENV=production
 EXPOSE 3000

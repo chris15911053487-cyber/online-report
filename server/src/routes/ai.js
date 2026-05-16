@@ -1,5 +1,5 @@
 const { getPool, sql } = require('../db');
-const { aiService, AIService } = require('../ai');
+const { aiService } = require('../ai');
 const {
   parseFilterSchemaJson,
   buildReportSessionInject,
@@ -9,6 +9,9 @@ const {
   detectTemplateKind,
   normalizeTemplate,
 } = require('../report-query');
+
+/** 主界面「AI 助手」多轮对话 */
+const CHAT_SYSTEM_PROMPT = `你是「在线报工与生产报表」系统中的智能助手。用户可能询问报工流程、生产管理、系统使用、数据分析思路等问题。请用清晰、专业、易懂的中文回答，适度分段。不要使用整篇 markdown 代码块包裹。若无法确定事实，请说明并建议用户查阅正式文档或联系管理员；不要编造系统内不存在的菜单或权限。`;
 
 /**
  * AI 分析路由
@@ -148,6 +151,55 @@ async function aiRoutes(fastify) {
           detail: err.message || String(err)
         });
       }
+    }
+  );
+
+  /** 主界面 AI 对话（通用问答，非报表 analyse） */
+  fastify.post(
+    '/ai/chat',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const body = request.body || {};
+      const raw = body.messages;
+      if (!Array.isArray(raw)) {
+        return reply.code(400).send({ error: '请提供 messages 数组', code: 'AI_CHAT_BAD_REQUEST' });
+      }
+
+      const pair = [];
+      for (const m of raw) {
+        if (!m || typeof m !== 'object') continue;
+        const role = String(m.role || '').toLowerCase();
+        if (role !== 'user' && role !== 'assistant') continue;
+        let content = String(m.content != null ? m.content : '').trim();
+        if (!content) continue;
+        if (content.length > 12000) content = content.slice(0, 12000);
+        pair.push({ role, content });
+      }
+
+      const history = pair.slice(-24);
+      const firstUser = history.findIndex((m) => m.role === 'user');
+      if (firstUser < 0) {
+        return reply.code(400).send({ error: '请至少发送一条用户消息', code: 'AI_CHAT_BAD_REQUEST' });
+      }
+      const trimmed = history.slice(firstUser);
+
+      const messages = [{ role: 'system', content: CHAT_SYSTEM_PROMPT }, ...trimmed];
+
+      const result = await aiService.generateChat(messages, { maxTokens: 2048 });
+      if (!result.success) {
+        return reply.code(502).send({
+          success: false,
+          error: result.fallback || result.error || 'AI 不可用',
+          code: 'AI_CHAT_FAILED',
+        });
+      }
+
+      return {
+        success: true,
+        message: result.content,
+        provider: result.provider,
+        model: result.model,
+      };
     }
   );
 

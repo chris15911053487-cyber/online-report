@@ -1,6 +1,6 @@
 export const TOKEN_KEY = 'online_report_token'
 
-/** 开发时走 Vite 代理 /api；生产与后端同域时直接请求根路径（与旧 app.js 一致） */
+/** dev uses Vite proxy /api; production is same-origin (matching legacy app.js) */
 export function apiUrl(path: string): string {
   const p = path.startsWith('/') ? path : `/${path}`
   return import.meta.env.DEV ? `/api${p}` : p
@@ -23,23 +23,23 @@ export function authHeaders() {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   }
-
   if (token) {
     headers.Authorization = `Bearer ${token}`
   }
-
   return headers
 }
 
-/**
- * 与旧版 app.js 的 apiFetch 行为一致；路径与后端 Fastify 路由一致（无前缀）。
- */
+export interface ApiError extends Error {
+  status?: number
+  data?: any
+}
+
 export async function apiFetch(path: string, options: RequestInit = {}) {
   const config: RequestInit = {
     ...options,
     headers: {
       ...authHeaders(),
-      ...options.headers,
+      ...(options.headers as Record<string, string>),
     },
   }
 
@@ -56,9 +56,9 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
   }
 
   if (!response.ok) {
-    const errorMessage =
-      data.error || data.message || `${response.status} ${response.statusText}`
-    const error = new Error(errorMessage) as Error & { status?: number; data?: unknown }
+    let line = data.error || data.message || `${response.status} ${response.statusText}`
+    if (data.code) line += ` [${data.code}]`
+    const error: ApiError = new Error(String(line).trim() || '请求失败')
     error.status = response.status
     error.data = data
     throw error
@@ -67,10 +67,17 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
   return data
 }
 
-/** 报表查询：超时与旧版一致（约 90s） */
-export async function apiFetchReport(path: string, options: RequestInit = {}) {
+/**
+ * Report queries with configurable timeout (default 90s, matching legacy app.js).
+ */
+export async function apiFetchReport(
+  path: string,
+  options: RequestInit = {},
+  timeoutMs = 90000,
+) {
   const controller = new AbortController()
-  const timeoutId = setTimeout(() => controller.abort(), 90000)
+  const ms = Number.isFinite(timeoutMs) && timeoutMs > 0 ? Math.floor(timeoutMs) : 90000
+  const timeoutId = setTimeout(() => controller.abort(), ms)
 
   try {
     return await apiFetch(path, {

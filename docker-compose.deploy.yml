@@ -19,8 +19,9 @@ services:
   app:
     image: online-report:1.0
     build:
-      context: ./server
-      dockerfile: Dockerfile
+      # Repo root: multi-stage image builds frontend/ then copies dist to /frontend/dist
+      context: .
+      dockerfile: server/Dockerfile
     container_name: online-report-app
     ports:
       - "${APP_PUBLISH_PORT:-3000}:3000"

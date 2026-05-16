@@ -191,6 +191,84 @@ class AIService {
   }
 
   /**
+   * General assistant chat (plain text). Does not use response_format json mode.
+   * @param {Array<{role: string, content: string}>} messages - full messages including system as first entry
+   * @param {object} options
+   */
+  async generateChat(messages, options = {}) {
+    const model = options.model || this.defaultModel;
+    const configuredKey = this.getConfiguredApiKey();
+    if (!configuredKey) {
+      const hint = this.expectedKeyHint();
+      const msg = `未检测到 ${hint}。请写入 server/.env 或仓库根目录 .env 后重启服务（当前 AI_PROVIDER=${this.provider}）。`;
+      console.warn('[AI]', msg);
+      return {
+        success: false,
+        error: 'MISSING_API_KEY',
+        provider: this.provider,
+        fallback: msg,
+      };
+    }
+
+    if (!Array.isArray(messages) || messages.length < 2) {
+      return {
+        success: false,
+        error: 'INVALID_MESSAGES',
+        provider: this.provider,
+        fallback: '对话内容无效',
+      };
+    }
+
+    try {
+      console.log(`[AI] Chat completion ${this.provider}/${model} (${messages.length} msgs)...`);
+
+      const completion = await this.client.chat.completions.create({
+        model,
+        messages,
+        temperature: options.temperature != null ? options.temperature : Math.min(0.6, this.temperature + 0.25),
+        max_tokens: options.maxTokens ?? 2048,
+      });
+
+      const choice = completion.choices && completion.choices[0];
+      const content = AIService.extractChatTextContent(choice && choice.message).trim();
+
+      if (!content) {
+        return {
+          success: false,
+          error: 'EMPTY_RESPONSE',
+          provider: this.provider,
+          fallback: 'AI 未返回有效内容，请重试',
+        };
+      }
+
+      return {
+        success: true,
+        provider: this.provider,
+        model,
+        content,
+        usage: completion.usage,
+      };
+    } catch (error) {
+      console.error('[AI] Chat error:', error.message);
+      const status = error && error.status;
+      const code = error && error.code;
+      let fallback =
+        'AI 服务暂时不可用，请稍后重试。若刚配置过 Key，请确认变量名与 AI_PROVIDER 一致并重启服务。';
+      if (status === 401 || code === 'invalid_api_key') {
+        fallback = `API 鉴权失败（401）：请检查 ${this.expectedKeyHint()} 是否正确。`;
+      } else if (status === 429) {
+        fallback = '请求过于频繁或额度不足（429），请稍后再试。';
+      }
+      return {
+        success: false,
+        error: error.message,
+        provider: this.provider,
+        fallback,
+      };
+    }
+  }
+
+  /**
    * Build prompt from config and report data. Made generic for reuse in other projects.
    * Supports custom buildContextFn passed in constructor for different data shapes.
    * @param {Object} config - { label, ai_prompt?, ... }

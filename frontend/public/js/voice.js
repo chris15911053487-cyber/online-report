@@ -69,8 +69,8 @@
   }
 
   // ==================== 全局指令 ====================
-  addCmd(['返回', '主界面', '目录', '首页', '主页'], function () {
-    var btn = findNavButton('目录') || findNavButton('首页') || findNavButton('主页');
+  addCmd(['返回', '主界面', '菜单', '目录', '首页', '主页'], function () {
+    var btn = findNavButton('菜单') || findNavButton('目录') || findNavButton('首页') || findNavButton('主页');
     if (btn) btn.click();
   });
 

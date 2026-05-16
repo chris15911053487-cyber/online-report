@@ -159,23 +159,36 @@ async function build() {
     });
   }
 
-  // 静态站点：优先 frontend/dist（Vite 构建）；不存在或未构建时回退到 server/public（旧版 SPA）
+  // 静态站点选择：
+  //   FRONTEND_MODE=modern  → 使用 frontend/dist（React + Vite 构建）
+  //   FRONTEND_MODE=legacy  → 使用 server/public（旧版 Vanilla JS）
+  //   FRONTEND_MODE=auto    → frontend/dist 存在则用 modern，否则 legacy（默认）
   const serverDir = path.join(__dirname, '..');
   const repoRoot = path.join(serverDir, '..');
   const frontendDist = path.join(repoRoot, 'frontend', 'dist');
   const publicDir = path.join(serverDir, 'public');
   const frontendIndex = path.join(frontendDist, 'index.html');
 
+  const frontendMode = (process.env.FRONTEND_MODE || 'auto').trim().toLowerCase();
+
   let staticRoot = publicDir;
-  try {
-    await fsp.access(frontendIndex);
+  if (frontendMode === 'modern') {
     staticRoot = frontendDist;
-    fastify.log.info({ staticRoot: frontendDist }, 'serving Vite frontend from frontend/dist');
-  } catch {
-    fastify.log.warn(
-      { tried: frontendIndex },
-      'frontend/dist not found or not built; serving legacy server/public (run: cd frontend && npm run build)',
-    );
+    fastify.log.info({ staticRoot: frontendDist }, 'FRONTEND_MODE=modern: serving React frontend from frontend/dist');
+  } else if (frontendMode === 'legacy') {
+    staticRoot = publicDir;
+    fastify.log.info({ staticRoot: publicDir }, 'FRONTEND_MODE=legacy: serving legacy frontend from server/public');
+  } else {
+    try {
+      await fsp.access(frontendIndex);
+      staticRoot = frontendDist;
+      fastify.log.info({ staticRoot: frontendDist }, 'FRONTEND_MODE=auto: serving Vite frontend from frontend/dist');
+    } catch {
+      fastify.log.warn(
+        { tried: frontendIndex },
+        'FRONTEND_MODE=auto: frontend/dist not found; serving legacy server/public (run: cd frontend && npm run build)',
+      );
+    }
   }
 
   await fastify.register(fastifyStatic, {

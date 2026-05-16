@@ -67,14 +67,17 @@ cd frontend && npm run lint
 - 路由：`POST /ai/analyze`（执行分析）、`POST /ai/generate-prompt`（管理员用 AI 生成 prompt 模板）
 - 详细规则见 `.cursor/rules/ai-analysis-best-practices.mdc`（`alwaysApply: true`）
 
-### 前端 (React + Vite)
+### 前端 (React + Vite) — 已完成全功能迁移
 
-- 状态管理：Zustand store (`frontend/src/store.ts`)，含 auth、menus、toast
+- 状态管理：Zustand store (`frontend/src/store.ts`)，含 auth、menus、toast、视图路由、报表/报工上下文
 - API 层：`frontend/src/utils/api.ts` — 开发时走 Vite proxy `/api → localhost:3000`，生产时同域直接请求
 - JWT token 存 localStorage key `online_report_token`
-- Vite proxy 会自动去掉 `/api` 前缀（`rewrite`）
-- 视图：`LoginView` → `CatalogView`（报表目录）→ `DynamicReportView`（报表详情/分页）
-- 移动端适配：`BottomNav` 底部导航，TailwindCSS 响应式
+- 工具函数：`frontend/src/utils/helpers.ts` — 图片列判断、报表列映射、合并报工数据提取、AI 结果格式化
+- 类型定义：`frontend/src/types.ts` — User、NavMenuItem、FilterField、ViewName 等
+- 视图路由：通过 Zustand `currentView` 状态切换，不使用 React Router
+- 视图列表：LoginView、CatalogView、DynamicReportView、MenuSettingsView、OworView、OrdersView、DetailView、ReportRowDetailView、ProSignReceiveView、WorkRegistrationView、SettingsView
+- 通用组件：BottomNav、MainLayout、ImageLightbox、ReportOverlay、TextOverlay、Toast
+- 前端切换：`FRONTEND_MODE` 环境变量控制（auto/modern/legacy），默认 auto
 
 ### 生产部署
 

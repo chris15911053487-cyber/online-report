@@ -1,5 +1,12 @@
-// Barrel export for views
 export { default as LoginView } from './LoginView'
+export { default as AiChatView } from './AiChatView'
 export { default as CatalogView } from './CatalogView'
 export { default as DynamicReportView } from './DynamicReportView'
-// Add new views here as they are implemented
+export { default as SettingsView } from './SettingsView'
+export { default as MenuSettingsView } from './MenuSettingsView'
+export { default as OworView } from './OworView'
+export { default as OrdersView } from './OrdersView'
+export { default as DetailView } from './DetailView'
+export { default as ReportRowDetailView } from './ReportRowDetailView'
+export { default as ProSignReceiveView } from './ProSignReceiveView'
+export { default as WorkRegistrationView } from './WorkRegistrationView'

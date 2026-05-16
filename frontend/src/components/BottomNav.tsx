@@ -1,9 +1,10 @@
 import { useStore } from '../store'
-import { Home, Star, MessageCircle, Settings } from 'lucide-react'
+import { Home, Sparkles, MessageCircle, Settings } from 'lucide-react'
+import type { ViewName } from '../types'
 
-const tabs = [
-  { id: 'catalog', label: '目录', icon: Home },
-  { id: 'favorites', label: '常用', icon: Star },
+const tabs: { id: ViewName; label: string; icon: typeof Home }[] = [
+  { id: 'catalog', label: '菜单', icon: Home },
+  { id: 'ai', label: 'AI', icon: Sparkles },
   { id: 'messages', label: '消息', icon: MessageCircle },
   { id: 'settings', label: '设置', icon: Settings },
 ]
@@ -12,7 +13,8 @@ export default function BottomNav() {
   const { currentView, setView } = useStore()
 
   return (
-    <nav className="bottom-nav fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-50 max-w-2xl mx-auto">
+    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex items-center justify-around py-1 z-50 max-w-2xl mx-auto shadow-[0_-1px_3px_rgba(0,0,0,0.1)]"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
       {tabs.map(({ id, label, icon: Icon }) => (
         <button
           key={id}
@@ -21,11 +23,11 @@ export default function BottomNav() {
           className={`flex-1 flex flex-col items-center py-2 transition-colors ${
             currentView === id
               ? 'text-sky-600'
-              : 'text-slate-500 hover:text-slate-700'
+              : 'text-slate-400 hover:text-slate-600'
           }`}
         >
-          <Icon className="w-6 h-6 mb-1" />
-          <span className="text-xs font-medium">{label}</span>
+          <Icon className="w-5 h-5 mb-0.5" />
+          <span className="text-[11px] font-medium">{label}</span>
         </button>
       ))}
     </nav>

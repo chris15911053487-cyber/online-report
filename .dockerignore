@@ -1,0 +1,13 @@
+# Build context is repo root (see docker-compose.deploy.yml). Keep sends small.
+**/node_modules
+**/dist
+.git
+.gitignore
+.cursor
+**/.env
+**/.env.*
+!**/.env.example
+*.md
+.DS_Store
+npm-debug.log*
+mobile
