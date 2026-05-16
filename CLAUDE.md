@@ -35,7 +35,7 @@ cd frontend && npm run lint
 
 ### 后端 (Fastify)
 
-- 入口 `server/src/index.js`：注册 Fastify 插件（cors, jwt, static），挂载路由，按需 serve `frontend/dist`（优先）或回退 `server/public`
+- 入口 `server/src/index.js`：注册 Fastify 插件（cors, jwt, static），挂载路由，serve `frontend/dist`；`server/public` 仅 apk/images/voice.js
 - `.env` 加载顺序：根目录 `.env` → `server/.env`（后者覆盖）
 - 认证：基于 OUSR 表（`USER_CODE` / `MobileIMEI`），JWT 签发，Fastify decorator `fastify.authenticate` 和 `fastify.requireAdmin`
 - 管理员：`ADMIN_USER_CODES` env var 指定（逗号分隔的 OUSR user_code）
@@ -75,14 +75,13 @@ cd frontend && npm run lint
 - 工具函数：`frontend/src/utils/helpers.ts` — 图片列判断、报表列映射、合并报工数据提取、AI 结果格式化
 - 类型定义：`frontend/src/types.ts` — User、NavMenuItem、FilterField、ViewName 等
 - 视图路由：通过 Zustand `currentView` 状态切换，不使用 React Router
-- 视图列表：LoginView、CatalogView、DynamicReportView、MenuSettingsView、OworView、OrdersView、DetailView、ReportRowDetailView、ProSignReceiveView、WorkRegistrationView、SettingsView
+- 视图列表：LoginView、CatalogView、DynamicReportView、AiChatView、MenuSettingsView、OworView、OrdersView、DetailView、ReportRowDetailView、ProSignReceiveView、WorkRegistrationView、SettingsView
 - 通用组件：BottomNav、MainLayout、ImageLightbox、ReportOverlay、TextOverlay、Toast
-- 前端切换：`FRONTEND_MODE` 环境变量控制（auto/modern/legacy），默认 auto
 
 ### 生产部署
 
 - `docker-compose.deploy.yml`：生产 Docker 部署，加载 `server/.env` 或指定 `DEPLOY_ENV_FILE`
-- 后端 serve `frontend/dist`（需先 `npm run build`），不存在时回退 `server/public`
+- 镜像内多阶段构建 `frontend/dist`；本地仅跑 server 时需先 `npm run build`
 - APK 下载：`GET /download/android-app.apk`，按优先级尝试：`APK_PATH` → `server/public/apk/android-app.apk` → `APK_SHARE_ROOT + APK_FILENAME`
 
 ## 开发约定

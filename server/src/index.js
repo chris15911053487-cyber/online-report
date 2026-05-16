@@ -159,36 +159,28 @@ async function build() {
     });
   }
 
-  // 静态站点选择：
-  //   FRONTEND_MODE=modern  → 使用 frontend/dist（React + Vite 构建）
-  //   FRONTEND_MODE=legacy  → 使用 server/public（旧版 Vanilla JS）
-  //   FRONTEND_MODE=auto    → frontend/dist 存在则用 modern，否则 legacy（默认）
+  // 静态站点：React SPA（frontend/dist）。server/public 仅保留 apk、images、voice.js 等非 SPA 资源。
   const serverDir = path.join(__dirname, '..');
   const repoRoot = path.join(serverDir, '..');
   const frontendDist = path.join(repoRoot, 'frontend', 'dist');
-  const publicDir = path.join(serverDir, 'public');
   const frontendIndex = path.join(frontendDist, 'index.html');
 
   const frontendMode = (process.env.FRONTEND_MODE || 'auto').trim().toLowerCase();
+  if (frontendMode === 'legacy') {
+    fastify.log.warn(
+      'FRONTEND_MODE=legacy is removed; serving frontend/dist. Run: npm run build (from repo root)',
+    );
+  }
 
-  let staticRoot = publicDir;
-  if (frontendMode === 'modern') {
-    staticRoot = frontendDist;
-    fastify.log.info({ staticRoot: frontendDist }, 'FRONTEND_MODE=modern: serving React frontend from frontend/dist');
-  } else if (frontendMode === 'legacy') {
-    staticRoot = publicDir;
-    fastify.log.info({ staticRoot: publicDir }, 'FRONTEND_MODE=legacy: serving legacy frontend from server/public');
-  } else {
-    try {
-      await fsp.access(frontendIndex);
-      staticRoot = frontendDist;
-      fastify.log.info({ staticRoot: frontendDist }, 'FRONTEND_MODE=auto: serving Vite frontend from frontend/dist');
-    } catch {
-      fastify.log.warn(
-        { tried: frontendIndex },
-        'FRONTEND_MODE=auto: frontend/dist not found; serving legacy server/public (run: cd frontend && npm run build)',
-      );
-    }
+  const staticRoot = frontendDist;
+  try {
+    await fsp.access(frontendIndex);
+    fastify.log.info({ staticRoot: frontendDist }, 'serving React frontend from frontend/dist');
+  } catch {
+    fastify.log.error(
+      { tried: frontendIndex },
+      'frontend/dist not found — web UI unavailable until build (repo root: npm run build, or cd frontend && npm run dev for Vite on :5173)',
+    );
   }
 
   await fastify.register(fastifyStatic, {
