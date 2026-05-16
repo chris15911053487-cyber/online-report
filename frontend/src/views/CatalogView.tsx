@@ -31,12 +31,17 @@ export default function CatalogView() {
         <p className="text-slate-500 text-xs">请选择要操作的业务模块</p>
       </div>
 
-      <div className="mx-auto grid max-w-lg grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3">
+      <div
+        className="mx-auto grid max-w-lg grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3"
+        data-voice-catalog-grid
+      >
         {navMenus.map((menu) => (
           <button
             key={menu.id || menu.routeKey}
-            onClick={() => handleMenuClick(menu)}
             type="button"
+            data-route-key={menu.routeKey}
+            data-menu-label={menu.label}
+            onClick={() => handleMenuClick(menu)}
             className="flex min-h-[4.25rem] flex-col items-center justify-center gap-1 rounded-xl border border-slate-200/90 bg-white px-2.5 py-2.5 text-center shadow-sm transition-[box-shadow,border-color] duration-200 hover:border-sky-200 hover:shadow active:scale-[0.98]"
           >
             <span className="text-lg leading-none text-slate-600 select-none">

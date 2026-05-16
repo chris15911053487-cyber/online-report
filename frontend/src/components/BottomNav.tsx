@@ -13,7 +13,8 @@ export default function BottomNav() {
   const { currentView, setView } = useStore()
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex items-center justify-around py-1 z-50 max-w-2xl mx-auto shadow-[0_-1px_3px_rgba(0,0,0,0.1)]"
+    <nav
+      className="bottom-nav fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex items-center justify-around py-1 z-50 max-w-2xl mx-auto shadow-[0_-1px_3px_rgba(0,0,0,0.1)]"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
       {tabs.map(({ id, label, icon: Icon }) => (
         <button

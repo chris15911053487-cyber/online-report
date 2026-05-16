@@ -14,22 +14,133 @@
   // ==================== 指令注册表 ====================
   var commands = [];
 
+  /** 底部 Tab：中文说法 → data-nav-tab */
+  var NAV_TAB_BY_LABEL = {
+    '菜单': 'catalog',
+    '目录': 'catalog',
+    '首页': 'catalog',
+    '主页': 'catalog',
+    '主界面': 'catalog',
+    '返回': 'catalog',
+    'AI': 'ai',
+    'ai': 'ai',
+    '人工智能': 'ai',
+    '智能助手': 'ai',
+    '助手': 'ai',
+    '消息': 'messages',
+    '设置': 'settings',
+  };
+
+  /** ASR 常见误听 → 纠正（在规范化时替换） */
+  var ASR_TEXT_REPLACEMENTS = [
+    ['盛产', '生产'], ['升产', '生产'], ['胜产', '生产'], ['声产', '生产'],
+    ['定单', '订单'], ['订但', '订单'], ['订蛋', '订单'],
+    ['报宫', '报工'], ['报公', '报工'], ['暴工', '报工'],
+    ['登出', '退出登录'], ['注销', '退出登录'],
+  ];
+
   function addCmd(keywords, handler) {
     commands.push({ keywords: keywords, handler: handler });
   }
 
+  function levenshtein(a, b) {
+    if (a === b) return 0;
+    if (!a.length) return b.length;
+    if (!b.length) return a.length;
+    var row = [];
+    var i;
+    var j;
+    for (j = 0; j <= b.length; j++) row[j] = j;
+    for (i = 1; i <= a.length; i++) {
+      var prev = i - 1;
+      row[0] = i;
+      for (j = 1; j <= b.length; j++) {
+        var val = a.charAt(i - 1) === b.charAt(j - 1)
+          ? prev
+          : Math.min(prev + 1, row[j] + 1, row[j - 1] + 1);
+        prev = row[j];
+        row[j] = val;
+      }
+    }
+    return row[b.length];
+  }
+
+  function normalizeVoiceText(text) {
+    var s = String(text || '').trim().toLowerCase();
+    s = s.replace(/[\s\u3000,.，。!！?？、；;:'"“”‘’\-—_()（）\[\]【】]/g, '');
+    s = s.replace(/^(请|帮我|给我|麻烦)?(打开|进入|跳转|去|到|查看|看看|点开)+/g, '');
+    var i;
+    for (i = 0; i < ASR_TEXT_REPLACEMENTS.length; i++) {
+      s = s.split(ASR_TEXT_REPLACEMENTS[i][0]).join(ASR_TEXT_REPLACEMENTS[i][1]);
+    }
+    return s;
+  }
+
+  function fuzzyContains(haystack, needle) {
+    if (!needle || !haystack) return false;
+    if (haystack.indexOf(needle) !== -1) return true;
+    if (needle.length < 2) return false;
+    var maxDist = needle.length <= 3 ? 1 : (needle.length <= 5 ? 2 : Math.floor(needle.length * 0.28));
+    var len;
+    var start;
+    for (len = Math.max(2, needle.length - 1); len <= needle.length + 1; len++) {
+      if (len > haystack.length) continue;
+      for (start = 0; start <= haystack.length - len; start++) {
+        if (levenshtein(haystack.substr(start, len), needle) <= maxDist) return true;
+      }
+    }
+    return false;
+  }
+
+  function keywordMatches(normText, keyword) {
+    var nk = normalizeVoiceText(keyword);
+    if (!nk) return false;
+    if (normText.indexOf(nk) !== -1) return true;
+    if (nk.length >= 2 && fuzzyContains(normText, nk)) return true;
+    if (normText.length >= 2 && nk.length >= 2 && fuzzyContains(nk, normText)) return true;
+    return false;
+  }
+
   function match(text) {
+    var norm = normalizeVoiceText(text);
+    if (!norm) return null;
     var bestScore = 0;
     var best = null;
-    for (var i = 0; i < commands.length; i++) {
+    var i;
+    var j;
+    for (i = 0; i < commands.length; i++) {
       var score = 0;
       var kw = commands[i].keywords;
-      for (var j = 0; j < kw.length; j++) {
-        if (text.indexOf(kw[j]) !== -1) score++;
+      for (j = 0; j < kw.length; j++) {
+        if (keywordMatches(norm, kw[j])) {
+          score += Math.max(2, normalizeVoiceText(kw[j]).length);
+        }
       }
-      if (score > bestScore) { bestScore = score; best = commands[i]; }
+      if (score > bestScore) {
+        bestScore = score;
+        best = commands[i];
+      }
     }
-    return bestScore >= 1 ? best : null;
+    return bestScore >= 2 ? best : null;
+  }
+
+  function execVoiceText(text, options) {
+    options = options || {};
+    var matched = match(text);
+    if (matched) {
+      if (options.onSuccess) options.onSuccess(text, matched);
+      else showToast('已执行: ' + text);
+      matched.handler();
+      return true;
+    }
+    if (options.onFail) {
+      options.onFail(text);
+    } else if (text) {
+      showToast('"' + text + '" 未匹配到指令');
+    } else {
+      showToast('未识别到语音，请重试');
+    }
+    return false;
   }
 
   // ==================== Toast ====================
@@ -44,63 +155,156 @@
   }
 
   // ==================== DOM 查找工具 ====================
-  // 按 data 属性查找按钮，同时回退到按文字内容匹配（兼容未重新构建的前端）
   function findNavButton(label) {
-    // 1) 优先 data-nav-tab（React 重新构建后）
-    var btn = document.querySelector('[data-nav-tab="' + label + '"]');
+    var tabId = NAV_TAB_BY_LABEL[label] || label;
+    var btn = document.querySelector('[data-nav-tab="' + tabId + '"]');
     if (btn) return btn;
-    // 2) 兼容旧版 SPA 的 data-root-tab
-    btn = document.querySelector('[data-root-tab="' + label + '"]');
+    btn = document.querySelector('[data-root-tab="' + tabId + '"]');
     if (btn) return btn;
-    // 3) 回退：在底部导航栏中按文字内容查找
     var nav = document.querySelector('.bottom-nav') || document.querySelector('#bottom-nav');
     if (nav) {
       var buttons = nav.querySelectorAll('button');
-      for (var i = 0; i < buttons.length; i++) {
+      var i;
+      for (i = 0; i < buttons.length; i++) {
         if (buttons[i].textContent.indexOf(label) !== -1) return buttons[i];
       }
     }
-    // 4) 全局查找包含该文字的按钮
     var allButtons = document.querySelectorAll('button');
-    for (var i = 0; i < allButtons.length; i++) {
-      if (allButtons[i].textContent.indexOf(label) !== -1) return allButtons[i];
+    var k;
+    for (k = 0; k < allButtons.length; k++) {
+      if (allButtons[k].textContent.indexOf(label) !== -1) return allButtons[k];
     }
     return null;
   }
 
+  function isCatalogGridVisible() {
+    return !!document.querySelector('[data-voice-catalog-grid]');
+  }
+
+  function findCatalogMenuButton(routeKey, menuLabel) {
+    var btn = null;
+    if (routeKey) {
+      btn = document.querySelector('[data-voice-catalog-grid] [data-route-key="' + routeKey + '"]');
+      if (btn) return btn;
+    }
+    if (menuLabel) {
+      btn = document.querySelector('[data-voice-catalog-grid] [data-menu-label="' + menuLabel + '"]');
+      if (btn) return btn;
+      var normLabel = normalizeVoiceText(menuLabel);
+      var items = document.querySelectorAll('[data-voice-catalog-grid] [data-menu-label]');
+      var i;
+      for (i = 0; i < items.length; i++) {
+        var el = items[i];
+        var lbl = el.getAttribute('data-menu-label') || '';
+        if (keywordMatches(normLabel, lbl) || keywordMatches(normalizeVoiceText(lbl), menuLabel)) {
+          return el;
+        }
+      }
+    }
+    return null;
+  }
+
+  function goToCatalogTab(done) {
+    if (isCatalogGridVisible()) {
+      if (done) done();
+      return;
+    }
+    var tab = findNavButton('菜单') || document.querySelector('[data-nav-tab="catalog"]');
+    if (!tab) {
+      showToast('未找到菜单入口');
+      return;
+    }
+    tab.click();
+    var attempts = 0;
+    function wait() {
+      if (isCatalogGridVisible()) {
+        if (done) done();
+        return;
+      }
+      attempts++;
+      if (attempts > 30) {
+        showToast('菜单页加载超时');
+        return;
+      }
+      setTimeout(wait, 50);
+    }
+    wait();
+  }
+
+  function openCatalogMenu(routeKey, menuLabel) {
+    goToCatalogTab(function () {
+      var btn = findCatalogMenuButton(routeKey, menuLabel);
+      if (btn) {
+        btn.click();
+        return;
+      }
+      showToast('未找到菜单：' + (menuLabel || routeKey || ''));
+    });
+  }
+
+  function goToNavTab(tabLabel) {
+    var btn = findNavButton(tabLabel);
+    if (btn) btn.click();
+    else showToast('未找到：' + tabLabel);
+  }
+
   // ==================== 全局指令 ====================
   addCmd(['返回', '主界面', '菜单', '目录', '首页', '主页'], function () {
-    var btn = findNavButton('菜单') || findNavButton('目录') || findNavButton('首页') || findNavButton('主页');
-    if (btn) btn.click();
+    goToNavTab('菜单');
   });
 
-  addCmd(['退出登录', '注销', '登出'], function () {
+  addCmd(['AI', '人工智能', '智能助手', 'AI助手', '打开AI', '打开助手'], function () {
+    goToNavTab('AI');
+  });
+
+  addCmd(['消息', '打开消息', '通知'], function () {
+    goToNavTab('消息');
+  });
+
+  addCmd(['设置', '打开设置', '系统设置'], function () {
+    goToNavTab('设置');
+  });
+
+  addCmd([
+    '生产订单', '打开生产订单', '生产定单', '订单列表',
+    '盛产订单', '升产订单',
+  ], function () {
+    openCatalogMenu('orders', '生产订单');
+  });
+
+  addCmd([
+    '生产报工', '生产报工登记', '报工登记', '合并报工', '打开报工',
+    '报工列表', '在线报工',
+  ], function () {
+    openCatalogMenu('pro-sign', '生产报工登记');
+  });
+
+  addCmd(['菜单设置', '打开菜单设置'], function () {
+    openCatalogMenu('menu-settings', '菜单设置');
+  });
+
+  addCmd(['退出登录', '注销', '登出', '退出'], function () {
     var settingsTab = findNavButton('设置');
     if (settingsTab) settingsTab.click();
     setTimeout(function () {
       var logoutBtn = document.getElementById('btn-settings-logout');
       if (logoutBtn) { logoutBtn.click(); return; }
-      // 回退：在页面中找"退出"按钮
       var allButtons = document.querySelectorAll('button');
-      for (var i = 0; i < allButtons.length; i++) {
+      var i;
+      for (i = 0; i < allButtons.length; i++) {
         if (allButtons[i].textContent.indexOf('退出') !== -1) {
           allButtons[i].click();
           return;
         }
       }
-    }, 100);
+      showToast('未找到退出按钮');
+    }, 150);
   });
 
   // ==================== APP 环境：桥接函数 ====================
   if (isInApp) {
     window.__voiceExec = function (text) {
-      var matched = match(text);
-      if (matched) {
-        showToast('已执行: ' + text);
-        matched.handler();
-      } else {
-        showToast(text + ' 暂不支持此操作');
-      }
+      execVoiceText(text);
     };
     return;
   }
@@ -394,17 +598,20 @@
 
       sendDebugLog('[ASR_OK] text=' + text);
 
-      var matched = match(text);
-      if (matched) {
-        sendDebugLog('[MATCH_OK] text=' + text + ' keywords=' + matched.keywords.join(','));
-        showBubble('已执行: ' + text, true);
-        matched.handler();
-      } else if (text) {
-        sendDebugLog('[NO_MATCH] text=' + text);
-        showBubble('"' + text + '" 未匹配到指令', true);
-      } else {
-        showBubble('未识别到语音，请重试', true);
-      }
+      var ok = execVoiceText(text, {
+        onSuccess: function (t, m) {
+          sendDebugLog('[MATCH_OK] text=' + t + ' keywords=' + m.keywords.join(','));
+          showBubble('已执行: ' + t, true);
+        },
+        onFail: function (t) {
+          if (t) {
+            sendDebugLog('[NO_MATCH] text=' + t);
+            showBubble('"' + t + '" 未匹配到指令', true);
+          } else {
+            showBubble('未识别到语音，请重试', true);
+          }
+        },
+      });
     });
   }
 
