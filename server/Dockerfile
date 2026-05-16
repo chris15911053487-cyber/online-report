@@ -6,7 +6,15 @@
 FROM node:20-bookworm AS frontend-builder
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci && npm cache clean --force
+# Rolldown (used by Vite 8) ships native bindings as optional deps; npm ci can omit them (npm/cli#4828).
+RUN npm ci && \
+    RCV="$(node -p "require('./node_modules/rolldown/package.json').version")" && \
+    case "$(uname -m)" in \
+      x86_64)  npm install "@rolldown/binding-linux-x64-gnu@${RCV}" ;; \
+      aarch64) npm install "@rolldown/binding-linux-arm64-gnu@${RCV}" ;; \
+      *) echo "unsupported architecture: $(uname -m)"; exit 1 ;; \
+    esac && \
+    npm cache clean --force
 COPY frontend/ ./
 RUN npm run build
 
