@@ -1,3 +1,7 @@
+# Build context MUST be the repo root (directory that contains both `frontend/` and `server/`).
+# Correct: from repo root → `docker compose -f docker-compose.deploy.yml build`
+# Wrong: `cd server && docker build -f Dockerfile .` (no `frontend/` in context; COPY below fails).
+
 # --- Build React + Vite frontend (output: /frontend/dist) ---
 FROM node:20-bookworm AS frontend-builder
 WORKDIR /frontend
