@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useStore } from '../store'
 import { apiFetchReport } from '../utils/api'
 import { getRowValue, reportColumnHeaderText } from '../utils/helpers'
+import ReturnProPickDetail, { isReturnProRoute } from './ReturnProPickDetail'
 
 export default function ReportRowDetailView() {
   const {
@@ -36,9 +37,12 @@ export default function ReportRowDetailView() {
     setLoading(true)
     setError('')
 
+    const effectiveDetailKey =
+      detailKey ?? (params && typeof params === 'object' ? params.detailKey : undefined)
+
     apiFetchReport('/reports/detail', {
       method: 'POST',
-      body: JSON.stringify({ routeKey, params, detailKey }),
+      body: JSON.stringify({ routeKey, params, detailKey: effectiveDetailKey }),
     })
       .then((res) => {
         if (cancelled) return
@@ -74,12 +78,28 @@ export default function ReportRowDetailView() {
     )
   }
 
+  const effectiveDetailKeyForView =
+    detailKey ?? (params && typeof params === 'object' ? params.detailKey : undefined)
+
   if (rows.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 text-slate-400">
         <p>无详情数据</p>
         <button onClick={goBack} className="mt-4 text-sky-600 underline text-sm">返回</button>
       </div>
+    )
+  }
+
+  if (isReturnProRoute(routeKey)) {
+    return (
+      <ReturnProPickDetail
+        rows={rows}
+        columnLabels={columnLabels}
+        detailKey={effectiveDetailKeyForView}
+        truncated={truncated}
+        goBack={goBack}
+        showToast={showToast}
+      />
     )
   }
 

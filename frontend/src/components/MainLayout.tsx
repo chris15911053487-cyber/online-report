@@ -12,6 +12,7 @@ import ProSignReceiveView from '../views/ProSignReceiveView'
 import WorkRegistrationView from '../views/WorkRegistrationView'
 import AiChatView from '../views/AiChatView'
 import type { ViewName } from '../types'
+import { isReturnProRoute } from '../views/ReturnProPickDetail'
 
 const rootTabs: ViewName[] = ['catalog', 'ai', 'messages', 'settings']
 
@@ -34,7 +35,12 @@ const viewComponents: Record<string, React.ComponentType> = {
   'work-registration': WorkRegistrationView,
 }
 
-function getPageTitle(view: ViewName, activeMenuLabel?: string, proSignMergeButtonLabel?: string): string {
+function getPageTitle(
+  view: ViewName,
+  activeMenuLabel?: string,
+  proSignMergeButtonLabel?: string,
+  reportDetailRouteKey?: string,
+): string {
   const titles: Record<string, string> = {
     catalog: '菜单',
     ai: 'AI 助手',
@@ -53,6 +59,9 @@ function getPageTitle(view: ViewName, activeMenuLabel?: string, proSignMergeButt
   if (view === 'pro-sign-receive') {
     return '合并报工·' + (proSignMergeButtonLabel || '接单')
   }
+  if (view === 'report-row-detail' && isReturnProRoute(reportDetailRouteKey)) {
+    return '领料明细'
+  }
   return titles[view] || '生产报工'
 }
 
@@ -64,12 +73,18 @@ export default function MainLayout() {
     activeMenu,
     proSignMergeButtonLabel,
     proSignMode,
+    reportDetailRouteKey,
   } = useStore()
 
   const isRootTab = rootTabs.includes(currentView)
   const showBackButton = !isRootTab
   const showBottomNav = isRootTab
-  const title = getPageTitle(currentView, activeMenu?.label, proSignMergeButtonLabel)
+  const title = getPageTitle(
+    currentView,
+    activeMenu?.label,
+    proSignMergeButtonLabel,
+    reportDetailRouteKey,
+  )
 
   const CurrentView = viewComponents[currentView] || CatalogView
 

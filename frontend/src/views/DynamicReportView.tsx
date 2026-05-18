@@ -722,7 +722,7 @@ export default function DynamicReportView() {
     }
     const detailKey = typeof raw === 'bigint' ? raw.toString() : raw
     const params = collectFilterParams(schema, formValues)
-    openReportRowDetail(routeKey, { ...params, detailKey }, columnLabels)
+    openReportRowDetail(routeKey, params, columnLabels, detailKey)
   }
 
   // --- Select all ---
