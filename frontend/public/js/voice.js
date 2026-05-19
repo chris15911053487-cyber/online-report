@@ -398,40 +398,145 @@
   function tryMatchFillOrSelect(norm, targets) {
     var best = null;
     var bestLabelLen = 0;
-    var i;
-    for (i = 0; i < targets.length; i++) {
-      var t = targets[i];
-      if (t.action !== 'fill' && t.action !== 'select') continue;
-      var nl = t.normLabel;
-      if (!nl || nl.length < 1) continue;
-      // 文本以 label 开头，剩余部分为值
-      if (norm.indexOf(nl) === 0 && norm.length > nl.length) {
-        if (nl.length > bestLabelLen) {
-          var val = norm.slice(nl.length);
-          best = { target: t, value: val };
-          bestLabelLen = nl.length;
+
+    // 意图动词：填值
+    var FILL_VERBS = ['填入', '填写', '输入', '改为', '改成', '设为', '设置为', '填'];
+    // 意图动词：清空
+    var CLEAR_PATTERNS = ['清空', '清除', '删除', '置空'];
+    // 后缀清空
+    var CLEAR_SUFFIXES = ['清空', '清除', '为空', '置空', '删掉', '删除'];
+
+    var i, j;
+
+    // ── 清空意图检测 ──
+    // "清空{label}" / "删除{label}"
+    for (j = 0; j < CLEAR_PATTERNS.length; j++) {
+      var cp = CLEAR_PATTERNS[j];
+      if (norm.indexOf(cp) !== 0) continue;
+      var afterClear = norm.slice(cp.length);
+      if (!afterClear) continue;
+      for (i = 0; i < targets.length; i++) {
+        var t = targets[i];
+        if (t.action !== 'fill' && t.action !== 'select') continue;
+        if (afterClear === t.normLabel || afterClear.indexOf(t.normLabel) === 0) {
+          if (t.normLabel.length > bestLabelLen) {
+            best = { target: t, value: '', isClear: true };
+            bestLabelLen = t.normLabel.length;
+          }
         }
       }
-      // 也支持 "选{label}{value}" / "{label}选{value}" 格式
-      var selectPrefixes = ['选', '选择'];
-      for (var p = 0; p < selectPrefixes.length; p++) {
-        var sp = selectPrefixes[p];
-        // "{label}选{value}"
-        if (norm.indexOf(nl + sp) === 0 && norm.length > nl.length + sp.length) {
+    }
+    if (best) return executeFillOrClear(best);
+
+    // "{label}清空" / "{label}为空" / "{label}删除"
+    for (i = 0; i < targets.length; i++) {
+      var t2 = targets[i];
+      if (t2.action !== 'fill' && t2.action !== 'select') continue;
+      var nl = t2.normLabel;
+      if (!nl || norm.indexOf(nl) !== 0) continue;
+      var tail = norm.slice(nl.length);
+      for (j = 0; j < CLEAR_SUFFIXES.length; j++) {
+        if (tail === CLEAR_SUFFIXES[j]) {
           if (nl.length > bestLabelLen) {
-            best = { target: t, value: norm.slice(nl.length + sp.length) };
+            best = { target: t2, value: '', isClear: true };
             bestLabelLen = nl.length;
           }
         }
       }
     }
-    if (!best) return null;
+    if (best) return executeFillOrClear(best);
 
-    var t = best.target;
-    var val = best.value;
+    // ── 填值意图检测 ──
+    bestLabelLen = 0;
+    best = null;
+
+    for (i = 0; i < targets.length; i++) {
+      var t3 = targets[i];
+      if (t3.action !== 'fill' && t3.action !== 'select') continue;
+      var nl3 = t3.normLabel;
+      if (!nl3 || nl3.length < 1) continue;
+
+      // 模式 A: "动词{label}{value}" — 如 "填入订单号129"
+      for (j = 0; j < FILL_VERBS.length; j++) {
+        var verb = FILL_VERBS[j];
+        var verbLabelPrefix = verb + nl3;
+        if (norm.indexOf(verbLabelPrefix) === 0 && norm.length > verbLabelPrefix.length) {
+          var score = nl3.length + verb.length;
+          if (score > bestLabelLen) {
+            best = { target: t3, value: norm.slice(verbLabelPrefix.length) };
+            bestLabelLen = score;
+          }
+        }
+      }
+
+      // 模式 B: "{label}动词{value}" — 如 "订单号填129" / "订单号输入129"
+      if (norm.indexOf(nl3) === 0) {
+        var afterLabel = norm.slice(nl3.length);
+        for (j = 0; j < FILL_VERBS.length; j++) {
+          var v2 = FILL_VERBS[j];
+          if (afterLabel.indexOf(v2) === 0 && afterLabel.length > v2.length) {
+            var score2 = nl3.length + v2.length;
+            if (score2 > bestLabelLen) {
+              best = { target: t3, value: afterLabel.slice(v2.length) };
+              bestLabelLen = score2;
+            }
+          }
+        }
+        // 模式 C: "{label}{value}" — 如 "订单号129"（无动词，原有逻辑）
+        if (afterLabel && !best || (nl3.length > bestLabelLen && afterLabel)) {
+          // 确保剩余部分不是动词本身
+          var isVerb = false;
+          for (j = 0; j < FILL_VERBS.length; j++) {
+            if (afterLabel === FILL_VERBS[j]) { isVerb = true; break; }
+          }
+          for (j = 0; j < CLEAR_SUFFIXES.length; j++) {
+            if (afterLabel === CLEAR_SUFFIXES[j]) { isVerb = true; break; }
+          }
+          if (!isVerb && nl3.length > bestLabelLen) {
+            best = { target: t3, value: afterLabel };
+            bestLabelLen = nl3.length;
+          }
+        }
+      }
+
+      // 模式 D: "选{label}{value}" / "{label}选{value}"（下拉专用）
+      if (t3.action === 'select') {
+        var selectPrefixes = ['选', '选择'];
+        for (var p = 0; p < selectPrefixes.length; p++) {
+          var sp = selectPrefixes[p];
+          if (norm.indexOf(nl3 + sp) === 0 && norm.length > nl3.length + sp.length) {
+            var score3 = nl3.length + sp.length;
+            if (score3 > bestLabelLen) {
+              best = { target: t3, value: norm.slice(nl3.length + sp.length) };
+              bestLabelLen = score3;
+            }
+          }
+          // "选{label}{value}" — "选状态待完工"
+          if (norm.indexOf(sp + nl3) === 0 && norm.length > sp.length + nl3.length) {
+            var score4 = sp.length + nl3.length;
+            if (score4 > bestLabelLen) {
+              best = { target: t3, value: norm.slice(sp.length + nl3.length) };
+              bestLabelLen = score4;
+            }
+          }
+        }
+      }
+    }
+
+    if (!best) return null;
+    return executeFillOrClear(best);
+  }
+
+  function executeFillOrClear(match) {
+    var t = match.target;
+    var val = match.value;
     if (t.action === 'fill') {
       return executeFill(t.el, t.label, val);
     } else if (t.action === 'select') {
+      if (val === '') {
+        // 清空下拉 → 选"全部"（value=""）
+        return executeFill(t.el, t.label, val);
+      }
       return executeSelect(t.el, t.label, val);
     }
     return null;
