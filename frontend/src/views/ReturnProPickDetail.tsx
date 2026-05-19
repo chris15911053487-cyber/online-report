@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { apiFetch } from '../utils/api'
 import { getRowValue, reportColumnHeaderText } from '../utils/helpers'
 
 const RETURNPRO_ROUTE = 'returnpro'
+const BATCH_STOCK_DEBOUNCE_MS = 450
 
 const FIELD_LABELS: Record<string, string> = {
   DocEntry: '单据号',
@@ -29,6 +31,18 @@ const READONLY_FIELDS = [
   'ManBtchNum',
 ] as const
 
+const WHS_COLS = ['WhsCode', 'Warehouse', 'Whs', '仓库', 'FromWhs', 'U_WhsCode']
+
+type BatchStockStatus = 'idle' | 'checking' | 'ok' | 'insufficient' | 'empty' | 'error'
+
+interface BatchStockState {
+  status: BatchStockStatus
+  onHand: number | null
+  message: string
+}
+
+const IDLE_BATCH_STOCK: BatchStockState = { status: 'idle', onHand: null, message: '' }
+
 export function isReturnProRoute(routeKey: string | undefined | null): boolean {
   return String(routeKey || '').trim().toLowerCase() === RETURNPRO_ROUTE
 }
@@ -38,9 +52,26 @@ function isBatchManaged(row: Record<string, any>): boolean {
   return String(v ?? '').trim().toUpperCase() === 'Y'
 }
 
+function getWhsCode(row: Record<string, any>): string {
+  for (const col of WHS_COLS) {
+    const v = getRowValue(row, col)
+    if (v != null && String(v).trim()) return String(v).trim()
+  }
+  return ''
+}
+
 function formatDisplay(val: unknown): string {
   if (val == null || val === '') return '—'
   return String(val)
+}
+
+function stockMessageFromResult(onHand: number, qty: number | null, sufficient: boolean): string {
+  const stockText = `可用库存 ${onHand}`
+  if (qty != null && qty > 0 && !sufficient) {
+    return `${stockText}，不足领料数量 ${qty}`
+  }
+  if (onHand <= 0) return '该批次无可用库存'
+  return stockText
 }
 
 export interface ReturnProLineDraft {
@@ -57,6 +88,10 @@ function buildDrafts(rows: Record<string, any>[]): ReturnProLineDraft[] {
       batchNum: batch == null ? '' : String(batch),
     }
   })
+}
+
+function buildIdleBatchStocks(rows: Record<string, any>[]): BatchStockState[] {
+  return rows.map(() => ({ ...IDLE_BATCH_STOCK }))
 }
 
 interface ReturnProPickDetailProps {
@@ -77,10 +112,13 @@ export default function ReturnProPickDetail({
   showToast,
 }: ReturnProPickDetailProps) {
   const [drafts, setDrafts] = useState<ReturnProLineDraft[]>(() => buildDrafts(rows))
+  const [batchStocks, setBatchStocks] = useState<BatchStockState[]>(() => buildIdleBatchStocks(rows))
   const [submitting, setSubmitting] = useState(false)
+  const stockReqRef = useRef(0)
 
   useEffect(() => {
     setDrafts(buildDrafts(rows))
+    setBatchStocks(buildIdleBatchStocks(rows))
   }, [rows])
 
   const headerDocEntry =
@@ -99,7 +137,101 @@ export default function ReturnProPickDetail({
       next[index] = { ...next[index], ...patch }
       return next
     })
+    if (patch.batchNum !== undefined) {
+      setBatchStocks((prev) => {
+        const next = [...prev]
+        next[index] = { ...IDLE_BATCH_STOCK }
+        return next
+      })
+    }
   }, [])
+
+  const checkLineStock = useCallback(
+    async (index: number): Promise<BatchStockState> => {
+      const row = rows[index]
+      if (!isBatchManaged(row)) return { ...IDLE_BATCH_STOCK }
+
+      const draft = drafts[index] ?? { quantity: '', batchNum: '' }
+      const batchNum = String(draft.batchNum ?? '').trim()
+      const itemCode = String(getRowValue(row, 'ItemCode') ?? '').trim()
+      if (!batchNum) return { ...IDLE_BATCH_STOCK }
+
+      const qty = parseFloat(draft.quantity)
+      const quantity = Number.isFinite(qty) && qty > 0 ? qty : null
+      const whsCode = getWhsCode(row)
+
+      const reqId = ++stockReqRef.current
+      setBatchStocks((prev) => {
+        const next = [...prev]
+        next[index] = { status: 'checking', onHand: null, message: '查询库存中…' }
+        return next
+      })
+
+      try {
+        const res = await apiFetch('/returnpro/batch-stock', {
+          method: 'POST',
+          body: JSON.stringify({
+            itemCode,
+            batchNum,
+            whsCode: whsCode || undefined,
+            quantity: quantity ?? undefined,
+          }),
+        })
+        if (reqId !== stockReqRef.current) return { ...IDLE_BATCH_STOCK }
+
+        const onHand = Number(res.onHand)
+        const sufficient = res.sufficient !== false && onHand > 0
+        const message = stockMessageFromResult(
+          Number.isFinite(onHand) ? onHand : 0,
+          quantity,
+          sufficient,
+        )
+        let status: BatchStockStatus = 'ok'
+        if (!Number.isFinite(onHand) || onHand <= 0) status = 'empty'
+        else if (!sufficient) status = 'insufficient'
+
+        const state: BatchStockState = {
+          status,
+          onHand: Number.isFinite(onHand) ? onHand : 0,
+          message,
+        }
+        setBatchStocks((prev) => {
+          const next = [...prev]
+          next[index] = state
+          return next
+        })
+        return state
+      } catch (err: any) {
+        if (reqId !== stockReqRef.current) return { ...IDLE_BATCH_STOCK }
+        const message = err?.message || '批次库存查询失败'
+        const state: BatchStockState = { status: 'error', onHand: null, message }
+        setBatchStocks((prev) => {
+          const next = [...prev]
+          next[index] = state
+          return next
+        })
+        return state
+      }
+    },
+    [rows, drafts],
+  )
+
+  useEffect(() => {
+    const timers: ReturnType<typeof setTimeout>[] = []
+    rows.forEach((row, ri) => {
+      if (!isBatchManaged(row)) return
+      const batchNum = String(drafts[ri]?.batchNum ?? '').trim()
+      if (!batchNum) return
+      timers.push(
+        setTimeout(() => {
+          void checkLineStock(ri)
+        }, BATCH_STOCK_DEBOUNCE_MS),
+      )
+    })
+    return () => {
+      timers.forEach((t) => clearTimeout(t))
+    }
+  }, [rows, drafts, checkLineStock])
 
   const collectPayload = useCallback(() => {
     return rows.map((row, i) => {
@@ -118,6 +250,7 @@ export default function ReturnProPickDetail({
         baseType: getRowValue(row, 'BaseType'),
         baseEntry: getRowValue(row, 'BaseEntry'),
         baseLine: getRowValue(row, 'BaseLine'),
+        whsCode: getWhsCode(row) || null,
         batchNum: draft.batchNum.trim(),
       }
     })
@@ -133,9 +266,33 @@ export default function ReturnProPickDetail({
       if (isBatchManaged(rows[i]) && !String(draft?.batchNum ?? '').trim()) {
         return `第 ${i + 1} 行：批次管理物料须填写批次号`
       }
+      const stock = batchStocks[i]
+      if (isBatchManaged(rows[i]) && stock?.status === 'checking') {
+        return `第 ${i + 1} 行：正在查询批次库存，请稍候`
+      }
     }
     return null
-  }, [rows, drafts])
+  }, [rows, drafts, batchStocks])
+
+  const verifyAllBatchStock = useCallback(async (): Promise<string | null> => {
+    for (let i = 0; i < rows.length; i++) {
+      if (!isBatchManaged(rows[i])) continue
+      const state = await checkLineStock(i)
+      if (state.status === 'checking') {
+        return `第 ${i + 1} 行：正在查询批次库存，请稍候`
+      }
+      if (state.status === 'error') {
+        return `第 ${i + 1} 行：${state.message}`
+      }
+      if (state.status === 'empty') {
+        return `第 ${i + 1} 行：该批次无可用库存`
+      }
+      if (state.status === 'insufficient') {
+        return `第 ${i + 1} 行：${state.message}`
+      }
+    }
+    return null
+  }, [rows, checkLineStock])
 
   const handlePick = useCallback(async () => {
     const err = validate()
@@ -145,6 +302,11 @@ export default function ReturnProPickDetail({
     }
     setSubmitting(true)
     try {
+      const stockErr = await verifyAllBatchStock()
+      if (stockErr) {
+        showToast(stockErr)
+        return
+      }
       const payload = {
         docEntry: detailKey,
         lines: collectPayload(),
@@ -155,10 +317,17 @@ export default function ReturnProPickDetail({
     } finally {
       setSubmitting(false)
     }
-  }, [validate, collectPayload, detailKey, showToast])
+  }, [validate, verifyAllBatchStock, collectPayload, detailKey, showToast])
 
   const inputCls =
     'border border-slate-200 rounded-lg px-3 py-2 w-full text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 focus:border-sky-300'
+
+  const stockHintCls = (status: BatchStockStatus) => {
+    if (status === 'ok') return 'text-emerald-600'
+    if (status === 'checking') return 'text-slate-500'
+    if (status === 'idle') return 'text-slate-400'
+    return 'text-red-600'
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 pb-28">
@@ -182,6 +351,7 @@ export default function ReturnProPickDetail({
         {rows.map((row, ri) => {
           const batchOn = isBatchManaged(row)
           const draft = drafts[ri] ?? { quantity: '', batchNum: '' }
+          const stock = batchStocks[ri] ?? IDLE_BATCH_STOCK
           return (
             <div
               key={ri}
@@ -232,10 +402,14 @@ export default function ReturnProPickDetail({
                         type="text"
                         value={draft.batchNum}
                         onChange={(e) => updateDraft(ri, { batchNum: e.target.value })}
+                        onBlur={() => void checkLineStock(ri)}
                         className={inputCls}
                         placeholder="请输入批次号"
                         autoComplete="off"
                       />
+                      {stock.message ? (
+                        <p className={`mt-1 text-xs ${stockHintCls(stock.status)}`}>{stock.message}</p>
+                      ) : null}
                     </label>
                   )}
                 </div>

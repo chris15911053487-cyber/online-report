@@ -16,6 +16,7 @@ const ordersRoutes = require('./routes/orders');
 const menusRoutes = require('./routes/menus');
 const reportsRoutes = require('./routes/reports');
 const proSignRoutes = require('./routes/pro-sign');
+const returnproRoutes = require('./routes/returnpro');
 const registerOworRoutes = require('./routes/owor');
 const aiRoutes = require('./routes/ai');
 const filesRoutes = require('./routes/files');
@@ -91,6 +92,7 @@ async function build() {
   await fastify.register(menusRoutes);
   await fastify.register(reportsRoutes);
   await fastify.register(proSignRoutes);
+  await fastify.register(returnproRoutes);
   await fastify.register(aiRoutes);
   await fastify.register(filesRoutes);
 
