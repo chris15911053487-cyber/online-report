@@ -228,6 +228,23 @@
       }
     }
 
+    // 通用页面操作引擎：扫描当前页面 [data-voice-label] 元素，尝试填值/点击/选择
+    var pageAction = tryPageElementAction(text);
+    if (pageAction) {
+      var paLabel = pageAction.label || '';
+      var paMsg = pageAction.action === 'fill'
+        ? paLabel + ' 填入 ' + (pageAction.value || '')
+        : pageAction.action === 'select'
+          ? paLabel + ' 选择 ' + (pageAction.value || '')
+          : '点击 ' + paLabel;
+      if (options.onSuccess) {
+        options.onSuccess(text, { keywords: [paLabel] }, paMsg);
+      } else {
+        showToast('已执行：' + paMsg);
+      }
+      return true;
+    }
+
     var matched = match(text);
     if (matched && matched.cmd) {
       if (options.onSuccess) options.onSuccess(text, matched.cmd, matched.label);
@@ -329,6 +346,190 @@
     return String(template).replace(/\{([ntd])\}/g, function (_, k) {
       return captures[k] != null ? captures[k] : '';
     });
+  }
+
+  // ==================== 通用页面操作引擎 ====================
+
+  /**
+   * 扫描当前页面所有 [data-voice-label] 元素，尝试匹配语音文本并执行操作。
+   * 支持三种动作：
+   *   fill   — 输入框填值（"单据号 129" → 找到 label=单据号 的 input → 填入 129）
+   *   click  — 点击按钮（"查询" / "点击查询" / "下一页"）
+   *   select — 选择下拉（"状态选待完工" / "状态 待完工"）
+   *
+   * 返回 { action, label, value? } 或 null
+   */
+  function tryPageElementAction(text) {
+    var norm = normalizeVoiceText(text);
+    if (!norm) return null;
+
+    var elements = document.querySelectorAll('[data-voice-label]');
+    if (!elements.length) return null;
+
+    // 收集所有可操作元素信息
+    var targets = [];
+    var i;
+    for (i = 0; i < elements.length; i++) {
+      var el = elements[i];
+      var label = (el.getAttribute('data-voice-label') || '').trim();
+      if (!label) continue;
+      var action = (el.getAttribute('data-voice-action') || '').trim().toLowerCase();
+      if (!action) continue;
+      targets.push({
+        el: el,
+        label: label,
+        normLabel: normalizeVoiceText(label),
+        action: action,
+      });
+    }
+    if (!targets.length) return null;
+
+    // 策略 1：尝试 fill/select — 文本格式 "{label}{value}" 或 "{label} {value}"
+    var fillResult = tryMatchFillOrSelect(norm, targets);
+    if (fillResult) return fillResult;
+
+    // 策略 2：尝试 click — 文本就是 label 或 "点击{label}"
+    var clickResult = tryMatchClick(norm, targets);
+    if (clickResult) return clickResult;
+
+    return null;
+  }
+
+  function tryMatchFillOrSelect(norm, targets) {
+    var best = null;
+    var bestLabelLen = 0;
+    var i;
+    for (i = 0; i < targets.length; i++) {
+      var t = targets[i];
+      if (t.action !== 'fill' && t.action !== 'select') continue;
+      var nl = t.normLabel;
+      if (!nl || nl.length < 1) continue;
+      // 文本以 label 开头，剩余部分为值
+      if (norm.indexOf(nl) === 0 && norm.length > nl.length) {
+        if (nl.length > bestLabelLen) {
+          var val = norm.slice(nl.length);
+          best = { target: t, value: val };
+          bestLabelLen = nl.length;
+        }
+      }
+      // 也支持 "选{label}{value}" / "{label}选{value}" 格式
+      var selectPrefixes = ['选', '选择'];
+      for (var p = 0; p < selectPrefixes.length; p++) {
+        var sp = selectPrefixes[p];
+        // "{label}选{value}"
+        if (norm.indexOf(nl + sp) === 0 && norm.length > nl.length + sp.length) {
+          if (nl.length > bestLabelLen) {
+            best = { target: t, value: norm.slice(nl.length + sp.length) };
+            bestLabelLen = nl.length;
+          }
+        }
+      }
+    }
+    if (!best) return null;
+
+    var t = best.target;
+    var val = best.value;
+    if (t.action === 'fill') {
+      return executeFill(t.el, t.label, val);
+    } else if (t.action === 'select') {
+      return executeSelect(t.el, t.label, val);
+    }
+    return null;
+  }
+
+  function tryMatchClick(norm, targets) {
+    // 去掉"点击"/"点"/"按"前缀
+    var clickNorm = norm.replace(/^(点击|点|按一下|按下|按)/, '');
+    if (!clickNorm) clickNorm = norm;
+
+    var best = null;
+    var bestScore = 0;
+    var i;
+    for (i = 0; i < targets.length; i++) {
+      var t = targets[i];
+      if (t.action !== 'click') continue;
+      var nl = t.normLabel;
+      if (!nl) continue;
+      // 精确匹配
+      if (clickNorm === nl) {
+        var s = nl.length + 10;
+        if (s > bestScore) { best = t; bestScore = s; }
+      }
+      // 包含匹配
+      else if (clickNorm.indexOf(nl) !== -1 && nl.length >= 2) {
+        var s2 = nl.length + 3;
+        if (s2 > bestScore) { best = t; bestScore = s2; }
+      }
+      // 模糊匹配（短文本）
+      else if (nl.length >= 2 && fuzzyContains(clickNorm, nl)) {
+        var s3 = nl.length;
+        if (s3 > bestScore) { best = t; bestScore = s3; }
+      }
+    }
+    if (!best) return null;
+    return executeClick(best.el, best.label);
+  }
+
+  function executeFill(el, label, value) {
+    // 触发 React 受控组件的 onChange
+    var nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+      window.HTMLInputElement.prototype, 'value'
+    );
+    if (nativeInputValueSetter && nativeInputValueSetter.set) {
+      nativeInputValueSetter.set.call(el, value);
+    } else {
+      el.value = value;
+    }
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    return { action: 'fill', label: label, value: value };
+  }
+
+  function executeSelect(el, label, value) {
+    // 在 select 的 options 中找匹配项（按显示文本模糊匹配）
+    var options = el.querySelectorAll('option');
+    var normVal = normalizeVoiceText(value);
+    var matched = null;
+    var i;
+    for (i = 0; i < options.length; i++) {
+      var optText = normalizeVoiceText(options[i].textContent || '');
+      var optVal = options[i].value;
+      if (!optText || optVal === '') continue;
+      if (optText === normVal || optText.indexOf(normVal) !== -1 || normVal.indexOf(optText) !== -1) {
+        matched = options[i];
+        break;
+      }
+    }
+    if (!matched) {
+      // 尝试编辑距离
+      for (i = 0; i < options.length; i++) {
+        var optText2 = normalizeVoiceText(options[i].textContent || '');
+        if (!optText2 || options[i].value === '') continue;
+        if (fuzzyContains(normVal, optText2) || fuzzyContains(optText2, normVal)) {
+          matched = options[i];
+          break;
+        }
+      }
+    }
+    if (!matched) return null;
+
+    // 设置 select 值并触发 change
+    var nativeSelectValueSetter = Object.getOwnPropertyDescriptor(
+      window.HTMLSelectElement.prototype, 'value'
+    );
+    if (nativeSelectValueSetter && nativeSelectValueSetter.set) {
+      nativeSelectValueSetter.set.call(el, matched.value);
+    } else {
+      el.value = matched.value;
+    }
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    return { action: 'select', label: label, value: matched.textContent || matched.value };
+  }
+
+  function executeClick(el, label) {
+    if (el.disabled) return null;
+    el.click();
+    return { action: 'click', label: label };
   }
 
   // ==================== Toast ====================

@@ -858,6 +858,7 @@ export default function DynamicReportView() {
               className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white active:bg-blue-700 disabled:opacity-50"
               onClick={handleSubmit}
               disabled={loading}
+              data-voice-label="查询" data-voice-action="click"
             >
               {loading ? '查询中…' : '查询'}
             </button>
@@ -866,6 +867,7 @@ export default function DynamicReportView() {
                 className="rounded-lg bg-emerald-600 px-5 py-2 text-sm font-medium text-white active:bg-emerald-700 disabled:opacity-50"
                 onClick={handleAI}
                 disabled={aiLoading}
+                data-voice-label="AI分析" data-voice-action="click"
               >
                 {aiLoading ? '分析中…' : 'AI 分析'}
               </button>
@@ -970,6 +972,7 @@ export default function DynamicReportView() {
                 className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs disabled:opacity-40"
                 disabled={page <= 1}
                 onClick={() => changePage(-1)}
+                data-voice-label="上一页" data-voice-action="click"
               >
                 上一页
               </button>
@@ -987,6 +990,7 @@ export default function DynamicReportView() {
                 className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs disabled:opacity-40"
                 disabled={page >= mp}
                 onClick={() => changePage(1)}
+                data-voice-label="下一页" data-voice-action="click"
               >
                 下一页
               </button>
@@ -1059,6 +1063,7 @@ export default function DynamicReportView() {
             className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white active:bg-indigo-700 disabled:opacity-50"
             onClick={handleMerge}
             disabled={mergeLoading || selectedRows.size === 0}
+            data-voice-label={stickyMergeButtonLabel} data-voice-action="click"
           >
             {mergeLoading ? '处理中…' : stickyMergeButtonLabel}
             {!mergeLoading && selectedRows.size > 0 && ` (${selectedRows.size})`}
@@ -1254,7 +1259,8 @@ function FilterFieldInput({
     return (
       <label className="block">
         {labelEl}
-        <select className={inputCls} value={value} onChange={(e) => onChange(e.target.value)}>
+        <select className={inputCls} value={value} onChange={(e) => onChange(e.target.value)}
+          data-voice-label={f.label || f.name} data-voice-action="select" data-voice-field={f.name}>
           {showAll && <option value="">（全部）</option>}
           {items.map((op, i) => {
             const cv =
@@ -1274,7 +1280,8 @@ function FilterFieldInput({
     return (
       <label className="block">
         {labelEl}
-        <select className={inputCls} value={value} onChange={(e) => onChange(e.target.value)}>
+        <select className={inputCls} value={value} onChange={(e) => onChange(e.target.value)}
+          data-voice-label={f.label || f.name} data-voice-action="select" data-voice-field={f.name}>
           {showAll && <option value="">（全部）</option>}
           {f.options.map((op, i) => {
             const cv =
@@ -1298,6 +1305,7 @@ function FilterFieldInput({
           checked={!!value}
           onChange={(e) => onChange(e.target.checked)}
           className="h-4 w-4 rounded border-gray-300"
+          data-voice-label={f.label || f.name} data-voice-action="click" data-voice-field={f.name}
         />
         <span className="text-sm text-gray-700">{f.label || f.name}</span>
       </label>
@@ -1313,6 +1321,7 @@ function FilterFieldInput({
           className={inputCls}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          data-voice-label={f.label || f.name} data-voice-action="fill" data-voice-field={f.name}
         />
       </label>
     )
@@ -1333,6 +1342,7 @@ function FilterFieldInput({
             className={inputCls}
             value={value}
             onChange={(e) => onChange(e.target.value)}
+            data-voice-label={f.label || f.name} data-voice-action="fill" data-voice-field={f.name}
           />
         </ScanFieldWrap>
       </label>
@@ -1352,6 +1362,7 @@ function FilterFieldInput({
           className={inputCls}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          data-voice-label={f.label || f.name} data-voice-action="fill" data-voice-field={f.name}
         />
       </ScanFieldWrap>
     </label>

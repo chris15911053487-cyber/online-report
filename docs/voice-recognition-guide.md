@@ -503,3 +503,81 @@ ReactNative WebView 内的原生宿主，也可通过 `__voiceNavigate` 触发�
 | 跳过去了筛选填了但没自动查 | 模板里 `autoQuery` 设了 `false`，或菜单类型不是 `report` |
 | 保存模板时 400 | JSON 格式错误 / patterns 数组为空 / 不是数组 |
 
+
+
+---
+
+## 10. 通用页面操作引擎（data-voice-label）
+
+> 语音动作模板（§9）适合"一句话完成多步"的快捷指令。**通用页面操作引擎**则让语音能操作**当前页面上任何可交互元素**——无需配置，只要元素有 `data-voice-label` 属性。
+
+### 10.1 原理
+
+前端可交互元素（输入框、按钮、下拉）渲染时自动带上：
+
+```html
+<input data-voice-label="单据号" data-voice-action="fill" data-voice-field="DocEntry" />
+<select data-voice-label="状态" data-voice-action="select" data-voice-field="Status">...</select>
+<button data-voice-label="查询" data-voice-action="click">查询</button>
+```
+
+voice.js 在 ASR 返回文字后，扫描当前页面所有 `[data-voice-label]` 元素，按规则匹配并执行操作。
+
+### 10.2 支持的指令格式
+
+| 用户说 | 匹配规则 | 动作 |
+|---|---|---|
+| "单据号 129" | 文本以 label 开头 + 剩余为值 | fill：填入 129 |
+| "状态选待完工" / "状态 待完工" | label + "选" + 值 / label + 值 | select：在下拉中找"待完工"选中 |
+| "查询" / "点击查询" / "下一页" | 去"点击/点/按"前缀后匹配 label | click：点击按钮 |
+
+### 10.3 执行优先级
+
+```
+ASR 文字
+  ↓ 1. 语音动作模板（§9）— 命中则跳转+预填+查询
+  ↓ 2. 通用页面操作引擎（本节）— 命中则操作当前页面元素
+  ↓ 3. 关键词匹配（原有）— 导航到菜单/Tab
+  ↓ 4. 未匹配 → 提示"未匹配到指令"
+```
+
+### 10.4 已标注的元素
+
+| 页面 | 元素 | label | action |
+|---|---|---|---|
+| DynamicReportView | 每个筛选输入框 | filter_schema 的 label | fill |
+| DynamicReportView | 每个筛选下拉 | filter_schema 的 label | select |
+| DynamicReportView | 查询按钮 | "查询" | click |
+| DynamicReportView | AI 分析按钮 | "AI分析" | click |
+| DynamicReportView | 上一页/下一页 | "上一页"/"下一页" | click |
+| DynamicReportView | ProSign 吸底按钮 | 动态（接单/完工/恢复报工） | click |
+
+### 10.5 如何给新页面/组件加语音支持
+
+只需在 JSX 中给可交互元素加属性：
+
+```tsx
+<input
+  data-voice-label="物料编码"
+  data-voice-action="fill"
+  ...
+/>
+<button data-voice-label="保存" data-voice-action="click">保存</button>
+```
+
+voice.js 会自动识别，无需改 voice.js 代码。
+
+### 10.6 React 受控组件兼容
+
+`executeFill` 使用 `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set` 设值后 dispatch `input` + `change` 事件，确保 React 受控组件能正确响应。
+
+### 10.7 下拉匹配规则
+
+`executeSelect` 遍历 `<option>` 的显示文本，按以下优先级匹配：
+1. 精确等于语音值
+2. option 文本包含语音值
+3. 语音值包含 option 文本
+4. 编辑距离模糊匹配
+
+匹配到后设值并 dispatch `change`。
+
