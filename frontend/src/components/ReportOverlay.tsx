@@ -19,7 +19,8 @@ export default function ReportOverlay({ title, onClose, children }: ReportOverla
 
   return (
     <div
-      className="fixed inset-0 z-[800] flex items-end justify-center bg-black/60"
+      className="fixed inset-0 z-[800] flex items-end justify-center bg-black/60 modal"
+      role="dialog"
       onClick={handleBackdropClick}
     >
       <div
@@ -28,7 +29,7 @@ export default function ReportOverlay({ title, onClose, children }: ReportOverla
       >
         <div className="flex items-center justify-between border-b px-4 py-3">
           <h2 className="text-base font-semibold">{title}</h2>
-          <button className="text-2xl text-gray-400" onClick={onClose}>
+          <button className="text-2xl text-gray-400" onClick={onClose} aria-label="关闭">
             ×
           </button>
         </div>

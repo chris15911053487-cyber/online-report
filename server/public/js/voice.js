@@ -351,6 +351,132 @@
   // ==================== 通用页面操作引擎 ====================
 
   /**
+   * 同义词字典：把用户说的一个词扩展为「按钮上可能呈现的多种文本」。
+   * 用于在没有 data-voice-label 的情况下扫描全页面按钮做兜底匹配。
+   * 双向映射：键的同义词集合相互可达。
+   */
+  var SEMANTIC_ALIASES = {
+    '关闭': ['关闭', '×', '✕', 'x', '取消', '叉号', '关掉', '退出'],
+    '取消': ['取消', '关闭', '×', '✕', '不要了', '算了'],
+    '确定': ['确定', '确认', 'ok', '好', '好的', '是'],
+    '保存': ['保存', '存', '提交', '确认', '确定'],
+    '提交': ['提交', '保存', '确认', '确定', '发送'],
+    '返回': ['返回', '后退', '←', '<', '上一级', '退回'],
+    '删除': ['删除', '删', '清除', '删掉', '移除'],
+    '查询': ['查询', '搜索', '查找', '查', '查一下'],
+    '搜索': ['搜索', '查询', '查找', '搜'],
+    '编辑': ['编辑', '修改', '改'],
+    '新增': ['新增', '添加', '增加', '加', '新建', '+'],
+    '添加': ['添加', '新增', '增加', '加', '+'],
+    '刷新': ['刷新', '重新加载', '更新'],
+    '完成': ['完成', '完工', '结束', 'done'],
+    '开始': ['开始', '启动', 'start'],
+    '暂停': ['暂停', '停止', 'pause'],
+    '继续': ['继续', '恢复', 'resume'],
+    '上一页': ['上一页', '前一页', '←'],
+    '下一页': ['下一页', '后一页', '→'],
+    '全选': ['全选', '选择全部', '勾选全部'],
+    '清空': ['清空', '清除', '重置', '清掉'],
+    '重置': ['重置', '清空', '还原'],
+  };
+
+  function expandSemanticAliases(word) {
+    var key = String(word || '').trim();
+    if (!key) return [key];
+    var direct = SEMANTIC_ALIASES[key];
+    if (direct && direct.length) return direct.slice();
+    // 反向查找：word 出现在哪些键的别名列表里
+    var found = [key];
+    for (var k in SEMANTIC_ALIASES) {
+      if (!Object.prototype.hasOwnProperty.call(SEMANTIC_ALIASES, k)) continue;
+      var arr = SEMANTIC_ALIASES[k];
+      for (var i = 0; i < arr.length; i++) {
+        if (arr[i] === key) {
+          // 把整组加入候选
+          for (var j = 0; j < arr.length; j++) {
+            if (found.indexOf(arr[j]) === -1) found.push(arr[j]);
+          }
+          if (found.indexOf(k) === -1) found.push(k);
+          break;
+        }
+      }
+    }
+    return found;
+  }
+
+  /** 元素是否在视口可见 */
+  function isElementVisible(el) {
+    if (!el || !el.getBoundingClientRect) return false;
+    var rect = el.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) return false;
+    var style = window.getComputedStyle ? window.getComputedStyle(el) : null;
+    if (style && (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0')) return false;
+    return true;
+  }
+
+  /** 元素是否在 modal/overlay/dialog 中（提高优先级） */
+  function isInModal(el) {
+    var n = el;
+    while (n && n !== document.body) {
+      var role = n.getAttribute && n.getAttribute('role');
+      if (role === 'dialog' || role === 'alertdialog') return true;
+      var cls = (n.className && typeof n.className === 'string') ? n.className : '';
+      if (/\b(modal|dialog|overlay|lightbox|popup)\b/i.test(cls)) return true;
+      n = n.parentNode;
+    }
+    return false;
+  }
+
+  /**
+   * 扫描当前页面所有可点击元素（button / [role=button] / a），
+   * 提取 label（textContent / aria-label / title / data-voice-label），
+   * 计算优先级（modal > 可见 > 其他）。
+   */
+  function collectClickableTargets() {
+    var nodes = document.querySelectorAll(
+      'button, [role="button"], a[href], input[type="button"], input[type="submit"]'
+    );
+    var list = [];
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (el.disabled) continue;
+      if (!isElementVisible(el)) continue;
+      var labels = [];
+      var dvl = el.getAttribute('data-voice-label');
+      if (dvl) labels.push(dvl.trim());
+      var aria = el.getAttribute('aria-label');
+      if (aria) labels.push(aria.trim());
+      var title = el.getAttribute('title');
+      if (title) labels.push(title.trim());
+      var txt = (el.textContent || '').trim();
+      if (txt && txt.length <= 30) labels.push(txt);
+      // 去重
+      var seen = {};
+      var cleanLabels = [];
+      for (var j = 0; j < labels.length; j++) {
+        var l = labels[j];
+        if (!l || seen[l]) continue;
+        seen[l] = true;
+        cleanLabels.push(l);
+      }
+      if (!cleanLabels.length) continue;
+      var priority = 0;
+      if (isInModal(el)) priority += 100;
+      // 视口内 + 较小元素（按钮通常较小，过滤掉超大点击容器）
+      var rect = el.getBoundingClientRect();
+      if (rect.top >= 0 && rect.top < window.innerHeight) priority += 10;
+      if (rect.width > 0 && rect.width < 300) priority += 2;
+      list.push({
+        el: el,
+        labels: cleanLabels,
+        priority: priority,
+        hasExplicitVoiceLabel: !!dvl,
+      });
+    }
+    return list;
+  }
+
+  /**
    * 扫描当前页面所有 [data-voice-label] 元素，尝试匹配语音文本并执行操作。
    * 支持三种动作：
    *   fill   — 输入框填值（"单据号 129" → 找到 label=单据号 的 input → 填入 129）
@@ -364,9 +490,6 @@
     if (!norm) return null;
 
     var elements = document.querySelectorAll('[data-voice-label]');
-    if (!elements.length) return null;
-
-    // 收集所有可操作元素信息
     var targets = [];
     var i;
     for (i = 0; i < elements.length; i++) {
@@ -382,15 +505,22 @@
         action: action,
       });
     }
-    if (!targets.length) return null;
 
-    // 策略 1：尝试 fill/select — 文本格式 "{label}{value}" 或 "{label} {value}"
-    var fillResult = tryMatchFillOrSelect(norm, targets);
-    if (fillResult) return fillResult;
+    // 策略 1：fill / select（必须有 data-voice-label）
+    if (targets.length) {
+      var fillResult = tryMatchFillOrSelect(norm, targets);
+      if (fillResult) return fillResult;
+    }
 
-    // 策略 2：尝试 click — 文本就是 label 或 "点击{label}"
-    var clickResult = tryMatchClick(norm, targets);
-    if (clickResult) return clickResult;
+    // 策略 2：click — 先用 [data-voice-label] 中标注为 click 的
+    if (targets.length) {
+      var clickResult = tryMatchClick(norm, targets);
+      if (clickResult) return clickResult;
+    }
+
+    // 策略 3：兜底 — 扫描全页面所有按钮，结合同义词字典匹配
+    var fallbackResult = tryMatchClickFallback(norm);
+    if (fallbackResult) return fallbackResult;
 
     return null;
   }
@@ -635,6 +765,57 @@
     if (el.disabled) return null;
     el.click();
     return { action: 'click', label: label };
+  }
+
+  /**
+   * 兜底点击：扫描全页面可点击元素，结合同义词字典匹配。
+   * 用于用户未给元素加 data-voice-label 的场景（如弹窗的 X 关闭按钮）。
+   */
+  function tryMatchClickFallback(norm) {
+    // 去掉点击/点/按 前缀
+    var clickNorm = norm.replace(/^(点击|点一下|点|按一下|按下|按)/, '');
+    if (!clickNorm) clickNorm = norm;
+    if (!clickNorm || clickNorm.length > 12) return null; // 太长的不是简单按钮指令
+
+    // 同义词扩展（基于原词；多字时也尝试）
+    var candidates = expandSemanticAliases(clickNorm);
+
+    var targets = collectClickableTargets();
+    if (!targets.length) return null;
+
+    var best = null;
+    var bestScore = 0;
+
+    var i, j, k;
+    for (i = 0; i < targets.length; i++) {
+      var t = targets[i];
+      // 显式声明 data-voice-label 但 action 不是 click 的，跳过（避免重复匹配）
+      if (t.hasExplicitVoiceLabel && t.el.getAttribute('data-voice-action') &&
+          t.el.getAttribute('data-voice-action').toLowerCase() !== 'click') continue;
+
+      for (j = 0; j < t.labels.length; j++) {
+        var nl = normalizeVoiceText(t.labels[j]);
+        if (!nl) continue;
+        // 候选词逐个比对
+        for (k = 0; k < candidates.length; k++) {
+          var cand = normalizeVoiceText(candidates[k]);
+          if (!cand) continue;
+          var hit = 0;
+          if (nl === cand) hit = cand.length + 20;
+          else if (nl.indexOf(cand) !== -1 && cand.length >= 1) hit = cand.length + 6;
+          else if (cand.indexOf(nl) !== -1 && nl.length >= 2) hit = nl.length + 4;
+          if (!hit) continue;
+          var total = hit + t.priority;
+          if (total > bestScore) {
+            bestScore = total;
+            best = { target: t, matchedLabel: t.labels[j] };
+          }
+        }
+      }
+    }
+
+    if (!best || bestScore < 5) return null;
+    return executeClick(best.target.el, best.matchedLabel);
   }
 
   // ==================== Toast ====================
