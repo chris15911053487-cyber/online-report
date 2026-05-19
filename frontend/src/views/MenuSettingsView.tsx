@@ -20,6 +20,7 @@ interface MenuItemData {
   detailKeyParam: string
   detailKeyType: string
   aiPrompt: string
+  voiceActions?: any[]
 }
 
 const RESERVED_ROUTES = ['orders', 'menu-settings']
@@ -49,6 +50,7 @@ interface MenuEditFormState {
   columnNameMapping: string
   detailQueryTemplate: string
   aiPrompt: string
+  voiceActions: string
   detailKeyColumn: string
   detailKeyParam: string
   detailKeyType: string
@@ -70,6 +72,7 @@ function itemToFormState(item: MenuItemData): MenuEditFormState {
     columnNameMapping: JSON.stringify(item.columnNameMapping || {}, null, 2),
     detailQueryTemplate: item.detailQueryTemplate || '',
     aiPrompt: item.aiPrompt || '',
+    voiceActions: JSON.stringify(item.voiceActions || [], null, 2),
     detailKeyColumn: item.detailKeyColumn || '',
     detailKeyParam: item.detailKeyParam || 'detailKey',
     detailKeyType: item.detailKeyType || 'string',
@@ -91,6 +94,7 @@ const emptyFormState: MenuEditFormState = {
   columnNameMapping: '{}',
   detailQueryTemplate: '',
   aiPrompt: '',
+  voiceActions: '[]',
   detailKeyColumn: '',
   detailKeyParam: 'detailKey',
   detailKeyType: 'string',
@@ -234,6 +238,20 @@ function MenuEditCard({
       detailBody.detailKeyType = form.detailKeyType
     }
 
+    let voiceActionsParsed: any[] = []
+    if (form.voiceActions.trim()) {
+      try {
+        voiceActionsParsed = JSON.parse(form.voiceActions)
+        if (!Array.isArray(voiceActionsParsed)) {
+          showToast('语音动作必须是 JSON 数组')
+          return
+        }
+      } catch {
+        showToast('语音动作 JSON 格式错误')
+        return
+      }
+    }
+
     setSaving(true)
     try {
       await apiFetch(`/admin/menus/${item.id}`, {
@@ -251,6 +269,7 @@ function MenuEditCard({
           columnLabels: columnLabelsParsed,
           columnNameMapping: !isReserved && mk === 'report' ? columnNameMappingParsed : {},
           aiPrompt: form.aiPrompt.trim(),
+          voiceActions: voiceActionsParsed,
           ...detailBody,
         }),
       })
@@ -413,6 +432,20 @@ function MenuEditCard({
         />
       </label>
 
+      <label className="block">
+        <span className={labelCls}>语音动作模板（可选，JSON 数组）</span>
+        <textarea
+          className={inputCls + ' min-h-[110px] font-mono text-xs'}
+          rows={6}
+          value={form.voiceActions}
+          disabled={isReserved}
+          placeholder={
+            '配置语音可带参数操作本菜单。占位符：{n}=数字 {t}=文本 {d}=日期\n例：\n[\n  {\n    "patterns": ["{n}号订单", "订单{n}", "单号{n}"],\n    "fill": { "DocEntry": "{n}" },\n    "autoQuery": true\n  }\n]'
+          }
+          onChange={(e) => update({ voiceActions: e.target.value })}
+        />
+      </label>
+
       {!isReserved && isAdmin && (
         <button
           type="button"
@@ -543,6 +576,20 @@ export default function MenuSettingsView() {
       return
     }
 
+    let voiceActions: any[] = []
+    if (addForm.voiceActions.trim()) {
+      try {
+        voiceActions = JSON.parse(addForm.voiceActions)
+        if (!Array.isArray(voiceActions)) {
+          setAddError('语音动作必须是 JSON 数组')
+          return
+        }
+      } catch {
+        setAddError('语音动作 JSON 格式错误')
+        return
+      }
+    }
+
     setAdding(true)
     try {
       await apiFetch('/admin/menus', {
@@ -564,6 +611,7 @@ export default function MenuSettingsView() {
           detailKeyParam: addForm.detailKeyParam.trim() || 'detailKey',
           detailKeyType: addForm.detailKeyType,
           aiPrompt: addForm.aiPrompt.trim(),
+          voiceActions,
         }),
       })
       showToast('已添加')
@@ -704,6 +752,19 @@ export default function MenuSettingsView() {
             value={addForm.aiPrompt}
             placeholder="AI 分析 Prompt 模板"
             onChange={(e) => updateAdd({ aiPrompt: e.target.value })} />
+        </label>
+
+        <label className="block">
+          <span className={labelCls}>语音动作模板（可选，JSON 数组）</span>
+          <textarea
+            className={inputCls + ' min-h-[100px] font-mono text-xs'}
+            rows={5}
+            value={addForm.voiceActions}
+            placeholder={
+              '占位符 {n}=数字 {t}=文本 {d}=日期；fill 键为 filter_schema 的 name'
+            }
+            onChange={(e) => updateAdd({ voiceActions: e.target.value })}
+          />
         </label>
 
         <div className="grid grid-cols-2 gap-3">

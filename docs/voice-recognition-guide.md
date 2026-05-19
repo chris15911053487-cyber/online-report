@@ -376,3 +376,130 @@ voice.js 和 speech.js 设计为与具体业务解耦。移植步骤：
 4. **配置**：设置环境变量，注册路由
 
 voice.js 的指令系统通过 `addCmd(keywords, handler)` 扩展，无需改动 core 代码。
+
+
+---
+
+## 9. 语音动作模板（带参数操作菜单）
+
+> 关键词匹配只能"导航"到菜单页。**语音动作模板**让语音可以「打开 129 号订单」「客户海尔的订单」这类**带参数**的操作：自动跳转到目标菜单 → 预填筛选条件 → 自动触发查询。
+
+### 9.1 数据来源
+
+每个菜单（`nav_menu_items` 表）新增字段 `voice_actions_json`，存储 JSON 数组：
+
+```json
+[
+  {
+    "patterns": ["{n}号订单", "订单{n}", "单号{n}"],
+    "fill":     { "DocEntry": "{n}" },
+    "autoQuery": true
+  },
+  {
+    "patterns": ["客户{t}的订单", "{t}的订单"],
+    "fill":     { "CardName": "{t}" },
+    "autoQuery": true
+  }
+]
+```
+
+| 字段 | 说明 |
+|---|---|
+| `patterns` | 触发模板（数组）。占位符：`{n}` 数字、`{t}` 任意非空文本、`{d}` 日期文本。每条最多 200 字 |
+| `fill` | 命中后预填的筛选条件。键须与该菜单 `filter_schema` 中的 `name` 一致；值含占位符 |
+| `autoQuery` | 命中后是否自动跑查询，默认 `true` |
+| `label` | 可选的展示标签 |
+
+后端 `serializeVoiceActions()` 会清洗：丢弃空 patterns、无效字段、过长内容；最多 50 条。坏 JSON 在保存时直接 400。
+
+### 9.2 配置入口
+
+**菜单设置 → 任一报表菜单 → 「语音动作模板」** 文本框，粘贴 JSON 数组即可。新增菜单也支持在添加表单中配置。
+
+### 9.3 端到端流程
+
+```
+用户说「打开 129 号订单」
+  ↓ 百度 ASR
+text = "打开129号订单"
+  ↓ voice.js execVoiceText
+tryVoiceActionTemplates(text)
+  ↓ 遍历 window.__voiceMenus 各菜单 voiceActions
+  ↓ 命中 patterns 中某条
+  ↓ 用占位符捕获生成 filters = { DocEntry: "129" }
+window.__voiceNavigate(routeKey, filters, { autoQuery: true })
+  ↓ store.openMenu(menu, { prefilledFilters, autoQuery })
+  ↓ React 切到 dynamic-report
+DynamicReportView：optionsReady 后合并 prefilledFilters → setFormValues → runQuery
+```
+
+未命中模板 → 回退到原有关键词匹配（打开菜单页）。
+
+### 9.4 占位符与匹配规则
+
+- pattern 与文本都会过 `normalizeVoiceText`（去标点 / 去"打开/进入"前缀 / 小写 / ASR 误听替换），保证两侧一致
+- `{n}` → 正则 `(\d+)`
+- `{t}` / `{d}` → 正则 `(.+?)`（非贪婪）
+- 整体用 `^...$` 锚定，必须**完整匹配**才算命中，避免误触
+- 同 pattern 中 `{n}`/`{t}`/`{d}` 出现多次时，`fill` 模板里的占位符**只取该类型的第一组捕获**
+- 多个菜单/动作命中时，按 `window.__voiceMenus` 顺序「先到先得」
+
+### 9.5 fill 字段约束
+
+- `fill` 的键必须能在该菜单的 `filter_schema` 中找到对应字段（大小写不敏感）
+- 找不到的字段会被前端忽略（不会报错），便于跨菜单复制配置
+- 如需让"接单/完工"等 Status 自动选中，可写 `{ "Status": "0" }`（值取自该字段 `options[].code`）
+
+### 9.6 内置钩子
+
+```js
+// 由前端 store.ts 挂载
+window.__voiceMenus  = NavMenuItem[]   // 含每个菜单的 voiceActions
+window.__voiceNavigate(routeKey, filters, { autoQuery }) => boolean
+```
+
+ReactNative WebView 内的原生宿主，也可通过 `__voiceNavigate` 触发同等行为（无需经过 `__voiceExec` 关键词匹配）。
+
+### 9.7 配置示例
+
+**生产订单（按单号查）**
+
+```json
+[
+  {
+    "patterns": ["{n}号订单", "订单{n}", "单号{n}"],
+    "fill":     { "DocEntry": "{n}" }
+  }
+]
+```
+
+**生产报工（按状态切分段）**
+
+```json
+[
+  { "patterns": ["接单列表", "待接单"],   "fill": { "Status": "0" } },
+  { "patterns": ["完工列表", "待完工"],   "fill": { "Status": "1" } },
+  { "patterns": ["恢复列表", "暂停的"],   "fill": { "Status": "8" } }
+]
+```
+
+**采购订单（按客户查）**
+
+```json
+[
+  {
+    "patterns": ["客户{t}的订单", "{t}的订单"],
+    "fill":     { "CardName": "{t}" }
+  }
+]
+```
+
+### 9.8 排障
+
+| 现象 | 排查 |
+|---|---|
+| 没跳转，仍按关键词打开菜单 | 模板未命中。`voice_logs` 看识别文字；用 normalize 后的文本对照模板 |
+| 跳过去了但筛选项没填 | `fill` 键名与 `filter_schema[].name` 不一致；或字段不存在 |
+| 跳过去了筛选填了但没自动查 | 模板里 `autoQuery` 设了 `false`，或菜单类型不是 `report` |
+| 保存模板时 400 | JSON 格式错误 / patterns 数组为空 / 不是数组 |
+

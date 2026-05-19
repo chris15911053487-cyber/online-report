@@ -24,6 +24,10 @@ interface AppState {
   // Dynamic report context
   activeMenu: NavMenuItem | null
   proSignMode: boolean
+  /** 语音/外部跳转时预填的筛选条件（{字段name: 值}），由 DynamicReportView 消费一次后清空 */
+  prefilledFilters: Record<string, any> | null
+  /** 预填后是否自动执行查询 */
+  prefilledAutoQuery: boolean
 
   // Report row detail context
   reportDetailRouteKey: string
@@ -55,8 +59,9 @@ interface AppState {
   fetchMenus: () => Promise<void>
   showToast: (msg: string, durationMs?: number) => void
   hideToast: () => void
-  openMenu: (menu: NavMenuItem) => void
-  openProSign: (menu: NavMenuItem) => void
+  openMenu: (menu: NavMenuItem, opts?: { prefilledFilters?: Record<string, any>; autoQuery?: boolean }) => void
+  openProSign: (menu: NavMenuItem, opts?: { prefilledFilters?: Record<string, any>; autoQuery?: boolean }) => void
+  consumePrefilledFilters: () => void
   openReportRowDetail: (routeKey: string, params: Record<string, any>, columnLabels: Record<string, string>, detailKey?: any) => void
   openOrderDetail: (orderId: number) => void
   openWorkRegistration: (batchId: number, menu: NavMenuItem | null) => void
@@ -75,6 +80,8 @@ export const useStore = create<AppState>((set, get) => ({
   toastDuration: 2200,
   activeMenu: null,
   proSignMode: false,
+  prefilledFilters: null,
+  prefilledAutoQuery: false,
   reportDetailRouteKey: '',
   reportDetailParams: {},
   reportDetailColumnLabels: {},
@@ -164,7 +171,14 @@ export const useStore = create<AppState>((set, get) => ({
       proSignMergeItems: null,
       proSignLineResults: null,
       shouldRefreshProSignListAfterReceive: false,
+      prefilledFilters: null,
+      prefilledAutoQuery: false,
     })
+    try {
+      ;(window as any).__voiceMenus = []
+    } catch {
+      /* ignore */
+    }
   },
 
   setView: (view: ViewName) => {
@@ -227,7 +241,14 @@ export const useStore = create<AppState>((set, get) => ({
   fetchMenus: async () => {
     try {
       const data = await apiFetch('/menus')
-      set({ navMenus: data.items || data || [] })
+      const items: NavMenuItem[] = data.items || data || []
+      set({ navMenus: items })
+      // 同步给 voice.js（以及 ReactNative WebView 桥接）使用
+      try {
+        ;(window as any).__voiceMenus = items
+      } catch {
+        /* ignore */
+      }
     } catch (err) {
       console.error('Failed to fetch menus:', err)
       const msg = err instanceof Error ? err.message : '菜单加载失败'
@@ -235,22 +256,30 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  openMenu: (menu: NavMenuItem) => {
+  openMenu: (menu: NavMenuItem, opts?: { prefilledFilters?: Record<string, any>; autoQuery?: boolean }) => {
     set({
       activeMenu: menu,
       proSignMode: false,
       currentView: 'dynamic-report',
       shouldRefreshProSignListAfterReceive: false,
+      prefilledFilters: opts?.prefilledFilters ? { ...opts.prefilledFilters } : null,
+      prefilledAutoQuery: opts?.autoQuery !== false,
     })
   },
 
-  openProSign: (menu: NavMenuItem) => {
+  openProSign: (menu: NavMenuItem, opts?: { prefilledFilters?: Record<string, any>; autoQuery?: boolean }) => {
     set({
       activeMenu: menu,
       proSignMode: true,
       currentView: 'dynamic-report',
       shouldRefreshProSignListAfterReceive: false,
+      prefilledFilters: opts?.prefilledFilters ? { ...opts.prefilledFilters } : null,
+      prefilledAutoQuery: opts?.autoQuery !== false,
     })
+  },
+
+  consumePrefilledFilters: () => {
+    set({ prefilledFilters: null, prefilledAutoQuery: false })
   },
 
   openReportRowDetail: (routeKey, params, columnLabels, detailKey) => {
@@ -285,3 +314,52 @@ export const useStore = create<AppState>((set, get) => ({
     })
   },
 }))
+
+/**
+ * 全局语音/外部跳转钩子：voice.js 在识别+模板匹配命中后调用。
+ * 返回 true 表示已成功跳转。
+ *   window.__voiceNavigate(routeKey, filters, { autoQuery: true })
+ */
+if (typeof window !== 'undefined') {
+  ;(window as any).__voiceNavigate = function (
+    routeKey: string,
+    filters?: Record<string, any>,
+    opts?: { autoQuery?: boolean },
+  ): boolean {
+    const state = useStore.getState()
+    const target = (state.navMenus || []).find((m) => m.routeKey === routeKey)
+    if (!target) {
+      state.showToast('未找到菜单：' + routeKey)
+      return false
+    }
+    const cleanFilters: Record<string, any> = {}
+    if (filters && typeof filters === 'object') {
+      for (const k of Object.keys(filters)) {
+        const v = filters[k]
+        if (v == null) continue
+        cleanFilters[k] = v
+      }
+    }
+    const autoQuery = opts?.autoQuery !== false
+    if (target.routeKey === 'pro-sign') {
+      state.openProSign(target, { prefilledFilters: cleanFilters, autoQuery })
+      return true
+    }
+    if (target.menuKind === 'report') {
+      state.openMenu(target, { prefilledFilters: cleanFilters, autoQuery })
+      return true
+    }
+    // 非 report 菜单（如 orders/menu-settings）暂不支持预填筛选，
+    // 仅做导航：维持与点击菜单按钮一致的行为
+    if (target.routeKey === 'orders') {
+      state.navigateTo('owor')
+      return true
+    }
+    if (target.routeKey === 'menu-settings') {
+      state.navigateTo('menu-settings')
+      return true
+    }
+    state.showToast('该菜单不支持语音参数操作')
+    return false
+  }
+}

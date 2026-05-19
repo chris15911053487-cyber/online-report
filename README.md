@@ -174,6 +174,7 @@ npm run init-db
 | 类型 | 维护方式 | 说明 |
 |------|----------|------|
 | **业务菜单** | 后台 **菜单设置** 里的 **显示名称（label）** | 无需改代码。进入菜单页后，脚本从 `[data-menu-label]` 自动生成指令，可说「菜单名」「打开XXX」「进入XXX」 |
+| **语音动作模板（带参数）** | 后台 **菜单设置 → 语音动作模板**（`voice_actions_json`） | 让语音可以「打开 129 号订单」这类**带参数**操作：跳转 + 预填筛选 + 自动查询。占位符 `{n}` 数字 / `{t}` 文本 / `{d}` 日期；详见 [`docs/voice-recognition-guide.md` §9](docs/voice-recognition-guide.md) |
 | **底部 Tab / 退出登录等** | 编辑 `voice.js` 中 `addCmd(...)` | 约 334 行起，在关键词数组里增加说法 |
 | **ASR 听错字** | 编辑 `ASR_TEXT_REPLACEMENTS` | 如 `['盛产','生产']`，在规范化阶段替换 |
 | **固定菜单的误听别名** | `addCmd` + `openCatalogMenu('', '准确菜单名')` | 菜单 label 正确但识别总错时使用 |

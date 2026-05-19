@@ -205,6 +205,29 @@
 
   function execVoiceText(text, options) {
     options = options || {};
+
+    // 优先尝试菜单上配置的「语音动作模板」（方案 B：可带参数操作菜单）
+    var tpl = tryVoiceActionTemplates(text);
+    if (tpl) {
+      var navOk = false;
+      try {
+        if (typeof window.__voiceNavigate === 'function') {
+          navOk = window.__voiceNavigate(tpl.routeKey, tpl.filters, {
+            autoQuery: tpl.autoQuery,
+          });
+        }
+      } catch (e) { /* swallow, fallback to keyword match */ }
+      if (navOk) {
+        var actLabel = tpl.label || (tpl.menuLabel + '（带参数）');
+        if (options.onSuccess) {
+          options.onSuccess(text, { keywords: tpl.matchedPattern ? [tpl.matchedPattern] : [] }, actLabel);
+        } else {
+          showToast('已执行：' + actLabel);
+        }
+        return true;
+      }
+    }
+
     var matched = match(text);
     if (matched && matched.cmd) {
       if (options.onSuccess) options.onSuccess(text, matched.cmd, matched.label);
@@ -220,6 +243,92 @@
       showToast('未识别到语音，请重试');
     }
     return false;
+  }
+
+  /**
+   * 尝试用 window.__voiceMenus 中各菜单配置的 voiceActions 规则模板匹配文本。
+   * 命中后返回 { routeKey, filters, autoQuery, menuLabel, matchedPattern, label }
+   * 占位符：{n}=数字 {t}=任意非空文本 {d}=日期文本
+   */
+  function tryVoiceActionTemplates(text) {
+    var menus = (window.__voiceMenus && window.__voiceMenus.length) ? window.__voiceMenus : null;
+    if (!menus || !text) return null;
+    var norm = normalizeVoiceText(text);
+    if (!norm) return null;
+
+    var i, j, k;
+    for (i = 0; i < menus.length; i++) {
+      var menu = menus[i];
+      var actions = menu && menu.voiceActions;
+      if (!actions || !actions.length) continue;
+      for (j = 0; j < actions.length; j++) {
+        var act = actions[j] || {};
+        var patterns = act.patterns || [];
+        for (k = 0; k < patterns.length; k++) {
+          var pat = patterns[k];
+          if (!pat) continue;
+          var compiled = compileVoicePattern(pat);
+          if (!compiled) continue;
+          var m = norm.match(compiled.regex);
+          if (!m) continue;
+          // 按占位符类型记录每种类型的第一个捕获
+          var captures = { n: null, t: null, d: null };
+          for (var c = 0; c < compiled.types.length; c++) {
+            var t = compiled.types[c];
+            if (captures[t] == null) captures[t] = m[c + 1];
+          }
+          var fill = act.fill || {};
+          var rendered = {};
+          for (var key in fill) {
+            if (!Object.prototype.hasOwnProperty.call(fill, key)) continue;
+            var v = renderVoiceFill(String(fill[key]), captures);
+            if (v !== '') rendered[key] = v;
+          }
+          return {
+            routeKey: menu.routeKey,
+            filters: rendered,
+            autoQuery: act.autoQuery !== false,
+            menuLabel: menu.label || '',
+            matchedPattern: pat,
+            label: act.label || '',
+          };
+        }
+      }
+    }
+    return null;
+  }
+
+  /** 将带 {n}/{t}/{d} 占位符的模板转为正则；记录占位符类型顺序便于回填 */
+  function compileVoicePattern(pattern) {
+    var types = [];
+    // 1) 用唯一占位符（全小写，避免 normalizeVoiceText 的 toLowerCase 改变形态）替换
+    var idx = 0;
+    var temp = String(pattern).replace(/\{([ntd])\}/g, function (_, t) {
+      types.push(t);
+      return '\u0001vpl' + (idx++) + '\u0001';
+    });
+    // 2) 文本部分做与运行时相同的规范化（去标点、小写、ASR 替换前缀等）
+    var normalized = normalizeVoiceText(temp);
+    // 3) 转义正则元字符（占位符标记 \u0001 不会被转义）
+    var escaped = normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // 4) 还原占位符为捕获组
+    for (var k = 0; k < types.length; k++) {
+      var marker = '\u0001vpl' + k + '\u0001';
+      var group = types[k] === 'n' ? '(\\d+)' : '(.+?)';
+      escaped = escaped.split(marker).join(group);
+    }
+    if (!escaped) return null;
+    try {
+      return { regex: new RegExp('^' + escaped + '$'), types: types };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function renderVoiceFill(template, captures) {
+    return String(template).replace(/\{([ntd])\}/g, function (_, k) {
+      return captures[k] != null ? captures[k] : '';
+    });
   }
 
   // ==================== Toast ====================

@@ -258,6 +258,9 @@ export default function DynamicReportView() {
     shouldRefreshProSignListAfterReceive,
     clearProSignListRefreshFlag,
     proSignMergeButtonLabel: storeMergeLabel,
+    prefilledFilters,
+    prefilledAutoQuery,
+    consumePrefilledFilters,
   } = useStore()
 
   const schema = activeMenu?.filterSchema ?? []
@@ -435,8 +438,10 @@ export default function DynamicReportView() {
   }, [proSignMode, optionsReady, schema, sqlOptions])
 
   // Auto-query when schema is empty or after all options loaded
+  // 如果有 prefilledFilters 待消费，则交给下面的 prefill effect 触发查询，避免重复请求
   useEffect(() => {
     if (!optionsReady || hasQueried.current) return
+    if (prefilledFilters) return
     if (schema.length === 0) {
       hasQueried.current = true
       runQuery(1, pageSize)
@@ -508,6 +513,41 @@ export default function DynamicReportView() {
     },
     [schema, formValues, routeKey, proSignMode, pageSize, navigateTo],
   )
+
+  /**
+   * 语音/外部跳转预填筛选条件并自动查询：
+   * - 选项就绪后才能正确解析下拉值
+   * - schema 中存在的字段才会被填入（大小写不敏感）
+   * - 处理后立即从 store 消费掉，避免菜单切换时残留
+   */
+  useEffect(() => {
+    if (!prefilledFilters || !optionsReady) return
+
+    const lookup: Record<string, string> = {}
+    for (const f of schema) lookup[(f.name || '').toLowerCase()] = f.name
+
+    let applied = false
+    const merged: Record<string, any> = { ...formValues }
+    for (const k of Object.keys(prefilledFilters)) {
+      const realName = lookup[String(k).toLowerCase()]
+      if (!realName) continue
+      const v = prefilledFilters[k]
+      if (v == null) continue
+      merged[realName] = typeof v === 'boolean' ? v : String(v)
+      applied = true
+    }
+
+    const wantAutoQuery = prefilledAutoQuery !== false
+    consumePrefilledFilters()
+
+    if (!applied) return
+
+    setFormValues(merged)
+    if (wantAutoQuery) {
+      hasQueried.current = true
+      runQuery(1, pageSize, merged)
+    }
+  }, [prefilledFilters, optionsReady]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 从合并报工返回：保持筛选条件，自动重新查询最新列表（回到第 1 页）
   useEffect(() => {
