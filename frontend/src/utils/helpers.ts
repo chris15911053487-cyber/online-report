@@ -177,6 +177,34 @@ export function proSignQuantityFromRow(row: Record<string, any>): number | null 
   return null
 }
 
+/** 从 Z_ONLINE_TOOWORSIGN_DETAIL 解析结果中取上一环节操作员编码（支持逗号/分号分隔） */
+export function proSignPrevStepOperatorCodes(lineResults: any[] | null | undefined): string[] {
+  if (!lineResults?.length) return []
+  for (const lr of lineResults) {
+    const raw = lr?.display?.lastStepOperator
+    if (raw == null) continue
+    const s = String(raw).trim()
+    if (!s) continue
+    const parts = s
+      .split(/[,，、;；]+/)
+      .map((x) => x.trim())
+      .filter(Boolean)
+    if (parts.length) return [...new Set(parts)]
+  }
+  return []
+}
+
+/** 合并报工页默认操作员：优先上一环节，否则当前登录人 */
+export function proSignDefaultOperatorCodes(
+  lineResults: any[] | null | undefined,
+  fallbackUsername?: string,
+): string[] {
+  const fromPrev = proSignPrevStepOperatorCodes(lineResults)
+  if (fromPrev.length > 0) return fromPrev
+  const u = fallbackUsername?.trim()
+  return u ? [u] : []
+}
+
 export function proSignLineDisplay(mergeItem: any, lineResult: any) {
   const d = lineResult?.display || {}
   const row = mergeItem?.row || {}

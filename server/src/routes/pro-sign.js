@@ -125,6 +125,28 @@ const TOOWOR_LAST_STEP = {
   lastStepTime: ['laststeptime', '上道工序时间', 'lastoptime', 'prevsteptime'],
 };
 
+/** 上道工序/上一环节操作员（Z_ONLINE_TOOWORSIGN_DETAIL 首行；可与 OperatorCodes 逗号分隔） */
+const TOOWOR_LAST_STEP_OPERATOR = [
+  'laststepoperator',
+  'laststepoperatorcode',
+  'laststepoperatorcodes',
+  'laststephemcode',
+  'laststepempcode',
+  'lastoperator',
+  'lastoperatorcode',
+  'lastoperatorcodes',
+  'prevstepoperator',
+  'prevoperator',
+  'prevoperatorcode',
+  '上道工序操作员',
+  '上道工序操作员编码',
+  '上道工序工人',
+  '上一环节操作员',
+  '上一环节操作员编码',
+  'lasthemcode',
+  'lastempcode',
+];
+
 /** 预检首行：PC / 批次（列名不区分大小写） */
 const TOOWOR_PC = ['pc', '批次', 'batchno', 'batch', 'batchcode', 'lot', 'lotno', 'charg', 'chargenr'];
 
@@ -191,6 +213,7 @@ function parseTooworDisplayFromRow(row) {
       lastStepCode: null,
       lastStepName: null,
       lastStepTime: null,
+      lastStepOperator: null,
       pc: null,
     };
   }
@@ -204,6 +227,7 @@ function parseTooworDisplayFromRow(row) {
     lastStepCode: pickTooworFieldFromRow(row, lower, TOOWOR_LAST_STEP.lastStepCode),
     lastStepName: pickTooworFieldFromRow(row, lower, TOOWOR_LAST_STEP.lastStepName),
     lastStepTime: pickTooworFieldFromRow(row, lower, TOOWOR_LAST_STEP.lastStepTime),
+    lastStepOperator: pickTooworFieldFromRow(row, lower, TOOWOR_LAST_STEP_OPERATOR),
     pc: pickTooworFieldFromRow(row, lower, TOOWOR_PC),
   };
 }
@@ -511,6 +535,163 @@ async function proSignRoutes(fastify) {
       }
     }
   );
+
+  /**
+   * 生产报工列表：订单只读详情
+   * - 从 nav_menu_items.detail_query_template 读取明细 EXEC/SQL（按 routeKey）
+   * - 按模板中的 @参数名 绑定：@_loginUser 等会话注入；其余来自 body.params / detailKey
+   * - 支持多 recordset
+   *
+   * 返回：{ routeKey, label, tables: [{ index, columns, rows }] }
+   */
+  fastify.post(
+    '/pro-sign/order-detail',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const body = request.body || {}
+      const routeKey = String(body.routeKey || 'pro-sign')
+        .trim()
+        .toLowerCase()
+      const params = body.params && typeof body.params === 'object' ? body.params : {}
+      const detailKey = body.detailKey
+
+      const loginUser = String(request.user?.username || '').trim()
+      const loginDisplayName = String(request.user?.displayName || '').trim() || loginUser
+
+      if (!loginUser) {
+        return reply.code(401).send({ error: '无效登录', code: 'UNAUTHORIZED' })
+      }
+      if (!routeKey) {
+        return reply.code(400).send({ error: '缺少 routeKey', code: 'PRO_SIGN_ROUTEKEY_REQUIRED' })
+      }
+
+      const pool = await getPool()
+
+      // Load detail procedure/template from menu config (nav_menu_items)
+      let menuRow
+      try {
+        const rs0 = await pool
+          .request()
+          .input('rk', sql.NVarChar(64), routeKey)
+          .query(`SELECT id, label, route_key, enabled, roles_json, menu_kind,
+                  detail_query_template, detail_key_param
+                  FROM dbo.nav_menu_items
+                  WHERE route_key = @rk`)
+        menuRow = rs0.recordset && rs0.recordset[0]
+      } catch (err) {
+        request.log.error({ err }, 'pro-sign/order-detail load menu')
+        return reply.code(503).send({
+          error: '无法读取菜单配置，请确认已执行数据库迁移',
+          code: 'NAV_CONFIG_ERROR',
+        })
+      }
+
+      if (!menuRow || !menuRow.enabled) {
+        return reply.code(404).send({ error: '菜单不存在或未启用', code: 'PRO_SIGN_MENU_NOT_FOUND' })
+      }
+
+      const detailTpl = String(menuRow.detail_query_template || '').trim()
+      if (!detailTpl) {
+        return reply.code(503).send({
+          error: '未配置明细存储过程/SQL',
+          code: 'PRO_SIGN_DETAIL_NOT_CONFIGURED',
+        })
+      }
+
+      // If caller provided detailKey, map it to configured detail_key_param
+      const dkpRaw = String(menuRow.detail_key_param || '').trim()
+      const dkp = dkpRaw || 'detailKey'
+      const normalizedParams = { ...(params || {}) }
+      if (detailKey !== undefined && detailKey !== null && detailKey !== '') {
+        normalizedParams[dkp] = detailKey
+      }
+
+      const getParamCI = (obj, key) => {
+        if (!obj || typeof obj !== 'object') return undefined
+        if (Object.prototype.hasOwnProperty.call(obj, key)) return obj[key]
+        const lower = String(key).toLowerCase()
+        for (const k of Object.keys(obj)) {
+          if (String(k).toLowerCase() === lower) return obj[k]
+        }
+        return undefined
+      }
+
+      // Extract @param names from template in appearance order (dedup)
+      const paramNames = []
+      const seen = new Set()
+      const re = /@([a-zA-Z_][a-zA-Z0-9_]*)/g
+      let match
+      while ((match = re.exec(detailTpl))) {
+        const name = match[1]
+        if (!name || seen.has(name)) continue
+        seen.add(name)
+        paramNames.push(name)
+      }
+
+      const req = pool.request()
+      // Bind parameters expected by the menu-configured template
+      for (const name of paramNames) {
+        let v
+        if (name === '_loginUser') v = loginUser
+        else if (name === '_loginDisplayName') v = loginDisplayName
+        else if (name.toLowerCase() === 'usercode') v = loginUser
+        else if (name.toLowerCase() === 'username') v = loginUser
+        else if (name.toLowerCase() === 'userid') v = loginUser
+        else v = getParamCI(normalizedParams, name)
+
+        const empty = v === undefined || v === null || v === ''
+        if (empty) {
+          return reply.code(400).send({
+            error: `缺少明细参数: ${name}`,
+            code: 'PRO_SIGN_DETAIL_PARAM_MISSING',
+            param: name,
+          })
+        }
+
+        // Use NVarchar as a safe default (SQL Server will coerce where possible)
+        const s = typeof v === 'string' ? v : String(v)
+        req.input(name, sql.NVarChar(4000), s.slice(0, 4000))
+      }
+
+      let rs
+      try {
+        rs = await req.query(detailTpl)
+      } catch (e) {
+        request.log.error({ e }, 'pro-sign/order-detail exec template failed')
+        return reply.code(500).send({
+          error: '加载订单详情失败',
+          code: 'PRO_SIGN_ORDER_DETAIL_EXEC_ERROR',
+          detail: e.message || String(e),
+        })
+      }
+
+      const sets = Array.isArray(rs.recordsets) && rs.recordsets.length ? rs.recordsets : (rs.recordset ? [rs.recordset] : [])
+      const tables = (sets || []).map((set, idx) => {
+        const rowsRaw = Array.isArray(set) ? set : []
+        const rows = rowsRaw.map((r) => jsonSafeMssqlRow(r))
+
+        // 列名：按首次出现顺序取并集（用于表头）
+        const cols = []
+        const seen = new Set()
+        for (const row of rows) {
+          if (!row || typeof row !== 'object') continue
+          for (const k of Object.keys(row)) {
+            if (seen.has(k)) continue
+            seen.add(k)
+            cols.push(k)
+          }
+        }
+
+        return {
+          index: idx + 1,
+          columns: cols,
+          rows,
+        }
+      })
+
+      return { routeKey, label: menuRow.label, tables }
+    }
+  )
 
   /**
    * 合并报工前：按行调用 SAP/业务库存储过程 Z_ONLINE_TOOWORSIGN_DETAIL

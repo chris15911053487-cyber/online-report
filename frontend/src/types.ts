@@ -78,4 +78,5 @@ export type ViewName =
   | 'dynamic-report'
   | 'report-row-detail'
   | 'pro-sign-receive'
+  | 'pro-sign-order-detail'
   | 'work-registration'

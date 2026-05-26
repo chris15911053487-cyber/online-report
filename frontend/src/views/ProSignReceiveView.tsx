@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useStore } from '../store'
 import { apiFetch } from '../utils/api'
-import { proSignLineDisplay, pad2 } from '../utils/helpers'
+import { proSignDefaultOperatorCodes, proSignLineDisplay, pad2 } from '../utils/helpers'
 import ReportOverlay from '../components/ReportOverlay'
 
 interface Operator {
@@ -43,9 +43,8 @@ export default function ProSignReceiveView() {
   const [clock, setClock] = useState(nowLabel)
   const [operators, setOperators] = useState<Operator[]>([])
   const [selectedCodes, setSelectedCodes] = useState<Set<string>>(() => {
-    const s = new Set<string>()
-    if (user?.username) s.add(user.username)
-    return s
+    const codes = proSignDefaultOperatorCodes(lineResults, user?.username)
+    return new Set(codes)
   })
   const [operatorSearch, setOperatorSearch] = useState('')
   const [quantities, setQuantities] = useState<number[]>([])
@@ -103,7 +102,17 @@ export default function ProSignReceiveView() {
     setSelectedCodes(s)
   }, [user?.username])
 
-  const filteredOperators = operators.filter((op) => {
+  /** 预检带回的操作员可能不在 X_ONLINE_VIEW_OHEM，仍须展示为可选项 */
+  const operatorChoices = useMemo(() => {
+    const map = new Map<string, Operator>()
+    for (const op of operators) map.set(op.code, op)
+    for (const code of selectedCodes) {
+      if (!map.has(code)) map.set(code, { code, name: '（上一环节）' })
+    }
+    return Array.from(map.values())
+  }, [operators, selectedCodes])
+
+  const filteredOperators = operatorChoices.filter((op) => {
     if (!operatorSearch) return true
     const q = operatorSearch.toLowerCase()
     return op.code.toLowerCase().includes(q) || op.name.toLowerCase().includes(q)

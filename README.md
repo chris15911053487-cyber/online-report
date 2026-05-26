@@ -15,7 +15,7 @@ frontend/src/
 ├── components/      # BottomNav, MainLayout, ImageLightbox, ReportOverlay, TextOverlay, Toast
 ├── views/           # LoginView, CatalogView, DynamicReportView, AiChatView, MenuSettingsView,
 │                    # OworView, OrdersView, DetailView, ReportRowDetailView,
-│                    # ProSignReceiveView, WorkRegistrationView, SettingsView
+│                    # ProSignReceiveView, ProSignOrderDetailView, WorkRegistrationView, SettingsView
 ├── utils/
 │   ├── api.ts       # API 客户端（apiFetch / apiFetchReport）
 │   ├── helpers.ts   # 通用工具函数
@@ -31,7 +31,7 @@ frontend/src/
 - 菜单页 + 业务导航（builtin / report / pro-sign 路由）
 - 动态报表（筛选、分页、图片列+灯箱、长文本展开、扫码）
 - AI 智能分析（`/ai/analyze`）与 **AI 使用说明助手**（`/ai/chat` + `server/help/` 知识库 RAG）
-- 合并报工（Status 三段切换、点选即查询；多选 → 预检 → 接单/完工/暂停/恢复 → 保存）
+- 合并报工（Status 三段切换、点选即查询；多选 → 预检 → 接单/完工/暂停/恢复 → 保存；列表行点击订单详情）
 - 菜单管理后台（CRUD、AI Prompt 生成器）
 - OITM 物料、报工订单、行详情、批次报工登记
 - 底部导航（菜单 / AI / 消息 / 设置）+ 语音控制（`voice.js`）
@@ -133,6 +133,58 @@ npm run init-db
 | 未选 / 其它 | 合并报工 | 常规合并保存 |
 
 实现见 `frontend/src/views/DynamicReportView.tsx`（`ProSignStatusSegment`、`resolveProSignMergeButtonLabel`）。
+
+### 生产报工列表与订单详情
+
+**查询列表**（菜单 `route_key` 一般为 `pro-sign`）：
+
+1. 底部「菜单」→ 点击生产报工类菜单 → `openProSign()` 进入 `DynamicReportView`（`proSignMode=true`）
+2. 顶部 **Status 三段**（待接单 / 待完工 / 恢复报工）点选即自动查询；其它筛选项改完后点「查询」
+3. 勾选多行 → 吸底按钮（接单 / 完工 / 恢复报工 / 合并报工）→ 预检 → `ProSignReceiveView` 合并页
+
+**订单只读详情**（点击列表某一行）：
+
+- 前端：`ProSignOrderDetailView`（`currentView = pro-sign-order-detail`）
+- 接口：`POST /pro-sign/order-detail`
+- **存储过程与入参均来自菜单配置**（`nav_menu_items`），**不需要**环境变量 `PRO_SIGN_ORDER_DETAIL_SP`
+
+在 **菜单设置** 中为该生产报工菜单配置：
+
+| 字段 | 数据库列 | 说明 |
+|------|----------|------|
+| 行详情 SQL | `detail_query_template` | 明细存储过程或 SQL，须以 `EXEC` / `EXECUTE` 开头；支持多 recordset |
+| 行主键列名 | `detail_key_column` | 列表结果中用于取值的列（如 `orderNo`、`OrderNo`、`订单号`） |
+| 详情 SQL 主键参数名 | `detail_key_param` | 传给明细 SQL 的参数名（如 `OrderNo`），须与模板中 `@参数名` 一致 |
+
+**配置示例**（明细 SP 需要当前用户 + 订单号）：
+
+```sql
+EXEC dbo.Z_ONLINE_XXX_ORDER_DETAIL @_loginUser, @OrderNo
+```
+
+- `@_loginUser` / `@_loginDisplayName`：后端自动注入当前登录用户（与报表列表 SQL 相同约定）
+- `@UserCode` / `@UserId` / `@UserName`（大小写不敏感）：同样注入为当前登录用户名
+- 其它 `@参数`：由前端按 `detail_key_param` 传入（点击行时取 `detail_key_column` 对应列的值）
+
+**请求体示例**：
+
+```json
+{
+  "routeKey": "pro-sign",
+  "params": { "OrderNo": "SO-2026-001" }
+}
+```
+
+**响应**：`{ routeKey, label, tables: [{ index, columns, rows }] }`（多结果集按表分段展示）。
+
+与普通报表「行详情」的区别：
+
+| 能力 | 普通报表 | 生产报工订单详情 |
+|------|----------|------------------|
+| 入口 | 行详情开启 + 点击行 | 生产报工列表点击行 |
+| 接口 | `POST /reports/detail` | `POST /pro-sign/order-detail` |
+| 配置来源 | `detail_query_template` + 列表筛选参数 + `@detailKey` | 同上，主键值来自行内订单号列 |
+| 展示 | 单表卡片 / 定制页 | 多 recordset 表格 |
 
 ## 报表图片列
 

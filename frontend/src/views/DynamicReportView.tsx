@@ -253,6 +253,7 @@ export default function DynamicReportView() {
     showToast,
     openReportRowDetail,
     openProSignReceive,
+    openProSignOrderDetail,
     navigateTo,
     currentView,
     shouldRefreshProSignListAfterReceive,
@@ -619,6 +620,19 @@ export default function DynamicReportView() {
     [proSignStatusField, formValues, runQuery, pageSize],
   )
 
+  /** 生产报工：任一非 Status 筛选项输入完成后自动查询（等同点击「查询」） */
+  const handleProSignFilterComplete = useCallback(
+    (patch?: { name: string; value: unknown }) => {
+      if (!proSignMode) return
+      const nextValues = patch ? { ...formValues, [patch.name]: patch.value } : formValues
+      if (patch) setFormValues(nextValues)
+      hasQueried.current = true
+      setPage(1)
+      void runQuery(1, pageSize, patch ? nextValues : undefined)
+    },
+    [proSignMode, formValues, runQuery, pageSize],
+  )
+
   const handleSubmit = () => {
     hasQueried.current = true
     setPage(1)
@@ -765,6 +779,22 @@ export default function DynamicReportView() {
     openReportRowDetail(routeKey, params, columnLabels, detailKey)
   }
 
+  /** pro-sign 列表：点击该行打开“订单只读详情” */
+  const handleProSignOrderDetailClick = (row: Record<string, any>) => {
+    if (!proSignMode) return
+    const raw =
+      getRowValue(row, 'orderNo') ??
+      getRowValue(row, 'OrderNo') ??
+      getRowValue(row, '订单号') ??
+      getRowValue(row, 'orderno')
+    const orderNo = raw == null ? '' : String(raw).trim()
+    if (!orderNo) {
+      showToast('当前行缺少订单号')
+      return
+    }
+    openProSignOrderDetail(orderNo)
+  }
+
   // --- Select all ---
   const visibleRows = getVisibleRows()
   const allSelected =
@@ -789,6 +819,7 @@ export default function DynamicReportView() {
 
   const rowDetailOn =
     !!activeMenu?.rowDetailEnabled && !!activeMenu.detailKeyColumn && !proSignMode
+  const proSignOrderDetailOn = proSignMode
 
   const displayCols =
     columns.length > 0 ? columns : visibleRows.length > 0 ? Object.keys(visibleRows[0]) : []
@@ -845,6 +876,8 @@ export default function DynamicReportView() {
                   value={formValues[f.name] ?? ''}
                   onChange={(v) => setFieldValue(f.name, v)}
                   proSignMode={proSignMode}
+                  autoQueryOnComplete={proSignMode}
+                  onFieldComplete={handleProSignFilterComplete}
                   sqlOptions={sqlOptions[f.name]}
                   sqlLoading={sqlOptionsLoading[f.name]}
                   sqlError={sqlOptionsError[f.name]}
@@ -931,10 +964,16 @@ export default function DynamicReportView() {
                   key={rowIdx}
                   className={
                     'border-b border-gray-100' +
-                    (rowDetailOn ? ' cursor-pointer hover:bg-blue-50 active:bg-blue-100' : '') +
+                    (rowDetailOn || proSignOrderDetailOn
+                      ? ' cursor-pointer hover:bg-blue-50 active:bg-blue-100'
+                      : '') +
                     (rowIdx % 2 === 0 ? ' bg-white' : ' bg-gray-50/50')
                   }
-                  onClick={() => rowDetailOn && handleRowClick(row)}
+                  onClick={() => {
+                    if (rowDetailOn) return handleRowClick(row)
+                    if (proSignOrderDetailOn) return handleProSignOrderDetailClick(row)
+                    return undefined
+                  }}
                 >
                   {proSignMode && (
                     <td className="px-2 py-2 text-center">
@@ -1202,6 +1241,9 @@ interface FilterFieldInputProps {
   value: any
   onChange: (v: any) => void
   proSignMode: boolean
+  /** 生产报工：输入完成（失焦/选完/扫码）后触发自动查询 */
+  autoQueryOnComplete?: boolean
+  onFieldComplete?: (patch?: { name: string; value: unknown }) => void
   sqlOptions?: FilterOption[]
   sqlLoading?: boolean
   sqlError?: boolean
@@ -1213,6 +1255,8 @@ function FilterFieldInput({
   value,
   onChange,
   proSignMode,
+  autoQueryOnComplete,
+  onFieldComplete,
   sqlOptions,
   sqlLoading,
   sqlError,
@@ -1233,6 +1277,19 @@ function FilterFieldInput({
 
   const inputCls =
     'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400'
+
+  const fireComplete = (patch?: { name: string; value: unknown }) => {
+    if (autoQueryOnComplete) onFieldComplete?.(patch)
+  }
+
+  const notifyChange = (v: any, complete = false) => {
+    onChange(v)
+    if (complete) fireComplete({ name: f.name, value: v })
+  }
+
+  const inputCompleteHandlers = autoQueryOnComplete
+    ? { onBlur: () => fireComplete(undefined) }
+    : {}
 
   if (f.optionsSql || f.optionsFromSql) {
     if (sqlLoading) {
@@ -1259,8 +1316,14 @@ function FilterFieldInput({
     return (
       <label className="block">
         {labelEl}
-        <select className={inputCls} value={value} onChange={(e) => onChange(e.target.value)}
-          data-voice-label={f.label || f.name} data-voice-action="select" data-voice-field={f.name}>
+        <select
+          className={inputCls}
+          value={value}
+          onChange={(e) => notifyChange(e.target.value, true)}
+          data-voice-label={f.label || f.name}
+          data-voice-action="select"
+          data-voice-field={f.name}
+        >
           {showAll && <option value="">（全部）</option>}
           {items.map((op, i) => {
             const cv =
@@ -1280,8 +1343,14 @@ function FilterFieldInput({
     return (
       <label className="block">
         {labelEl}
-        <select className={inputCls} value={value} onChange={(e) => onChange(e.target.value)}
-          data-voice-label={f.label || f.name} data-voice-action="select" data-voice-field={f.name}>
+        <select
+          className={inputCls}
+          value={value}
+          onChange={(e) => notifyChange(e.target.value, true)}
+          data-voice-label={f.label || f.name}
+          data-voice-action="select"
+          data-voice-field={f.name}
+        >
           {showAll && <option value="">（全部）</option>}
           {f.options.map((op, i) => {
             const cv =
@@ -1303,7 +1372,7 @@ function FilterFieldInput({
         <input
           type="checkbox"
           checked={!!value}
-          onChange={(e) => onChange(e.target.checked)}
+          onChange={(e) => notifyChange(e.target.checked, true)}
           className="h-4 w-4 rounded border-gray-300"
           data-voice-label={f.label || f.name} data-voice-action="click" data-voice-field={f.name}
         />
@@ -1320,8 +1389,11 @@ function FilterFieldInput({
           type={t === 'date' ? 'date' : 'datetime-local'}
           className={inputCls}
           value={value}
-          onChange={(e) => onChange(e.target.value)}
-          data-voice-label={f.label || f.name} data-voice-action="fill" data-voice-field={f.name}
+          onChange={(e) => notifyChange(e.target.value, true)}
+          {...inputCompleteHandlers}
+          data-voice-label={f.label || f.name}
+          data-voice-action="fill"
+          data-voice-field={f.name}
         />
       </label>
     )
@@ -1334,7 +1406,10 @@ function FilterFieldInput({
         <ScanFieldWrap
           enabled={useScan}
           showToast={showToast}
-          onScanSuccess={(text) => onChange(text)}
+          onScanSuccess={(text) => {
+            onChange(text)
+            fireComplete({ name: f.name, value: text })
+          }}
         >
           <input
             type="number"
@@ -1342,7 +1417,10 @@ function FilterFieldInput({
             className={inputCls}
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            data-voice-label={f.label || f.name} data-voice-action="fill" data-voice-field={f.name}
+            {...inputCompleteHandlers}
+            data-voice-label={f.label || f.name}
+            data-voice-action="fill"
+            data-voice-field={f.name}
           />
         </ScanFieldWrap>
       </label>
@@ -1355,14 +1433,20 @@ function FilterFieldInput({
       <ScanFieldWrap
         enabled={useScan}
         showToast={showToast}
-        onScanSuccess={(text) => onChange(text)}
+        onScanSuccess={(text) => {
+          onChange(text)
+          fireComplete({ name: f.name, value: text })
+        }}
       >
         <input
           type="text"
           className={inputCls}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          data-voice-label={f.label || f.name} data-voice-action="fill" data-voice-field={f.name}
+          {...inputCompleteHandlers}
+          data-voice-label={f.label || f.name}
+          data-voice-action="fill"
+          data-voice-field={f.name}
         />
       </ScanFieldWrap>
     </label>

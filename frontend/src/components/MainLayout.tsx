@@ -9,6 +9,7 @@ import OrdersView from '../views/OrdersView'
 import DetailView from '../views/DetailView'
 import ReportRowDetailView from '../views/ReportRowDetailView'
 import ProSignReceiveView from '../views/ProSignReceiveView'
+import ProSignOrderDetailView from '../views/ProSignOrderDetailView'
 import WorkRegistrationView from '../views/WorkRegistrationView'
 import AiChatView from '../views/AiChatView'
 import type { ViewName } from '../types'
@@ -32,6 +33,7 @@ const viewComponents: Record<string, React.ComponentType> = {
   detail: DetailView,
   'report-row-detail': ReportRowDetailView,
   'pro-sign-receive': ProSignReceiveView,
+  'pro-sign-order-detail': ProSignOrderDetailView,
   'work-registration': WorkRegistrationView,
 }
 
@@ -52,6 +54,7 @@ function getPageTitle(
     detail: '订单报工',
     'report-row-detail': '行详情',
     'work-registration': '报工登记',
+    'pro-sign-order-detail': '订单详情',
   }
   if (view === 'dynamic-report') {
     return activeMenuLabel || '报表'
@@ -91,7 +94,9 @@ export default function MainLayout() {
   /** 合并报工页仍挂载列表报表（display:none），避免返回时 DynamicReportView 卸载导致筛选条件被初始化逻辑重置 */
   const dynamicReportVisible = currentView === 'dynamic-report'
   const dynamicReportShellHidden =
-    activeMenu != null && proSignMode && currentView === 'pro-sign-receive'
+    activeMenu != null &&
+    proSignMode &&
+    (currentView === 'pro-sign-receive' || currentView === 'pro-sign-order-detail')
 
   return (
     <div className="min-h-screen bg-slate-50">

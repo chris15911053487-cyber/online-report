@@ -49,6 +49,9 @@ interface AppState {
   /** 从合并报工返回列表时触发一次自动查询（保持筛选条件） */
   shouldRefreshProSignListAfterReceive: boolean
 
+  // Pro-sign order detail context
+  proSignOrderDetailOrderNo: string | null
+
   // Actions
   initialize: () => Promise<void>
   login: (username: string, password: string) => Promise<void>
@@ -66,6 +69,7 @@ interface AppState {
   openOrderDetail: (orderId: number) => void
   openWorkRegistration: (batchId: number, menu: NavMenuItem | null) => void
   openProSignReceive: (mergeItems: any[], lineResults: any[], buttonLabel: string) => void
+  openProSignOrderDetail: (orderNo: string) => void
   clearProSignListRefreshFlag: () => void
 }
 
@@ -93,6 +97,7 @@ export const useStore = create<AppState>((set, get) => ({
   proSignLineResults: null,
   proSignMergeButtonLabel: '合并报工',
   shouldRefreshProSignListAfterReceive: false,
+  proSignOrderDetailOrderNo: null,
 
   clearProSignListRefreshFlag: () => set({ shouldRefreshProSignListAfterReceive: false }),
 
@@ -167,6 +172,7 @@ export const useStore = create<AppState>((set, get) => ({
       activeMenu: null,
       proSignMode: false,
       currentOrderId: null,
+      proSignOrderDetailOrderNo: null,
       workRegBatchId: null,
       proSignMergeItems: null,
       proSignLineResults: null,
@@ -195,6 +201,11 @@ export const useStore = create<AppState>((set, get) => ({
 
   goBack: () => {
     const { viewHistory, currentView, proSignMode, activeMenu } = get()
+
+    if (currentView === 'pro-sign-order-detail') {
+      set({ currentView: 'dynamic-report', proSignOrderDetailOrderNo: null })
+      return
+    }
 
     if (currentView === 'detail') {
       set({ currentView: 'orders', currentOrderId: null })
@@ -311,6 +322,13 @@ export const useStore = create<AppState>((set, get) => ({
       proSignMergeButtonLabel: buttonLabel,
       currentView: 'pro-sign-receive',
       shouldRefreshProSignListAfterReceive: false,
+    })
+  },
+
+  openProSignOrderDetail: (orderNo: string) => {
+    set({
+      proSignOrderDetailOrderNo: orderNo,
+      currentView: 'pro-sign-order-detail',
     })
   },
 }))
