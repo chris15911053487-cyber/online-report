@@ -35,18 +35,20 @@ function firstSelectableCode(items: FilterOption[] | undefined | null): string {
 const PRO_SIGN_STATUS_CODE_TO_LABEL: Record<number, string> = {
   0: '接单',
   1: '完工',
+  2: '已完工',
   8: '恢复报工',
 }
 
-/** 与 filter_schema 静态 options 中 string code 对齐（如 "0"/"1"/"8"） */
+/** 与 filter_schema 静态 options 中 string code 对齐（如 "0"/"1"/"2"/"8"） */
 const PRO_SIGN_STATUS_STRING_TO_LABEL: Record<string, string> = {
   '0': '接单',
   '1': '完工',
+  '2': '已完工',
   '8': '恢复报工',
 }
 
-/** 生产报工 Status 固定三项（与吸底按钮映射一致） */
-const PRO_SIGN_STATUS_SEGMENT_CODES = [0, 1, 8] as const
+/** 生产报工 Status 固定四项（与吸底按钮映射一致） */
+const PRO_SIGN_STATUS_SEGMENT_CODES = [0, 1, 2, 8] as const
 
 type ProSignStatusSlot = (typeof PRO_SIGN_STATUS_SEGMENT_CODES)[number]
 
@@ -61,13 +63,14 @@ function parseProSignStatusCode(code: unknown): number | null {
   return n
 }
 
-/** 下拉显示名 → 吸底/合并页文案（code 非 0/1/8 时兜底） */
+/** 下拉显示名 → 吸底/合并页文案（code 非 0/1/2/8 时兜底） */
 function mergeLabelFromOptionDisplayName(nameRaw: string): string | null {
   const name = String(nameRaw).trim()
   if (!name) return null
   if (/恢复/.test(name)) return '恢复报工'
-  if (name === '完工' || name === '已完工' || name === '待完工' || /待完工/.test(name)) return '完工'
-  if (/完工/.test(name) && !/未完|恢复/.test(name)) return '完工'
+  if (name === '已完工' || /^已完工$/.test(name)) return '已完工'
+  if (name === '完工' || name === '待完工' || /待完工/.test(name)) return '完工'
+  if (/完工/.test(name) && !/未完|恢复|已完/.test(name)) return '完工'
   if (name === '接单' || name === '待接单' || name === '未接单') return '接单'
   if (/接单/.test(name) && !/不接单|暂不接(?:单)?/.test(name)) return '接单'
   return null
@@ -82,13 +85,20 @@ function findOptionForProSignSlot(
   if (byCode) return byCode
   const patterns: Record<ProSignStatusSlot, RegExp> = {
     0: /待接单|未接单|^接单$|接单/,
-    1: /待完工|^完工$|已完工|完工/,
+    1: /待完工|^完工$|完工/,
+    2: /^已完工$|已完工/,
     8: /恢复报工|恢复|暂停后继续|继续报工/,
   }
   const re = patterns[slot]
   return opts.find((o) => {
     const n = String(o.name ?? '').trim()
-    return n && re.test(n) && (slot !== 1 || !/未完/.test(n)) && (slot !== 0 || !/不接单|暂不接(?:单)?/.test(n))
+    return (
+      n &&
+      re.test(n) &&
+      (slot !== 1 || (!/未完/.test(n) && !/已完工/.test(n))) &&
+      (slot !== 0 || !/不接单|暂不接(?:单)?/.test(n)) &&
+      (slot !== 2 || /已完工/.test(n))
+    )
   })
 }
 
@@ -100,7 +110,7 @@ function buildProSignStatusSegmentItems(
     const fallback = PRO_SIGN_STATUS_CODE_TO_LABEL[slot] ?? String(slot)
     const label =
       hit?.name != null && String(hit.name).trim() ? String(hit.name).trim() : fallback
-    /** 固定业务 code 0/1/8；静态 options 配置为 "8" 时与筛参、吸底映射一致 */
+    /** 固定业务 code 0/1/2/8；静态 options 配置与筛参、吸底映射一致 */
     return { code: String(slot), label }
   })
 }
@@ -173,7 +183,7 @@ function findMatchingFilterOption(opts: FilterOption[], v: unknown): FilterOptio
 
 /**
  * 与列表页吸底按钮文案一致；合并页「暂停报工」仅在 Status code=1（完工）时显示。
- * Status code 固定：0 接单、1 完工、8 恢复报工；其它 → 合并报工。
+ * Status code 固定：0 接单、1 完工、2 已完工、8 恢复报工；其它 → 合并报工。
  * @param resolvedOptions 筛选项来自 optionsSql 时传 sqlOptions[field.name]，勿仅用 field.options（往往为空）
  */
 function resolveProSignMergeButtonLabel(
@@ -186,7 +196,7 @@ function resolveProSignMergeButtonLabel(
   if (v === '' || v === null || v === undefined) return '合并报工'
   if (typeof v === 'boolean') return '合并报工'
 
-  /** 分段按钮写入的 0/1/8 或 parseInt 可解析的值优先 */
+  /** 分段按钮写入的 0/1/2/8 或 parseInt 可解析的值优先 */
   const direct = mergeButtonLabelFromStatusCode(v)
   if (direct) return direct
 
@@ -1186,7 +1196,7 @@ function ScanFieldWrap({
   )
 }
 
-// ── ProSignStatusSegment（生产报工 Status：三段切换 + 点选即查询）──
+// ── ProSignStatusSegment（生产报工 Status：分段切换 + 点选即查询）──
 
 interface ProSignStatusSegmentProps {
   field: FilterField
@@ -1216,7 +1226,12 @@ function ProSignStatusSegment({
   return (
     <div className="block" role="group" aria-label={label}>
       <span className="mb-2 block text-xs font-medium text-gray-600">{label}</span>
-      <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-gray-100 p-1">
+      <div
+        className={
+          'grid gap-1.5 rounded-xl bg-gray-100 p-1 ' +
+          (items.length >= 4 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3')
+        }
+      >
         {items.map((item) => {
           const selected = isSelected(item.code)
           return (
