@@ -1225,13 +1225,8 @@ function ProSignStatusSegment({
 
   return (
     <div className="block" role="group" aria-label={label}>
-      <span className="mb-2 block text-xs font-medium text-gray-600">{label}</span>
-      <div
-        className={
-          'grid gap-1.5 rounded-xl bg-gray-100 p-1 ' +
-          (items.length >= 4 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3')
-        }
-      >
+      <span className="mb-1.5 block text-xs font-medium text-slate-500">{label}</span>
+      <div className="flex w-full gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
         {items.map((item) => {
           const selected = isSelected(item.code)
           return (
@@ -1240,16 +1235,19 @@ function ProSignStatusSegment({
               type="button"
               disabled={loading || queryLoading}
               aria-pressed={selected}
+              title={item.label}
               className={
-                'min-h-[40px] rounded-lg px-1 py-2 text-center text-xs font-semibold leading-tight transition-colors sm:text-sm ' +
+                'flex min-h-[36px] min-w-0 flex-1 items-center justify-center rounded-md px-0.5 py-1.5 text-center text-[11px] font-medium leading-tight transition-all duration-150 sm:min-h-[40px] sm:px-1 sm:text-xs ' +
                 (selected
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'bg-transparent text-gray-600 active:bg-gray-200') +
-                (loading || queryLoading ? ' opacity-60' : '')
+                  ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200/90'
+                  : 'text-slate-600 active:bg-slate-100/90') +
+                (loading || queryLoading ? ' pointer-events-none opacity-60' : '')
               }
               onClick={() => onSelect(item.code)}
             >
-              {loading ? '…' : item.label}
+              <span className="max-w-full truncate">
+                {loading ? '…' : item.label}
+              </span>
             </button>
           )
         })}
