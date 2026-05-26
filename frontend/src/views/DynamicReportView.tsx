@@ -779,17 +779,26 @@ export default function DynamicReportView() {
     openReportRowDetail(routeKey, params, columnLabels, detailKey)
   }
 
-  /** pro-sign 列表：点击该行打开“订单只读详情” */
+  /** pro-sign 列表：点击该行打开“订单只读详情”（主键列名来自菜单 detailKeyColumn） */
   const handleProSignOrderDetailClick = (row: Record<string, any>) => {
     if (!proSignMode) return
-    const raw =
-      getRowValue(row, 'orderNo') ??
-      getRowValue(row, 'OrderNo') ??
-      getRowValue(row, '订单号') ??
-      getRowValue(row, 'orderno')
+    const keyCol = activeMenu?.detailKeyColumn?.trim()
+    let raw: unknown
+    if (keyCol) {
+      raw = getRowValue(row, keyCol)
+    } else {
+      raw =
+        getRowValue(row, 'orderNo') ??
+        getRowValue(row, 'OrderNo') ??
+        getRowValue(row, '订单号') ??
+        getRowValue(row, 'orderno')
+    }
     const orderNo = raw == null ? '' : String(raw).trim()
     if (!orderNo) {
-      showToast('当前行缺少订单号')
+      const hint = keyCol
+        ? `当前行缺少主键列「${keyCol}」（请在菜单设置中核对「行主键列名」与列表列名一致）`
+        : '当前行缺少订单号（请在菜单设置中填写「行主键列名」，如 orderNo / 订单号）'
+      showToast(hint)
       return
     }
     openProSignOrderDetail(orderNo)

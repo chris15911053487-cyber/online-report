@@ -184,6 +184,8 @@ function rowToPublicItem(row) {
   const dkc =
     row.detail_key_column != null ? String(row.detail_key_column).trim() : '';
   const rowDetailEnabled = mk === 'report' && !!dq && !!dkc;
+  const dp = row.detail_key_param != null ? String(row.detail_key_param).trim() : '';
+  const hasDetailTpl = mk === 'report' && !!dq;
   return {
     id: Number(row.id),
     label: row.label,
@@ -199,7 +201,8 @@ function rowToPublicItem(row) {
         : [],
     columnLabels: mk === 'report' ? columnLabelsFromRow(row.column_labels_json) : {},
     rowDetailEnabled,
-    detailKeyColumn: rowDetailEnabled ? dkc : '',
+    detailKeyColumn: rowDetailEnabled ? dkc : hasDetailTpl ? dkc : '',
+    detailKeyParam: hasDetailTpl ? dp || 'detailKey' : undefined,
     aiPrompt: row.ai_prompt ? String(row.ai_prompt).trim() : '',
     voiceActions: voiceActionsFromRow(row.voice_actions_json),
   };
