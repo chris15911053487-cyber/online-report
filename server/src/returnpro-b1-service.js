@@ -156,13 +156,13 @@ function buildAddDocumentsBody(input) {
   }
 
   const objectType = '60';
-  const bplId = toNumberOrNull(trimEnv('RETURNPRO_B1_BPL_ID'));
 
   const mainRow = {
     DocDate: todayDocDateIso(),
+    DocEntry: '0',
+    BPLId: '1',
     Comments: `返修单领料${docEntry ? ` DocEntry=${docEntry}` : ''}${userCode ? ` 操作员=${userCode}` : ''}`,
   };
-  if (bplId != null) mainRow.BPLId = bplId;
 
   const cardCode = trimEnv('RETURNPRO_B1_CARD_CODE');
   if (cardCode) {
@@ -172,7 +172,6 @@ function buildAddDocumentsBody(input) {
   }
 
   const detail = [];
-  const btnt = [];
 
   lines.forEach((line, idx) => {
     const itemCode = String(line.itemCode ?? line.ItemCode ?? '').trim();
@@ -204,16 +203,12 @@ function buildAddDocumentsBody(input) {
     const unit = line.uUnit ?? line.U_Unit;
     if (unit != null && String(unit).trim()) row.unitMsr = String(unit).trim();
 
-    detail.push(row);
-
     const batchNum = String(line.batchNum ?? line.BatchNum ?? '').trim();
     if (isBatchLine(line) && batchNum) {
-      btnt.push({
-        LineNum: idx,
-        BatchNum: batchNum,
-        Quantity: qty,
-      });
+      row.BatchNumbers = batchNum;
     }
+
+    detail.push(row);
   });
 
   const docData = {
@@ -221,7 +216,6 @@ function buildAddDocumentsBody(input) {
     DELETE: [],
     DETAIL: detail,
   };
-  if (btnt.length > 0) docData.BTNT = btnt;
 
   return {
     JsonString: JSON.stringify(docData),
