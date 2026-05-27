@@ -208,6 +208,13 @@ function buildAddDocumentsBody(input) {
       row.BatchNumbers = batchNum;
     }
 
+    row.U_BaseType = 'TT_OWOR';
+    if (docEntry) row.U_BaseEntry = docEntry;
+    const baseLine = line.lineId ?? line.LineId;
+    if (baseLine != null && String(baseLine).trim() !== '') {
+      row.U_BaseLine = String(baseLine).trim();
+    }
+
     detail.push(row);
   });
 
@@ -285,7 +292,12 @@ function parseAddDocumentsSuccess(json) {
         docEntry: null,
       };
     }
+    // Ret=0 且 Message 为新单据号（如 "22561"）表示成功
     if (ret === 0) {
+      const msgDoc = message && /^\d+$/.test(message.trim()) ? message.trim() : '';
+      if (msgDoc) {
+        return { ok: true, message: '', docEntry: msgDoc };
+      }
       return {
         ok: false,
         message: message || 'AddDocuments 失败',
@@ -297,6 +309,9 @@ function parseAddDocumentsSuccess(json) {
     }
     if (ret != null && ret > 0) {
       return { ok: true, message: '', docEntry: String(ret) };
+    }
+    if (message && /^\d+$/.test(message.trim())) {
+      return { ok: true, message: '', docEntry: message.trim() };
     }
     if (message) {
       return { ok: false, message, docEntry: null };
