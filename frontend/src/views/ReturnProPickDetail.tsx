@@ -311,13 +311,22 @@ export default function ReturnProPickDetail({
         docEntry: detailKey,
         lines: collectPayload(),
       }
-      // TODO: 调用 SAP 领料接口
-      console.info('[returnpro] 领料待提交', payload)
-      showToast('领料接口对接中，数据已校验通过')
+      const res = await apiFetch<{ ok?: boolean; message?: string; docEntry?: string }>(
+        '/returnpro/pick',
+        {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        },
+      )
+      showToast(res.message || '领料成功', 2500)
+      goBack()
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : '领料提交失败'
+      showToast(msg)
     } finally {
       setSubmitting(false)
     }
-  }, [validate, verifyAllBatchStock, collectPayload, detailKey, showToast])
+  }, [validate, verifyAllBatchStock, collectPayload, detailKey, showToast, goBack])
 
   const inputCls =
     'border border-slate-200 rounded-lg px-3 py-2 w-full text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 focus:border-sky-300'
