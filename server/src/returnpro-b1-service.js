@@ -1,19 +1,13 @@
 /**
- * SAP B1 WCF Web Service (B1Service.svc/Web): Login + AddObject for returnpro pick.
+ * SAP B1 WCF Web Service: AddDocuments for returnpro pick.
  *
  * Env (see server/.env.example):
- *   RETURNPRO_B1_BASE_URL, B1_* credentials, RETURNPRO_B1_OBJECT_TYPE, ...
+ *   RETURNPRO_B1_BASE_URL, RETURNPRO_B1_ADD_DOCUMENTS_PATH
  */
 
 function trimEnv(name) {
   const v = process.env[name];
   return v == null ? '' : String(v).trim();
-}
-
-function trimEnvOrFallback(primary, fallback) {
-  const p = trimEnv(primary);
-  if (p) return p;
-  return trimEnv(fallback);
 }
 
 function getTimeoutMs() {
@@ -31,42 +25,13 @@ function getBaseUrl() {
   return base.replace(/\/$/, '');
 }
 
-function buildLoginBody() {
-  const dataBaseServer = trimEnvOrFallback('B1_DATABASE_SERVER', 'DB_HOST');
-  const dataBaseName = trimEnvOrFallback('B1_DATABASE_NAME', 'DB_NAME');
-  const dataBaseUser = trimEnvOrFallback('B1_DATABASE_USER', 'DB_USER');
-  const dataBasePassword = trimEnvOrFallback('B1_DATABASE_PASSWORD', 'DB_PASSWORD');
-  const companyUser = trimEnv('B1_COMPANY_USER');
-  const companyPassword = trimEnv('B1_COMPANY_PASSWORD');
-
-  if (!dataBaseServer || !dataBaseName || !companyUser || !companyPassword) {
-    const err = new Error(
-      'B1 登录配置不完整：需 B1_DATABASE_SERVER/NAME、B1_COMPANY_USER、B1_COMPANY_PASSWORD（数据库账号可复用 DB_HOST/DB_NAME/DB_USER/DB_PASSWORD）',
-    );
-    err.code = 'RETURNPRO_B1_NOT_CONFIGURED';
-    throw err;
-  }
-
-  return {
-    DataBaseServer: dataBaseServer,
-    DataBaseName: dataBaseName,
-    DataBaseType: trimEnv('B1_DATABASE_TYPE') || '1',
-    DataBaseUserName: dataBaseUser || 'sa',
-    DataBasePassword: dataBasePassword,
-    CompanyUserName: companyUser,
-    CompanyPassword: companyPassword,
-    Language: trimEnv('B1_LANGUAGE') || 'ln_Chinese',
-    LicenseServer: trimEnv('B1_LICENSE_SERVER'),
-    Port: trimEnv('B1_PORT') || '30015',
-  };
+function getAddDocumentsPath() {
+  const path = trimEnv('RETURNPRO_B1_ADD_DOCUMENTS_PATH') || '/WEB/AddDocuments';
+  return path.startsWith('/') ? path : `/${path}`;
 }
 
-let cachedSession = null;
-let sessionExpiresAt = 0;
-
-function getSessionTtlMs() {
-  const n = Number(trimEnv('RETURNPRO_B1_SESSION_TTL_MS') || '1500000');
-  return Number.isFinite(n) && n > 60000 ? n : 1500000;
+function getAddDocumentsUrl() {
+  return `${getBaseUrl()}${getAddDocumentsPath()}`;
 }
 
 function pickFirstString(obj, keys) {
@@ -75,19 +40,6 @@ function pickFirstString(obj, keys) {
     const found = Object.keys(obj).find((x) => x.toLowerCase() === k.toLowerCase());
     if (found != null && obj[found] != null && String(obj[found]).trim() !== '') {
       return String(obj[found]).trim();
-    }
-  }
-  return '';
-}
-
-function findSessionIdDeep(val, depth = 0) {
-  if (depth > 6 || val == null || typeof val !== 'object') return '';
-  const direct = pickFirstString(val, ['SessionID', 'sessionId', 'session_id']);
-  if (direct) return direct;
-  for (const v of Object.values(val)) {
-    if (v && typeof v === 'object') {
-      const found = findSessionIdDeep(v, depth + 1);
-      if (found) return found;
     }
   }
   return '';
@@ -113,19 +65,8 @@ function parseB1Error(json, fallbackText) {
   return fallbackText || 'B1 服务返回失败';
 }
 
-function isSessionInvalidMessage(msg) {
-  const s = String(msg || '').toLowerCase();
-  return (
-    s.includes('session') ||
-    s.includes('login') ||
-    s.includes('未登录') ||
-    s.includes('过期') ||
-    s.includes('expired')
-  );
-}
-
-async function b1Post(operation, body, log) {
-  const url = `${getBaseUrl()}/${operation}`;
+async function b1PostAddDocuments(body, log) {
+  const url = getAddDocumentsUrl();
   const timeoutMs = getTimeoutMs();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -155,15 +96,19 @@ async function b1Post(operation, body, log) {
   try {
     json = text ? JSON.parse(text) : {};
   } catch {
+    const preview = text.replace(/\s+/g, ' ').trim().slice(0, 120);
     const err = new Error(
-      res.ok ? 'B1 返回非 JSON' : `B1 HTTP ${res.status}: ${text.slice(0, 200)}`,
+      res.ok
+        ? 'B1 返回非 JSON'
+        : `B1 HTTP ${res.status}（${url}）：${preview || '无响应体'}`,
     );
-    err.code = 'RETURNPRO_B1_BAD_RESPONSE';
+    err.code = res.status === 404 ? 'RETURNPRO_B1_NOT_FOUND' : 'RETURNPRO_B1_BAD_RESPONSE';
+    err.b1Url = url;
     throw err;
   }
 
   if (!res.ok) {
-    log?.warn?.({ status: res.status, operation, json }, 'returnpro B1 HTTP error');
+    log?.warn?.({ status: res.status, url, json }, 'returnpro B1 HTTP error');
     const err = new Error(parseB1Error(json, `B1 HTTP ${res.status}`));
     err.code = 'RETURNPRO_B1_HTTP_ERROR';
     err.httpStatus = res.status;
@@ -172,28 +117,6 @@ async function b1Post(operation, body, log) {
   }
 
   return json;
-}
-
-async function login(log) {
-  const body = buildLoginBody();
-  const json = await b1Post('Login', body, log);
-  const sessionId = findSessionIdDeep(json);
-  if (!sessionId) {
-    const err = new Error(parseB1Error(json, 'B1 Login 未返回 SessionID'));
-    err.code = 'RETURNPRO_B1_LOGIN_FAILED';
-    err.b1Response = json;
-    throw err;
-  }
-  cachedSession = sessionId;
-  sessionExpiresAt = Date.now() + getSessionTtlMs();
-  return sessionId;
-}
-
-async function getSessionId(log, forceRefresh = false) {
-  if (!forceRefresh && cachedSession && Date.now() < sessionExpiresAt - 30000) {
-    return cachedSession;
-  }
-  return login(log);
 }
 
 function todayDocDateIso() {
@@ -215,10 +138,14 @@ function isBatchLine(line) {
   return String(v ?? '').trim().toUpperCase() === 'Y';
 }
 
+function getCompany() {
+  return trimEnv('DB_NAME') || 'SBO_GFBS_20200111';
+}
+
 /**
  * @param {{ docEntry: unknown, lines: object[], userCode: string }} input
  */
-function buildAddObjectBody(input) {
+function buildAddDocumentsBody(input) {
   const docEntry = input.docEntry != null ? String(input.docEntry).trim() : '';
   const userCode = String(input.userCode || '').trim();
   const lines = Array.isArray(input.lines) ? input.lines : [];
@@ -228,7 +155,7 @@ function buildAddObjectBody(input) {
     throw err;
   }
 
-  const objectType = trimEnv('RETURNPRO_B1_OBJECT_TYPE') || 'oInventoryGenExit';
+  const objectType = '60';
   const bplId = toNumberOrNull(trimEnv('RETURNPRO_B1_BPL_ID'));
 
   const mainRow = {
@@ -301,18 +228,21 @@ function buildAddObjectBody(input) {
     }
   });
 
+  const docData = {
+    MAIN: [mainRow],
+    DELETE: [],
+    DETAIL: detail,
+  };
+  if (btnt.length > 0) docData.BTNT = btnt;
+
   return {
-    ObjectType: objectType,
-    Data: {
-      MAIN: [mainRow],
-      DELETE: [],
-      DETAIL: detail,
-      BTNT: btnt,
-    },
+    JsonString: JSON.stringify(docData),
+    objType: objectType,
+    Company: getCompany(),
   };
 }
 
-function parseAddObjectSuccess(json) {
+function parseAddDocumentsSuccess(json) {
   const docEntry = pickFirstString(json, [
     'DocEntry',
     'docEntry',
@@ -324,7 +254,7 @@ function parseAddObjectSuccess(json) {
   if (!docEntry) {
     const nested = json.Result || json.result || json.Data || json.data;
     if (nested && typeof nested === 'object') {
-      return parseAddObjectSuccess(nested);
+      return parseAddDocumentsSuccess(nested);
     }
   }
 
@@ -339,7 +269,7 @@ function parseAddObjectSuccess(json) {
     (typeof firstVal === 'string' && firstVal.trim() === '0');
 
   if (successFlag === false || isFailureZero) {
-    return { ok: false, message: parseB1Error(json, 'AddObject 失败'), docEntry: null };
+    return { ok: false, message: parseB1Error(json, 'AddDocuments 失败'), docEntry: null };
   }
 
   if (successFlag === true || docEntry) {
@@ -354,17 +284,12 @@ function parseAddObjectSuccess(json) {
   return { ok: true, message: '', docEntry: docEntry || null };
 }
 
-async function addObject(sessionId, addBody, log) {
-  const payload = {
-    SessionID: sessionId,
-    ObjectType: addBody.ObjectType,
-    Data: addBody.Data,
-  };
-  const json = await b1Post('AddObject', payload, log);
-  const parsed = parseAddObjectSuccess(json);
+async function addDocuments(addBody, log) {
+  const json = await b1PostAddDocuments(addBody, log);
+  const parsed = parseAddDocumentsSuccess(json);
   if (!parsed.ok) {
     const err = new Error(parsed.message);
-    err.code = 'RETURNPRO_B1_ADD_OBJECT_FAILED';
+    err.code = 'RETURNPRO_B1_ADD_DOCUMENTS_FAILED';
     err.b1Response = json;
     throw err;
   }
@@ -376,23 +301,11 @@ async function addObject(sessionId, addBody, log) {
  * @param {import('fastify').FastifyBaseLogger} [log]
  */
 async function submitReturnProPick(input, log) {
-  const addBody = buildAddObjectBody(input);
-
-  let sessionId = await getSessionId(log, false);
-  try {
-    return await addObject(sessionId, addBody, log);
-  } catch (e) {
-    if (e.code === 'RETURNPRO_B1_ADD_OBJECT_FAILED' && isSessionInvalidMessage(e.message)) {
-      sessionId = await getSessionId(log, true);
-      return addObject(sessionId, addBody, log);
-    }
-    throw e;
-  }
+  const addBody = buildAddDocumentsBody(input);
+  return addDocuments(addBody, log);
 }
 
 module.exports = {
-  buildAddObjectBody,
+  buildAddDocumentsBody,
   submitReturnProPick,
-  login,
-  getSessionId,
 };

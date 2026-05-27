@@ -106,13 +106,24 @@ async function returnproRoutes(fastify) {
           return reply.code(503).send({
             error: err.message,
             code,
-            hint: '请在 server/.env 配置 RETURNPRO_B1_BASE_URL、B1_COMPANY_USER 等，见 .env.example',
+            hint: '请在 server/.env 配置 RETURNPRO_B1_BASE_URL（可选 RETURNPRO_B1_ADD_DOCUMENTS_PATH），见 .env.example',
+          });
+        }
+        if (code === 'RETURNPRO_B1_NOT_FOUND') {
+          request.log.warn({ err, b1Url: err.b1Url }, 'returnpro/pick B1 404');
+          return reply.code(502).send({
+            error:
+              err.message ||
+              'B1 接口地址不存在(404)。请检查 RETURNPRO_B1_BASE_URL 是否为 http://主机:端口/B1Service.svc/Web',
+            code,
+            b1Url: err.b1Url,
           });
         }
         if (
           code === 'RETURNPRO_B1_NETWORK' ||
           code === 'RETURNPRO_B1_TIMEOUT' ||
-          code === 'RETURNPRO_B1_HTTP_ERROR'
+          code === 'RETURNPRO_B1_HTTP_ERROR' ||
+          code === 'RETURNPRO_B1_BAD_RESPONSE'
         ) {
           request.log.error({ err }, 'returnpro/pick B1 transport');
           return reply.code(502).send({
@@ -120,7 +131,7 @@ async function returnproRoutes(fastify) {
             code,
           });
         }
-        if (code === 'RETURNPRO_B1_LOGIN_FAILED' || code === 'RETURNPRO_B1_ADD_OBJECT_FAILED') {
+        if (code === 'RETURNPRO_B1_ADD_DOCUMENTS_FAILED') {
           request.log.warn({ err, b1Response: err.b1Response }, 'returnpro/pick B1 business');
           return reply.code(400).send({
             error: err.message,
