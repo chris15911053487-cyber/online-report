@@ -311,13 +311,10 @@ export default function ReturnProPickDetail({
         docEntry: detailKey,
         lines: collectPayload(),
       }
-      const res = await apiFetch<{ ok?: boolean; message?: string; docEntry?: string }>(
-        '/returnpro/pick',
-        {
-          method: 'POST',
-          body: JSON.stringify(payload),
-        },
-      )
+      const res = (await apiFetch('/returnpro/pick', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })) as { message?: string }
       showToast(res.message || '领料成功', 2500)
       goBack()
     } catch (e: unknown) {
