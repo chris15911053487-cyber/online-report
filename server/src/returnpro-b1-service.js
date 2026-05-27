@@ -265,8 +265,19 @@ function buildAddObjectBody(input) {
     const desc = line.itemName ?? line.ItemName ?? line.uSpec ?? line.U_Spec;
     if (desc != null && String(desc).trim()) row.Dscription = String(desc).trim();
 
-    const whs = line.whsCode ?? line.WhsCode;
-    if (whs != null && String(whs).trim()) row.WhsCode = String(whs).trim();
+    const whs =
+      line.uWhsCode ??
+      line.U_WhsCode ??
+      line.whsCode ??
+      line.WhsCode;
+    const whsStr = whs != null ? String(whs).trim() : '';
+    if (!whsStr) {
+      const err = new Error(`第 ${idx + 1} 行：缺少仓库（U_WhsCode）`);
+      err.code = 'RETURNPRO_BAD_REQUEST';
+      throw err;
+    }
+    row.WhsCode = whsStr;
+    row.U_WhsCode = whsStr;
 
     const unit = line.uUnit ?? line.U_Unit;
     if (unit != null && String(unit).trim()) row.unitMsr = String(unit).trim();

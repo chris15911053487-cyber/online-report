@@ -13,6 +13,7 @@ const FIELD_LABELS: Record<string, string> = {
   U_Spec: '规格',
   U_PlannedQty: '计划数量',
   U_Unit: '单位',
+  U_WhsCode: '仓库',
   Quantity: '领料数量',
   ManBtchNum: '批次管理',
   BatchNum: '批次号',
@@ -28,10 +29,12 @@ const READONLY_FIELDS = [
   'U_Spec',
   'U_PlannedQty',
   'U_Unit',
+  'U_WhsCode',
   'ManBtchNum',
 ] as const
 
-const WHS_COLS = ['WhsCode', 'Warehouse', 'Whs', '仓库', 'FromWhs', 'U_WhsCode']
+/** 明细存储过程仓库字段优先 */
+const WHS_COLS = ['U_WhsCode', 'WhsCode', 'Warehouse', 'Whs', '仓库', 'FromWhs']
 
 type BatchStockStatus = 'idle' | 'checking' | 'ok' | 'insufficient' | 'empty' | 'error'
 
@@ -250,6 +253,7 @@ export default function ReturnProPickDetail({
         baseType: getRowValue(row, 'BaseType'),
         baseEntry: getRowValue(row, 'BaseEntry'),
         baseLine: getRowValue(row, 'BaseLine'),
+        uWhsCode: getRowValue(row, 'U_WhsCode') ?? null,
         whsCode: getWhsCode(row) || null,
         batchNum: draft.batchNum.trim(),
       }
@@ -262,6 +266,9 @@ export default function ReturnProPickDetail({
       const qty = parseFloat(draft?.quantity ?? '')
       if (!Number.isFinite(qty) || qty <= 0) {
         return `第 ${i + 1} 行：请填写有效的领料数量`
+      }
+      if (!getWhsCode(rows[i])) {
+        return `第 ${i + 1} 行：缺少仓库（U_WhsCode）`
       }
       if (isBatchManaged(rows[i]) && !String(draft?.batchNum ?? '').trim()) {
         return `第 ${i + 1} 行：批次管理物料须填写批次号`
