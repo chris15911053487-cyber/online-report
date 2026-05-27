@@ -48,7 +48,7 @@ async function returnproRoutes(fastify) {
         if (num === 208 || num === 207) {
           request.log.error({ err }, 'returnpro/batch-stock missing table');
           return reply.code(503).send({
-            error: '批次库存查询失败：数据库缺少 OIBT/OBTN 表或当前账号无权限',
+            error: '批次库存查询失败：数据库缺少 OIBT 表或当前账号无权限',
             code: 'RETURNPRO_BATCH_TABLE_MISSING',
             detail: err.message || String(err),
           });

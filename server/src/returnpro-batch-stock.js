@@ -1,13 +1,11 @@
 const { sql } = require('./db');
 
-/** SAP B1：OIBT + OBTN，按物料 + 批次号（DistNumber）汇总可用库存 */
+/** SAP B1：OIBT，按物料 + BatchNum + 仓库汇总可用库存 */
 const DEFAULT_BATCH_STOCK_SQL = `
 SELECT ISNULL(SUM(T0.Quantity), 0) AS OnHand
 FROM dbo.OIBT T0 WITH (NOLOCK)
-INNER JOIN dbo.OBTN T1 WITH (NOLOCK)
-  ON T0.ItemCode = T1.ItemCode AND T0.BatchNum = T1.SysNumber
 WHERE T0.ItemCode = @ItemCode
-  AND T1.DistNumber = @BatchNum
+  AND T0.BatchNum = @BatchNum
   AND (@WhsCode IS NULL OR LTRIM(RTRIM(@WhsCode)) = '' OR T0.WhsCode = @WhsCode)
 `;
 
