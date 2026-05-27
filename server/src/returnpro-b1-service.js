@@ -192,29 +192,17 @@ function buildAddDocumentsBody(input) {
     const desc = line.itemName ?? line.ItemName ?? line.uSpec ?? line.U_Spec;
     if (desc != null && String(desc).trim()) row.Dscription = String(desc).trim();
 
-    const whs =
-      line.uWhsCode ??
-      line.U_WhsCode ??
-      line.whsCode ??
-      line.WhsCode;
+    const whs = line.whsCode ?? line.WhsCode;
     const whsStr = whs != null ? String(whs).trim() : '';
     if (!whsStr) {
-      const err = new Error(`第 ${idx + 1} 行：缺少仓库（U_WhsCode）`);
+      const err = new Error(`第 ${idx + 1} 行：缺少仓库`);
       err.code = 'RETURNPRO_BAD_REQUEST';
       throw err;
     }
     row.WhsCode = whsStr;
-    row.U_WhsCode = whsStr;
 
     const unit = line.uUnit ?? line.U_Unit;
     if (unit != null && String(unit).trim()) row.unitMsr = String(unit).trim();
-
-    const baseType = toNumberOrNull(line.baseType ?? line.BaseType);
-    const baseEntry = toNumberOrNull(line.baseEntry ?? line.BaseEntry);
-    const baseLine = toNumberOrNull(line.baseLine ?? line.BaseLine);
-    if (baseType != null) row.BaseType = baseType;
-    if (baseEntry != null) row.BaseEntry = baseEntry;
-    if (baseLine != null) row.BaseLine = baseLine;
 
     detail.push(row);
 
@@ -242,46 +230,110 @@ function buildAddDocumentsBody(input) {
   };
 }
 
+function tryParseJsonString(val) {
+  if (val == null) return null;
+  if (typeof val === 'object') return val;
+  if (typeof val !== 'string') return null;
+  const s = val.trim();
+  if (!s) return null;
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+}
+
+/** WCF AddDocuments 常见：{ AddDocumentsResult: "{\"RETURN\":[{\"Ret\":...,\"Message\":...}]}" } */
+function unwrapAddDocumentsPayload(json) {
+  if (!json || typeof json !== 'object' || Array.isArray(json)) return json;
+
+  const resultKey = Object.keys(json).find((k) => /result$/i.test(k));
+  if (resultKey) {
+    const inner = tryParseJsonString(json[resultKey]);
+    if (inner && typeof inner === 'object') return inner;
+  }
+
+  const nested = json.Result ?? json.result ?? json.Data ?? json.data;
+  if (nested && nested !== json) {
+    const parsed = tryParseJsonString(nested);
+    if (parsed && typeof parsed === 'object') return parsed;
+    if (typeof nested === 'object') return nested;
+  }
+
+  return json;
+}
+
+function getReturnItems(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  const retKey = Object.keys(payload).find((k) => k.toLowerCase() === 'return');
+  const arr = retKey ? payload[retKey] : null;
+  return Array.isArray(arr) && arr.length > 0 ? arr : null;
+}
+
+function parseReturnItemResult(item) {
+  if (!item || typeof item !== 'object') return null;
+  const ret = toNumberOrNull(item.Ret ?? item.ret ?? item.Code ?? item.code);
+  const message = pickFirstString(item, ['Message', 'message', 'Msg', 'msg', 'ErrorMsg']);
+  const docEntry = pickFirstString(item, ['DocEntry', 'docEntry', 'DocNum', 'docNum']);
+  return { ret, message, docEntry };
+}
+
 function parseAddDocumentsSuccess(json) {
-  const docEntry = pickFirstString(json, [
-    'DocEntry',
-    'docEntry',
-    'DocNum',
-    'docNum',
-    'Key',
-    'key',
-  ]);
-  if (!docEntry) {
-    const nested = json.Result || json.result || json.Data || json.data;
-    if (nested && typeof nested === 'object') {
-      return parseAddDocumentsSuccess(nested);
+  const payload = unwrapAddDocumentsPayload(json);
+  const returnItems = getReturnItems(payload);
+
+  if (returnItems) {
+    const { ret, message, docEntry } = parseReturnItemResult(returnItems[0]);
+    if (ret != null && ret < 0) {
+      return {
+        ok: false,
+        message: message || `AddDocuments 失败 (Ret=${ret})`,
+        docEntry: null,
+      };
+    }
+    if (ret === 0) {
+      return {
+        ok: false,
+        message: message || 'AddDocuments 失败',
+        docEntry: null,
+      };
+    }
+    if (docEntry) {
+      return { ok: true, message: '', docEntry };
+    }
+    if (ret != null && ret > 0) {
+      return { ok: true, message: '', docEntry: String(ret) };
+    }
+    if (message) {
+      return { ok: false, message, docEntry: null };
     }
   }
 
-  const successFlag = json.Success ?? json.success ?? json.Ok ?? json.ok;
-  const firstVal =
-    json && typeof json === 'object' && !Array.isArray(json)
-      ? Object.values(json)[0]
-      : undefined;
-  const isFailureZero =
-    firstVal === 0 ||
-    firstVal === 0n ||
-    (typeof firstVal === 'string' && firstVal.trim() === '0');
+  const docEntry = pickFirstString(payload, ['DocEntry', 'docEntry', 'DocNum', 'docNum']);
+  const successFlag = payload?.Success ?? payload?.success ?? payload?.Ok ?? payload?.ok;
 
-  if (successFlag === false || isFailureZero) {
-    return { ok: false, message: parseB1Error(json, 'AddDocuments 失败'), docEntry: null };
+  if (successFlag === false) {
+    return { ok: false, message: parseB1Error(payload, 'AddDocuments 失败'), docEntry: null };
   }
 
-  if (successFlag === true || docEntry) {
-    return { ok: true, message: '', docEntry: docEntry || null };
+  if (successFlag === true && docEntry) {
+    return { ok: true, message: '', docEntry };
   }
 
-  const errMsg = parseB1Error(json, '');
+  const errMsg = parseB1Error(payload, '');
   if (errMsg && errMsg !== 'B1 服务返回失败') {
     return { ok: false, message: errMsg, docEntry: null };
   }
 
-  return { ok: true, message: '', docEntry: docEntry || null };
+  if (docEntry) {
+    return { ok: true, message: '', docEntry };
+  }
+
+  return {
+    ok: false,
+    message: 'AddDocuments 未返回成功结果，请检查 B1 响应格式',
+    docEntry: null,
+  };
 }
 
 async function addDocuments(addBody, log) {
@@ -308,4 +360,5 @@ async function submitReturnProPick(input, log) {
 module.exports = {
   buildAddDocumentsBody,
   submitReturnProPick,
+  parseAddDocumentsSuccess,
 };

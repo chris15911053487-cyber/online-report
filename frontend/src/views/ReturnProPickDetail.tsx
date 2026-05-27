@@ -250,10 +250,6 @@ export default function ReturnProPickDetail({
         uUnit: getRowValue(row, 'U_Unit'),
         quantity: Number.isFinite(qty) ? qty : null,
         manBtchNum: getRowValue(row, 'ManBtchNum'),
-        baseType: getRowValue(row, 'BaseType'),
-        baseEntry: getRowValue(row, 'BaseEntry'),
-        baseLine: getRowValue(row, 'BaseLine'),
-        uWhsCode: getRowValue(row, 'U_WhsCode') ?? null,
         whsCode: getWhsCode(row) || null,
         batchNum: draft.batchNum.trim(),
       }
@@ -321,7 +317,11 @@ export default function ReturnProPickDetail({
       const res = (await apiFetch('/returnpro/pick', {
         method: 'POST',
         body: JSON.stringify(payload),
-      })) as { message?: string }
+      })) as { ok?: boolean; message?: string; error?: string }
+      if (res.ok === false) {
+        showToast(res.error || res.message || '领料失败')
+        return
+      }
       showToast(res.message || '领料成功', 2500)
       goBack()
     } catch (e: unknown) {
