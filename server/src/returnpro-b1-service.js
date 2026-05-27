@@ -343,9 +343,10 @@ async function addDocuments(addBody, log) {
     const err = new Error(parsed.message);
     err.code = 'RETURNPRO_B1_ADD_DOCUMENTS_FAILED';
     err.b1Response = json;
+    err.b1Request = addBody;
     throw err;
   }
-  return { b1Response: json, docEntry: parsed.docEntry };
+  return { b1Response: json, docEntry: parsed.docEntry, b1Request: addBody };
 }
 
 /**
@@ -353,8 +354,14 @@ async function addDocuments(addBody, log) {
  * @param {import('fastify').FastifyBaseLogger} [log]
  */
 async function submitReturnProPick(input, log) {
-  const addBody = buildAddDocumentsBody(input);
-  return addDocuments(addBody, log);
+  let addBody;
+  try {
+    addBody = buildAddDocumentsBody(input);
+    return await addDocuments(addBody, log);
+  } catch (e) {
+    if (addBody && !e.b1Request) e.b1Request = addBody;
+    throw e;
+  }
 }
 
 module.exports = {

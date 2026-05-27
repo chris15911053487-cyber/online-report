@@ -1,6 +1,7 @@
 const { getPool } = require('../db');
 const { queryBatchStock } = require('../returnpro-batch-stock');
 const { submitReturnProPick } = require('../returnpro-b1-service');
+const { insertReturnProPickLog } = require('../returnpro-pick-log');
 
 function sqlErrorNumber(err) {
   return err?.number ?? err?.originalError?.info?.number ?? err?.originalError?.number;
@@ -71,17 +72,43 @@ async function returnproRoutes(fastify) {
     { preHandler: [fastify.authenticate] },
     async (request, reply) => {
       const userCode = String(request.user.username || '').trim();
-      if (!userCode) {
-        return reply.code(401).send({ error: '无效登录', code: 'UNAUTHORIZED' });
-      }
-
       const body = request.body || {};
       const docEntry = body.docEntry ?? body.DocEntry;
       const lines = body.lines ?? body.Lines;
+      const requestPayload = { docEntry, lines };
+
+      const logEntry = {
+        userCode: userCode || null,
+        docEntry: docEntry != null ? String(docEntry) : null,
+        requestJson: requestPayload,
+        b1RequestJson: null,
+        responseJson: null,
+        success: false,
+        errorCode: null,
+        errorMessage: null,
+        resultDocEntry: null,
+      };
+
+      const persistLog = async () => {
+        await insertReturnProPickLog(logEntry, request.log);
+      };
+
+      if (!userCode) {
+        logEntry.errorCode = 'UNAUTHORIZED';
+        logEntry.errorMessage = '无效登录';
+        logEntry.responseJson = { api: { error: logEntry.errorMessage, code: logEntry.errorCode } };
+        await persistLog();
+        return reply.code(401).send({ error: '无效登录', code: 'UNAUTHORIZED' });
+      }
+
       if (!Array.isArray(lines) || lines.length === 0) {
+        logEntry.errorCode = 'RETURNPRO_LINES_EMPTY';
+        logEntry.errorMessage = '请至少提交一行领料明细';
+        logEntry.responseJson = { api: { error: logEntry.errorMessage, code: logEntry.errorCode } };
+        await persistLog();
         return reply.code(400).send({
-          error: '请至少提交一行领料明细',
-          code: 'RETURNPRO_LINES_EMPTY',
+          error: logEntry.errorMessage,
+          code: logEntry.errorCode,
         });
       }
 
@@ -90,15 +117,33 @@ async function returnproRoutes(fastify) {
           { docEntry, lines, userCode },
           request.log,
         );
-        return {
+        logEntry.b1RequestJson = result.b1Request ?? null;
+        logEntry.resultDocEntry = result.docEntry != null ? String(result.docEntry) : null;
+        logEntry.success = true;
+        const apiResponse = {
           ok: true,
           docEntry: result.docEntry,
           message: result.docEntry
             ? `领料成功，单据号 ${result.docEntry}`
             : '领料成功',
         };
+        logEntry.responseJson = {
+          api: apiResponse,
+          b1: result.b1Response ?? null,
+        };
+        await persistLog();
+        return apiResponse;
       } catch (err) {
         const code = err.code || 'RETURNPRO_PICK_ERROR';
+        logEntry.b1RequestJson = err.b1Request ?? null;
+        logEntry.errorCode = code;
+        logEntry.errorMessage = err.message || '领料提交失败';
+        logEntry.responseJson = {
+          api: { error: logEntry.errorMessage, code },
+          b1: err.b1Response ?? null,
+        };
+        await persistLog();
+
         if (code === 'RETURNPRO_BAD_REQUEST') {
           return reply.code(400).send({ error: err.message, code });
         }
