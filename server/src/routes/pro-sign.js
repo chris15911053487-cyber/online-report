@@ -1225,7 +1225,7 @@ async function proSignRoutes(fastify) {
               ? lines.slice(0, 5).map((item) => ({
                   lineId: Number(item && item.lineId),
                   goodQty: Number(item && item.goodQty),
-                  scrapQty: Number(item && item.scrapQty ?? 0),
+                  scrapQty: Number((item && item.scrapQty) ?? 0),
                 }))
               : [],
           },
