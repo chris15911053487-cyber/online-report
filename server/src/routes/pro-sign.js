@@ -242,6 +242,10 @@ function parseSignAtFromBody(body) {
 const PRO_SIGN_BATCH_SUBMIT_SQL_TEMPLATE = `INSERT INTO dbo.work_reports (order_id, operation_id, user_id, reporter_user_code, good_qty, scrap_qty, remark, batch_line_id)
 VALUES (@orderId, @operationId, @userId, @userCode, @goodQty, @scrapQty, @remark, @lineId)`;
 
+/** 报工 SQL 审计日志时间与界面一致：存中国本地时间（非 UTC） */
+const PRO_SIGN_SQL_LOG_CREATED_AT_EXPR =
+  `CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'China Standard Time' AS DATETIME2(3))`;
+
 async function writeProSignSqlLog(pool, payload) {
   const batchIdNum = Number(payload && payload.batchId);
   const batchId = Number.isFinite(batchIdNum) ? Math.trunc(batchIdNum) : null;
@@ -278,8 +282,8 @@ async function writeProSignSqlLog(pool, payload) {
     .input('sqlText', sql.NVarChar(4000), sqlText)
     .input('paramsJson', sql.NVarChar(4000), paramsJson)
     .query(
-      `INSERT INTO dbo.pro_sign_sql_logs (batch_id, user_code, endpoint, sql_text, params_json)
-       VALUES (@batchId, @userCode, @endpoint, @sqlText, @paramsJson)`
+      `INSERT INTO dbo.pro_sign_sql_logs (batch_id, user_code, endpoint, sql_text, params_json, created_at)
+       VALUES (@batchId, @userCode, @endpoint, @sqlText, @paramsJson, ${PRO_SIGN_SQL_LOG_CREATED_AT_EXPR})`
     );
 }
 
