@@ -51,6 +51,12 @@ async function main() {
     'sql',
     'migrate-returnpro-pick-logs.sql'
   );
+  const migrateProSignSqlLogs = path.join(
+    __dirname,
+    '..',
+    'sql',
+    'migrate-pro-sign-sql-logs.sql'
+  );
 
   await pool.request().query(fs.readFileSync(schemaPath, 'utf8'));
   await pool.request().query(fs.readFileSync(migrateReportCols, 'utf8'));
@@ -61,6 +67,7 @@ async function main() {
   await pool.request().query(fs.readFileSync(migrateXOnlineSign, 'utf8'));
   await pool.request().query(fs.readFileSync(migrateVoiceLogs, 'utf8'));
   await pool.request().query(fs.readFileSync(migrateReturnProPickLogs, 'utf8'));
+  await pool.request().query(fs.readFileSync(migrateProSignSqlLogs, 'utf8'));
   await pool.request().query(fs.readFileSync(seedPath, 'utf8'));
 
   const ord = await pool.request().query(

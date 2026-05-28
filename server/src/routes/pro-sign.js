@@ -239,6 +239,50 @@ function parseSignAtFromBody(body) {
   return Number.isNaN(d.getTime()) ? new Date() : d;
 }
 
+const PRO_SIGN_BATCH_SUBMIT_SQL_TEMPLATE = `INSERT INTO dbo.work_reports (order_id, operation_id, user_id, reporter_user_code, good_qty, scrap_qty, remark, batch_line_id)
+VALUES (@orderId, @operationId, @userId, @userCode, @goodQty, @scrapQty, @remark, @lineId)`;
+
+async function writeProSignSqlLog(pool, payload) {
+  const batchIdNum = Number(payload && payload.batchId);
+  const batchId = Number.isFinite(batchIdNum) ? Math.trunc(batchIdNum) : null;
+  const userCode =
+    payload && payload.userCode != null && String(payload.userCode).trim() !== ''
+      ? String(payload.userCode).trim().slice(0, 64)
+      : null;
+  const endpoint =
+    payload && payload.endpoint != null && String(payload.endpoint).trim() !== ''
+      ? String(payload.endpoint).trim().slice(0, 128)
+      : null;
+  const sqlText =
+    payload && payload.sqlText != null && String(payload.sqlText).trim() !== ''
+      ? String(payload.sqlText).trim().slice(0, 4000)
+      : null;
+
+  let paramsJson = null;
+  if (payload && payload.params !== undefined) {
+    try {
+      paramsJson = JSON.stringify(payload.params);
+    } catch (_) {
+      paramsJson = null;
+    }
+  }
+  if (paramsJson && paramsJson.length > 4000) {
+    paramsJson = paramsJson.slice(0, 4000);
+  }
+
+  await pool
+    .request()
+    .input('batchId', sql.BigInt, batchId != null ? BigInt(batchId) : null)
+    .input('userCode', sql.NVarChar(64), userCode)
+    .input('endpoint', sql.NVarChar(128), endpoint)
+    .input('sqlText', sql.NVarChar(4000), sqlText)
+    .input('paramsJson', sql.NVarChar(4000), paramsJson)
+    .query(
+      `INSERT INTO dbo.pro_sign_sql_logs (batch_id, user_code, endpoint, sql_text, params_json)
+       VALUES (@batchId, @userCode, @endpoint, @sqlText, @paramsJson)`
+    );
+}
+
 function normalizeOperatorCodesForDb(body, userCode) {
   let arr = body && body.operatorCodes;
   if (!Array.isArray(arr)) arr = [];
@@ -1169,6 +1213,26 @@ async function proSignRoutes(fastify) {
       }
 
       const pool = await getPool();
+      try {
+        await writeProSignSqlLog(pool, {
+          batchId,
+          userCode,
+          endpoint: '/pro-sign/batches/:id/submit',
+          sqlText: PRO_SIGN_BATCH_SUBMIT_SQL_TEMPLATE,
+          params: {
+            lineCount: Array.isArray(lines) ? lines.length : 0,
+            sample: Array.isArray(lines)
+              ? lines.slice(0, 5).map((item) => ({
+                  lineId: Number(item && item.lineId),
+                  goodQty: Number(item && item.goodQty),
+                  scrapQty: Number(item && item.scrapQty ?? 0),
+                }))
+              : [],
+          },
+        });
+      } catch (logErr) {
+        request.log.warn({ err: logErr }, '[pro-sign] 写 SQL 日志失败，已忽略');
+      }
       const transaction = new sql.Transaction(pool);
 
       try {
