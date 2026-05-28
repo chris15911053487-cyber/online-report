@@ -149,7 +149,7 @@ export default function ProSignReceiveView() {
 
   const buildOnlineSignBody = useCallback(
     (signTypeForSave: string, remarksStr: string) => {
-      const signAt = new Date().toISOString()
+      const signAt = nowLabel()
       const finalOperators =
         operatorCodesArr.length > 0
           ? operatorCodesArr

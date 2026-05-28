@@ -1,6 +1,10 @@
 const { getPool, sql } = require('../db');
 const { userCodeToStableBigInt } = require('../ousr-auth');
 const {
+  toChinaLocalDateTimeForSql,
+  SQL_CHINA_LOCAL_NOW_EXPR,
+} = require('../china-datetime');
+const {
   detectTemplateKind,
   normalizeTemplate,
   parseFilterSchemaJson,
@@ -234,17 +238,11 @@ function parseTooworDisplayFromRow(row) {
 
 function parseSignAtFromBody(body) {
   const raw = body && body.signAt;
-  if (raw == null || raw === '') return new Date();
-  const d = new Date(String(raw));
-  return Number.isNaN(d.getTime()) ? new Date() : d;
+  return toChinaLocalDateTimeForSql(raw == null || raw === '' ? new Date() : raw);
 }
 
 const PRO_SIGN_BATCH_SUBMIT_SQL_TEMPLATE = `INSERT INTO dbo.work_reports (order_id, operation_id, user_id, reporter_user_code, good_qty, scrap_qty, remark, batch_line_id)
 VALUES (@orderId, @operationId, @userId, @userCode, @goodQty, @scrapQty, @remark, @lineId)`;
-
-/** 报工 SQL 审计日志时间与界面一致：存中国本地时间（非 UTC） */
-const PRO_SIGN_SQL_LOG_CREATED_AT_EXPR =
-  `CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'China Standard Time' AS DATETIME2(3))`;
 
 async function writeProSignSqlLog(pool, payload) {
   const batchIdNum = Number(payload && payload.batchId);
@@ -283,7 +281,7 @@ async function writeProSignSqlLog(pool, payload) {
     .input('paramsJson', sql.NVarChar(4000), paramsJson)
     .query(
       `INSERT INTO dbo.pro_sign_sql_logs (batch_id, user_code, endpoint, sql_text, params_json, created_at)
-       VALUES (@batchId, @userCode, @endpoint, @sqlText, @paramsJson, ${PRO_SIGN_SQL_LOG_CREATED_AT_EXPR})`
+       VALUES (@batchId, @userCode, @endpoint, @sqlText, @paramsJson, ${SQL_CHINA_LOCAL_NOW_EXPR})`
     );
 }
 
@@ -299,9 +297,7 @@ function normalizeOperatorCodesForDb(body, userCode) {
 
 function parseOptionalLineDateTime(v) {
   if (v == null || v === '') return null;
-  if (v instanceof Date && !Number.isNaN(v.getTime())) return v;
-  const d = new Date(String(v));
-  return Number.isNaN(d.getTime()) ? null : d;
+  return toChinaLocalDateTimeForSql(v);
 }
 
 /**
@@ -364,7 +360,9 @@ async function insertXOnlineSignHeaderAndGetDocEntry(transaction, header, mode) 
     header && header.stepName != null && String(header.stepName).trim() !== ''
       ? String(header.stepName).trim().slice(0, 200)
       : null;
-  const signAt = header && header.signAt instanceof Date ? header.signAt : new Date();
+  const signAt = toChinaLocalDateTimeForSql(
+    header && header.signAt != null && header.signAt !== '' ? header.signAt : new Date()
+  );
   const operatorCodes =
     header && header.operatorCodes != null && String(header.operatorCodes).trim() !== ''
       ? String(header.operatorCodes).trim().slice(0, 500)

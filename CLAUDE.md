@@ -86,6 +86,7 @@ cd frontend && npm run lint
 
 ## 开发约定
 
+- **中国本地时间**：界面与 SQL `DATETIME2` 墙钟时间须一致（UTC+8）。禁止对用户可见字段用 `toISOString()` / 裸 `Date` 绑库 / `SYSUTCDATETIME()` 默认值。统一用 `server/src/china-datetime.js`（`toChinaLocalDateTimeForSql`、`SQL_CHINA_LOCAL_NOW_EXPR`）。详见 `.cursor/rules/china-local-datetime.mdc`。
 - 路由文件在 `server/src/routes/`，以 Fastify plugin 函数导出：`async function xxxRoutes(fastify) { ... }; module.exports = xxxRoutes;`
 - 数据库迁移脚本在 `server/sql/`
 - 前端路由不使用 React Router，通过 Zustand `currentView` 状态切换视图

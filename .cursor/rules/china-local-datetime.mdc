@@ -1,0 +1,53 @@
+---
+description: 中国本地时间写入 SQL 与界面展示一致，避免 UTC 差 8 小时
+alwaysApply: true
+---
+
+# 中国本地时间（墙钟）约定
+
+本系统面向国内工厂，**用户界面显示的是中国本地时间（UTC+8）**。SQL Server 的 `DATETIME2`（无时区）列里存的数字必须与界面一致，否则会出现「界面 23:18、库里 15:18」差 8 小时的问题。
+
+## 禁止
+
+- 前端向「要落库、且用户会对照界面看」的字段传 `new Date().toISOString()`（UTC）
+- 后端把 `Date` 直接绑到 `sql.DateTime2` 而不做时区转换（Node 进程常为 UTC）
+- 新建「给用户看的时间」列用 `SYSUTCDATETIME()` 作 DEFAULT（除非明确只做内部 UTC 审计且界面会换算）
+
+## 必须
+
+### 后端（Node → SQL）
+
+使用 `server/src/china-datetime.js`：
+
+```js
+const { toChinaLocalDateTimeForSql, SQL_CHINA_LOCAL_NOW_EXPR } = require('../china-datetime');
+
+req.input('signAt', sql.DateTime2, toChinaLocalDateTimeForSql(body.signAt));
+// SQL DEFAULT / INSERT 表达式：
+// ${SQL_CHINA_LOCAL_NOW_EXPR}
+```
+
+### 前端（提交给后端）
+
+- 与界面时钟一致：本地字符串 `YYYY-MM-DD HH:mm:ss`（见 `ProSignReceiveView` 的 `nowLabel()`）
+- 或传 ISO，由后端 `toChinaLocalDateTimeForSql` 转换；**不要**假设后端会按 UTC 存
+
+### 新建迁移 / 表
+
+审计、报工、签收等「人对照界面查」的时间列：
+
+```sql
+DEFAULT (CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'China Standard Time' AS DATETIME2(3)))
+```
+
+## 已落地示例
+
+- `X_ONLINE_SIGN.SignAt`、`X_ONLINE_SIGN1.LastStepTime` → `pro-sign.js` + `toChinaLocalDateTimeForSql`
+- `pro_sign_sql_logs.created_at` → `SQL_CHINA_LOCAL_NOW_EXPR`
+
+## 例外
+
+- `/health` 的 `ts`、纯 API 协议字段可用 ISO UTC
+- `X_report_batch` 等批次计时若仍用 `SYSUTCDATETIME()`，改前需评估全链路；新功能优先中国本地或统一迁移
+
+新增任何「写入 SQL 且用户会对照界面看时间」的功能前，先读本规则与 `china-datetime.js`。
