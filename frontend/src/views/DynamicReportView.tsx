@@ -757,6 +757,14 @@ export default function DynamicReportView() {
       return
     }
 
+    const statusVal = proSignStatusField
+      ? String(getFormFieldValue(formValues, proSignStatusField.name) ?? '').trim()
+      : ''
+    if (proSignStatusField && !statusVal) {
+      showToast('请先选择状态')
+      return
+    }
+
     setMergeLoading(true)
     try {
       const lines = selected.map((s) => ({
@@ -765,7 +773,7 @@ export default function DynamicReportView() {
       }))
       const data = await apiFetch('/pro-sign/toowor-sign-detail', {
         method: 'POST',
-        body: JSON.stringify({ lines }),
+        body: JSON.stringify({ lines, status: statusVal }),
       })
       openProSignReceive(selected, data?.lineResults ?? [], stickyMergeButtonLabel)
     } catch (e: any) {

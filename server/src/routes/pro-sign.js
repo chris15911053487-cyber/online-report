@@ -741,6 +741,7 @@ async function proSignRoutes(fastify) {
 
   /**
    * 合并报工前：按行调用 SAP/业务库存储过程 Z_ONLINE_TOOWORSIGN_DETAIL
+   * 参数：@UserCode、@DocEntry、@SetupCode、@Status（列表查询界面 Status 筛选项 code）
    * 首列值为 0 时视为失败，并返回 msg；否则通过预检。
    * 成功时从首行解析 display：BaseEntry/工单名（非 DocEntry 主键）与 Setup*、ItemName、数量；数量仅列名
    * Quantity 匹配。中文别名列如工单号、工序编码 等。完整 recordsets 随 lineResults 一并返回。
@@ -753,12 +754,21 @@ async function proSignRoutes(fastify) {
       if (!userCode) {
         return reply.code(401).send({ error: '无效登录', code: 'UNAUTHORIZED' });
       }
-      const { lines } = request.body || {};
+      const body = request.body || {};
+      const { lines } = body;
       if (!Array.isArray(lines) || lines.length === 0) {
         return reply.code(400).send({ error: '请至少选择一行明细', code: 'PRO_SIGN_LINES_EMPTY' });
       }
       if (lines.length > MAX_BATCH_LINES) {
         return reply.code(400).send({ error: `明细行不能超过 ${MAX_BATCH_LINES} 条`, code: 'PRO_SIGN_TOO_MANY' });
+      }
+      const statusRaw = body.status != null ? body.status : body.Status;
+      const status = String(statusRaw != null ? statusRaw : '').trim().slice(0, 20);
+      if (!status) {
+        return reply.code(400).send({
+          error: '缺少查询状态 Status',
+          code: 'TOOWOR_STATUS_MISSING',
+        });
       }
 
       const pool = await getPool();
@@ -786,7 +796,10 @@ async function proSignRoutes(fastify) {
             .input('UserCode', sql.NVarChar(50), userCode.slice(0, 50))
             .input('DocEntry', sql.NVarChar(50), docEntry.slice(0, 50))
             .input('SetupCode', sql.NVarChar(50), stepCode.slice(0, 50))
-            .query('EXEC dbo.Z_ONLINE_TOOWORSIGN_DETAIL @UserCode, @DocEntry, @SetupCode');
+            .input('Status', sql.NVarChar(20), status)
+            .query(
+              'EXEC dbo.Z_ONLINE_TOOWORSIGN_DETAIL @UserCode, @DocEntry, @SetupCode, @Status'
+            );
         } catch (e) {
           request.log.error({ e }, 'Z_ONLINE_TOOWORSIGN_DETAIL');
           return reply.code(500).send({
