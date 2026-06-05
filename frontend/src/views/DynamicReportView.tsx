@@ -736,24 +736,56 @@ export default function DynamicReportView() {
   const handleMerge = async () => {
     if (mergeLoading) return
     const rows = getVisibleRows()
-    const selected: Array<{ orderId: number; operationId: string; row: Record<string, any> }> = []
+    const selected: Array<{
+      orderId: number
+      operationId: string
+      baseOType: string
+      baseOEntry: string
+      baseOLine: string
+      row: Record<string, any>
+    }> = []
 
     for (const idx of selectedRows) {
       const row = rows[idx]
       if (!row) continue
       const orderId = getRowValue(row, 'DocEntry')
       const opRaw = getRowValue(row, 'StepCode')
-      if (orderId == null || opRaw == null || orderId === '' || opRaw === '') continue
+      const baseOType = getRowValue(row, 'BaseOType')
+      const baseOEntry = getRowValue(row, 'BaseOEntry')
+      const baseOLine = getRowValue(row, 'BaseOLine')
+      if (
+        orderId == null ||
+        opRaw == null ||
+        baseOType == null ||
+        baseOEntry == null ||
+        baseOLine == null ||
+        orderId === '' ||
+        opRaw === '' ||
+        baseOType === '' ||
+        baseOEntry === '' ||
+        baseOLine === ''
+      ) {
+        continue
+      }
       let stepStr = String(opRaw).trim()
       if (!stepStr) continue
       if (stepStr.length > 50) stepStr = stepStr.slice(0, 50)
       const oN = Number(orderId)
       if (!Number.isFinite(oN)) continue
-      selected.push({ orderId: oN, operationId: stepStr, row })
+      selected.push({
+        orderId: oN,
+        operationId: stepStr,
+        baseOType: String(baseOType).trim(),
+        baseOEntry: String(baseOEntry).trim(),
+        baseOLine: String(baseOLine).trim(),
+        row,
+      })
     }
 
     if (selected.length === 0) {
-      showToast('请先勾选至少一行（需含有效 DocEntry 和 StepCode）')
+      showToast(
+        '请先勾选至少一行（需含有效 DocEntry、StepCode、BaseOType、BaseOEntry、BaseOLine）',
+      )
       return
     }
 
@@ -770,6 +802,9 @@ export default function DynamicReportView() {
       const lines = selected.map((s) => ({
         docEntry: String(s.orderId),
         stepCode: String(s.operationId),
+        baseOType: s.baseOType,
+        baseOEntry: s.baseOEntry,
+        baseOLine: s.baseOLine,
       }))
       const data = await apiFetch('/pro-sign/toowor-sign-detail', {
         method: 'POST',

@@ -741,7 +741,7 @@ async function proSignRoutes(fastify) {
 
   /**
    * 合并报工前：按行调用 SAP/业务库存储过程 Z_ONLINE_TOOWORSIGN_DETAIL
-   * 参数：@UserCode、@DocEntry、@SetupCode、@Status（列表查询界面 Status 筛选项 code）
+   * 参数：@UserCode、@DocEntry、@SetupCode、@Status、@BaseOType、@BaseOEntry、@BaseOLine
    * 首列值为 0 时视为失败，并返回 msg；否则通过预检。
    * 成功时从首行解析 display：BaseEntry/工单名（非 DocEntry 主键）与 Setup*、ItemName、数量；数量仅列名
    * Quantity 匹配。中文别名列如工单号、工序编码 等。完整 recordsets 随 lineResults 一并返回。
@@ -783,9 +783,30 @@ async function proSignRoutes(fastify) {
               ? line.SetupCode
               : ''
         ).trim();
-        if (!docEntry || !stepCode) {
+        const baseOType = String(
+          line.baseOType != null
+            ? line.baseOType
+            : line.BaseOType != null
+              ? line.BaseOType
+              : ''
+        ).trim();
+        const baseOEntry = String(
+          line.baseOEntry != null
+            ? line.baseOEntry
+            : line.BaseOEntry != null
+              ? line.BaseOEntry
+              : ''
+        ).trim();
+        const baseOLine = String(
+          line.baseOLine != null
+            ? line.baseOLine
+            : line.BaseOLine != null
+              ? line.BaseOLine
+              : ''
+        ).trim();
+        if (!docEntry || !stepCode || !baseOType || !baseOEntry || !baseOLine) {
           return reply.code(400).send({
-            error: '每行须包含 docEntry 与 stepCode',
+            error: '每行须包含 docEntry、stepCode、baseOType、baseOEntry、baseOLine',
             code: 'TOOWOR_BAD_LINE',
           });
         }
@@ -797,8 +818,11 @@ async function proSignRoutes(fastify) {
             .input('DocEntry', sql.NVarChar(50), docEntry.slice(0, 50))
             .input('SetupCode', sql.NVarChar(50), stepCode.slice(0, 50))
             .input('Status', sql.NVarChar(20), status)
+            .input('BaseOType', sql.NVarChar(20), baseOType.slice(0, 20))
+            .input('BaseOEntry', sql.NVarChar(50), baseOEntry.slice(0, 50))
+            .input('BaseOLine', sql.NVarChar(20), baseOLine.slice(0, 20))
             .query(
-              'EXEC dbo.Z_ONLINE_TOOWORSIGN_DETAIL @UserCode, @DocEntry, @SetupCode, @Status'
+              'EXEC dbo.Z_ONLINE_TOOWORSIGN_DETAIL @UserCode, @DocEntry, @SetupCode, @Status, @BaseOType, @BaseOEntry, @BaseOLine'
             );
         } catch (e) {
           request.log.error({ e }, 'Z_ONLINE_TOOWORSIGN_DETAIL');
