@@ -299,11 +299,21 @@ export function proSignLineDisplay(mergeItem: any, lineResult: any) {
   const baseOEntry = pickMergeOrRowField('baseOEntry', 'BaseOEntry')
   const baseOLine = pickMergeOrRowField('baseOLine', 'BaseOLine')
 
+  let gxLineIdDisp = '—'
+  if (d.gxLineId != null && d.gxLineId !== '') {
+    const gn = Math.trunc(Number(d.gxLineId))
+    if (Number.isFinite(gn)) gxLineIdDisp = String(gn)
+  } else {
+    const gv = getRowValue(row, 'GXLineId')
+    if (gv != null && gv !== '') gxLineIdDisp = String(gv).trim()
+  }
+
   return {
     baseEntry,
     baseOType: baseOType || '—',
     baseOEntry: baseOEntry || '—',
     baseOLine: baseOLine || '—',
+    gxLineId: gxLineIdDisp,
     stepCode: stepCodeDisp,
     stepName: stepNameDisp,
     quantity: qNum,

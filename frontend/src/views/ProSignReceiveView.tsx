@@ -14,6 +14,7 @@ interface LineEntry {
   baseOType: string
   baseOEntry: string
   baseOLine: string
+  gxLineId: string
   stepCode: string
   stepName: string
   quantity: number
@@ -172,6 +173,7 @@ export default function ProSignReceiveView() {
           baseOType: l.baseOType === '—' ? '' : l.baseOType,
           baseOEntry: l.baseOEntry === '—' ? '' : l.baseOEntry,
           baseOLine: l.baseOLine === '—' ? '' : l.baseOLine,
+          gxLineId: l.gxLineId === '—' ? '' : l.gxLineId,
           quantity: quantities[i] ?? l.quantity,
           lastStepCode: l.lastStepCode === '—' ? '' : l.lastStepCode,
           lastStepName: l.lastStepName === '—' ? '' : l.lastStepName,
@@ -307,6 +309,7 @@ export default function ProSignReceiveView() {
               <span>来源类型：{line.baseOType}</span>
               <span>来源单号：{line.baseOEntry}</span>
               <span>来源行号：{line.baseOLine}</span>
+              <span>工序行号：{line.gxLineId}</span>
               <span>批次：{line.pc || '—'}</span>
               <span>物料名称：{line.itemName}</span>
               <span>上道工序编码：{line.lastStepCode}</span>
@@ -415,6 +418,7 @@ export default function ProSignReceiveView() {
                 <div key={idx} className="rounded-lg bg-slate-50 p-3 text-xs space-y-0.5">
                   <p className="font-medium text-sm">工单 {line.baseEntry}</p>
                   <p>来源：{line.baseOType} / {line.baseOEntry} / {line.baseOLine}</p>
+                  <p>工序行号：{line.gxLineId}</p>
                   <p>批次：{line.pc || '—'} ｜ 物料名称：{line.itemName}</p>
                   <p>上道工序：{line.lastStepCode} / {line.lastStepName} / {line.lastStepTimeLabel}</p>
                   <p>数量：{quantities[idx] ?? line.quantity}</p>

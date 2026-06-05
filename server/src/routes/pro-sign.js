@@ -154,6 +154,9 @@ const TOOWOR_LAST_STEP_OPERATOR = [
 /** 预检首行：PC / 批次（列名不区分大小写） */
 const TOOWOR_PC = ['pc', '批次', 'batchno', 'batch', 'batchcode', 'lot', 'lotno', 'charg', 'chargenr'];
 
+/** 预检首行：工序行号 GXLineId（列名不区分大小写） */
+const TOOWOR_GX_LINE_ID = ['gxlineid', '工序行号', 'gx_line_id'];
+
 /** 预检首行数量列：Quantity 及常见别名（列名不区分大小写） */
 const TOOWOR_QUANTITY_NAMES = [
   'quantity',
@@ -175,6 +178,24 @@ function pickTooworQuantityFromRow(row, lowerKeyMap) {
     if (Object.prototype.hasOwnProperty.call(lowerKeyMap, lk)) {
       const n = valueToNumberOrNull(row[lowerKeyMap[lk]]);
       if (n != null) return n;
+    }
+  }
+  return null;
+}
+
+function pickTooworIntFromRow(row, lowerKeyMap, candidates) {
+  if (!row || !lowerKeyMap) return null;
+  for (const name of candidates) {
+    const lk = name.toLowerCase().trim();
+    if (Object.prototype.hasOwnProperty.call(lowerKeyMap, lk)) {
+      const n = valueToNumberOrNull(row[lowerKeyMap[lk]]);
+      if (n != null && Number.isFinite(n)) return Math.trunc(n);
+    }
+  }
+  for (const name of candidates) {
+    if (Object.prototype.hasOwnProperty.call(row, name)) {
+      const n = valueToNumberOrNull(row[name]);
+      if (n != null && Number.isFinite(n)) return Math.trunc(n);
     }
   }
   return null;
@@ -219,6 +240,7 @@ function parseTooworDisplayFromRow(row) {
       lastStepTime: null,
       lastStepOperator: null,
       pc: null,
+      gxLineId: null,
     };
   }
   const lower = buildLowerKeyMap(row);
@@ -233,6 +255,7 @@ function parseTooworDisplayFromRow(row) {
     lastStepTime: pickTooworFieldFromRow(row, lower, TOOWOR_LAST_STEP.lastStepTime),
     lastStepOperator: pickTooworFieldFromRow(row, lower, TOOWOR_LAST_STEP_OPERATOR),
     pc: pickTooworFieldFromRow(row, lower, TOOWOR_PC),
+    gxLineId: pickTooworIntFromRow(row, lower, TOOWOR_GX_LINE_ID),
   };
 }
 
@@ -313,6 +336,13 @@ function parseOnlineSignBaseOFields(line) {
   const baseOLine =
     baseOLineRaw != null && baseOLineRaw !== '' ? Math.trunc(Number(baseOLineRaw)) : NaN;
   return { baseOType, baseOEntry, baseOLine };
+}
+
+function parseOnlineSignGxLineId(line) {
+  const raw = line.gxLineId != null ? line.gxLineId : line.GXLineId;
+  if (raw == null || raw === '') return NaN;
+  const n = Math.trunc(Number(raw));
+  return Number.isFinite(n) ? n : NaN;
 }
 
 /**
@@ -758,8 +788,8 @@ async function proSignRoutes(fastify) {
    * 合并报工前：按行调用 SAP/业务库存储过程 Z_ONLINE_TOOWORSIGN_DETAIL
    * 参数：@UserCode、@DocEntry、@SetupCode、@Status、@BaseOType、@BaseOEntry、@BaseOLine
    * 首列值为 0 时视为失败，并返回 msg；否则通过预检。
-   * 成功时从首行解析 display：BaseEntry/工单名（非 DocEntry 主键）与 Setup*、ItemName、数量；数量仅列名
-   * Quantity 匹配。中文别名列如工单号、工序编码 等。完整 recordsets 随 lineResults 一并返回。
+   * 成功时从首行解析 display：BaseEntry/工单名（非 DocEntry 主键）与 Setup*、ItemName、数量、GXLineId；
+   * 数量仅列名 Quantity 匹配。中文别名列如工单号、工序编码 等。完整 recordsets 随 lineResults 一并返回。
    */
   fastify.post(
     '/pro-sign/toowor-sign-detail',
@@ -1035,11 +1065,19 @@ async function proSignRoutes(fastify) {
             .trim()
             .slice(0, 500);
           const { baseOType, baseOEntry, baseOLine } = parseOnlineSignBaseOFields(line);
+          const gxLineId = parseOnlineSignGxLineId(line);
           if (!baseOType || !Number.isInteger(baseOEntry) || !Number.isInteger(baseOLine)) {
             await transaction.rollback();
             return reply.code(400).send({
               error: '每行须包含有效的 baseOType、baseOEntry、baseOLine',
               code: 'ONLINE_SIGN_BAD_BASE_O',
+            });
+          }
+          if (!Number.isInteger(gxLineId)) {
+            await transaction.rollback();
+            return reply.code(400).send({
+              error: '每行须包含有效的 gxLineId',
+              code: 'ONLINE_SIGN_BAD_GX_LINE',
             });
           }
           await new sql.Request(transaction)
@@ -1055,9 +1093,10 @@ async function proSignRoutes(fastify) {
             .input('bot', sql.NVarChar(20), baseOType)
             .input('boe', sql.Int, baseOEntry)
             .input('bol', sql.Int, baseOLine)
+            .input('gxl', sql.Int, gxLineId)
             .query(
-              `INSERT INTO dbo.X_ONLINE_SIGN1 (DocEntry, LineId, BaseEntry, Quantity, LastStepCode, LastStepName, LastStepTime, PC, ItemName, BaseOType, BaseOEntry, BaseOLine)
-               VALUES (@de, @lineId, @be, @qty, @lsc, @lsn, @lst, @pc, @itemName, @bot, @boe, @bol)`
+              `INSERT INTO dbo.X_ONLINE_SIGN1 (DocEntry, LineId, BaseEntry, Quantity, LastStepCode, LastStepName, LastStepTime, PC, ItemName, BaseOType, BaseOEntry, BaseOLine, GXLineId)
+               VALUES (@de, @lineId, @be, @qty, @lsc, @lsn, @lst, @pc, @itemName, @bot, @boe, @bol, @gxl)`
             );
         }
         await transaction.commit();
