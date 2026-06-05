@@ -300,6 +300,21 @@ function parseOptionalLineDateTime(v) {
   return toChinaLocalDateTimeForSql(v);
 }
 
+function parseOnlineSignBaseOFields(line) {
+  const baseOType = String(
+    line.baseOType != null ? line.baseOType : line.BaseOType != null ? line.BaseOType : ''
+  )
+    .trim()
+    .slice(0, 20);
+  const baseOEntryRaw = line.baseOEntry != null ? line.baseOEntry : line.BaseOEntry;
+  const baseOLineRaw = line.baseOLine != null ? line.baseOLine : line.BaseOLine;
+  const baseOEntry =
+    baseOEntryRaw != null && baseOEntryRaw !== '' ? Math.trunc(Number(baseOEntryRaw)) : NaN;
+  const baseOLine =
+    baseOLineRaw != null && baseOLineRaw !== '' ? Math.trunc(Number(baseOLineRaw)) : NaN;
+  return { baseOType, baseOEntry, baseOLine };
+}
+
 /**
  * 从 mssql 查询结果中解析 DocEntry（多结果集时取含行的集合；列名不区分大小写）
  */
@@ -1019,6 +1034,14 @@ async function proSignRoutes(fastify) {
           const itemName = String(itemNameRaw)
             .trim()
             .slice(0, 500);
+          const { baseOType, baseOEntry, baseOLine } = parseOnlineSignBaseOFields(line);
+          if (!baseOType || !Number.isInteger(baseOEntry) || !Number.isInteger(baseOLine)) {
+            await transaction.rollback();
+            return reply.code(400).send({
+              error: '每行须包含有效的 baseOType、baseOEntry、baseOLine',
+              code: 'ONLINE_SIGN_BAD_BASE_O',
+            });
+          }
           await new sql.Request(transaction)
             .input('de', sql.Int, de)
             .input('lineId', sql.Int, lineId)
@@ -1029,9 +1052,12 @@ async function proSignRoutes(fastify) {
             .input('lst', sql.DateTime2, lastStepTime)
             .input('pc', sql.NVarChar(200), pc || null)
             .input('itemName', sql.NVarChar(500), itemName || null)
+            .input('bot', sql.NVarChar(20), baseOType)
+            .input('boe', sql.Int, baseOEntry)
+            .input('bol', sql.Int, baseOLine)
             .query(
-              `INSERT INTO dbo.X_ONLINE_SIGN1 (DocEntry, LineId, BaseEntry, Quantity, LastStepCode, LastStepName, LastStepTime, PC, ItemName)
-               VALUES (@de, @lineId, @be, @qty, @lsc, @lsn, @lst, @pc, @itemName)`
+              `INSERT INTO dbo.X_ONLINE_SIGN1 (DocEntry, LineId, BaseEntry, Quantity, LastStepCode, LastStepName, LastStepTime, PC, ItemName, BaseOType, BaseOEntry, BaseOLine)
+               VALUES (@de, @lineId, @be, @qty, @lsc, @lsn, @lst, @pc, @itemName, @bot, @boe, @bol)`
             );
         }
         await transaction.commit();

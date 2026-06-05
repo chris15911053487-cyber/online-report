@@ -287,8 +287,23 @@ export function proSignLineDisplay(mergeItem: any, lineResult: any) {
     return '—'
   })()
 
+  const pickMergeOrRowField = (mergeKey: string, rowCol: string) => {
+    const fromMerge = mergeItem?.[mergeKey]
+    if (fromMerge != null && String(fromMerge).trim() !== '') return String(fromMerge).trim()
+    const fromRow = getRowValue(row, rowCol)
+    if (fromRow != null && fromRow !== '') return String(fromRow).trim()
+    return ''
+  }
+
+  const baseOType = pickMergeOrRowField('baseOType', 'BaseOType')
+  const baseOEntry = pickMergeOrRowField('baseOEntry', 'BaseOEntry')
+  const baseOLine = pickMergeOrRowField('baseOLine', 'BaseOLine')
+
   return {
     baseEntry,
+    baseOType: baseOType || '—',
+    baseOEntry: baseOEntry || '—',
+    baseOLine: baseOLine || '—',
     stepCode: stepCodeDisp,
     stepName: stepNameDisp,
     quantity: qNum,
