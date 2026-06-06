@@ -7,8 +7,13 @@ const CHINA_TZ = 'Asia/Shanghai';
 
 const CHINA_STANDARD_TIME_SQL = `'China Standard Time'`;
 
-/** SQL 表达式：当前中国本地时间，用于 DEFAULT / INSERT */
-const SQL_CHINA_LOCAL_NOW_EXPR = `CAST(SYSDATETIMEOFFSET() AT TIME ZONE ${CHINA_STANDARD_TIME_SQL} AS DATETIME2(3))`;
+/**
+ * SQL 表达式：当前中国本地时间，用于 DEFAULT / INSERT。
+ * 注意：生产库为 SQL Server 2012，不支持 `AT TIME ZONE`（2016+ 才有）。
+ * 中国自 1991 年起无夏令时，固定 UTC+8，故用 DATEADD(HOUR, 8, SYSUTCDATETIME())
+ * 得到与 `... AT TIME ZONE 'China Standard Time'` 完全一致的墙钟时间，且全版本兼容。
+ */
+const SQL_CHINA_LOCAL_NOW_EXPR = `DATEADD(HOUR, 8, SYSUTCDATETIME())`;
 
 function formatInstantChinaLocal(d) {
   const parts = new Intl.DateTimeFormat('en-GB', {

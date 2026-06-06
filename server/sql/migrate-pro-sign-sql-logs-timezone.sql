@@ -13,6 +13,6 @@ BEGIN
 
   ALTER TABLE dbo.pro_sign_sql_logs
     ADD CONSTRAINT DF_pro_sign_sql_logs_created
-    DEFAULT (CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'China Standard Time' AS DATETIME2(3)))
+    DEFAULT (DATEADD(HOUR, 8, SYSUTCDATETIME()))
     FOR created_at;
 END;

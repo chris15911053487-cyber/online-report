@@ -8,7 +8,7 @@ BEGIN
     endpoint NVARCHAR(128) NULL,
     sql_text NVARCHAR(4000) NULL,
     params_json NVARCHAR(4000) NULL,
-    created_at DATETIME2(3) NOT NULL CONSTRAINT DF_pro_sign_sql_logs_created DEFAULT (CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'China Standard Time' AS DATETIME2(3)))
+    created_at DATETIME2(3) NOT NULL CONSTRAINT DF_pro_sign_sql_logs_created DEFAULT (DATEADD(HOUR, 8, SYSUTCDATETIME()))
   );
   CREATE INDEX idx_pssl_created ON dbo.pro_sign_sql_logs (created_at);
   CREATE INDEX idx_pssl_batch ON dbo.pro_sign_sql_logs (batch_id);

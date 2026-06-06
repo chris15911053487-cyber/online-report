@@ -10,7 +10,7 @@ BEGIN
     is_builtin BIT NOT NULL CONSTRAINT DF_app_roles_builtin DEFAULT (0),
     created_at DATETIME2(3) NOT NULL
       CONSTRAINT DF_app_roles_created DEFAULT (
-        CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'China Standard Time' AS DATETIME2(3))
+        DATEADD(HOUR, 8, SYSUTCDATETIME())  -- 中国本地(UTC+8)；SQL2012 不支持 AT TIME ZONE
       )
   );
   CREATE INDEX idx_app_roles_sort ON dbo.app_roles (sort_order, role_key);
@@ -23,7 +23,7 @@ BEGIN
     role_key NVARCHAR(32) NOT NULL,
     created_at DATETIME2(3) NOT NULL
       CONSTRAINT DF_user_roles_created DEFAULT (
-        CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'China Standard Time' AS DATETIME2(3))
+        DATEADD(HOUR, 8, SYSUTCDATETIME())  -- 中国本地(UTC+8)；SQL2012 不支持 AT TIME ZONE
       ),
     CONSTRAINT PK_user_roles PRIMARY KEY (user_code, role_key)
   );

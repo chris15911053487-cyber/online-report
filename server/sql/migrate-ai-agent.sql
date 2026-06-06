@@ -25,11 +25,11 @@ BEGIN
       CONSTRAINT DF_agent_skills_sort DEFAULT (100),
     created_at DATETIME2(3) NOT NULL
       CONSTRAINT DF_agent_skills_created DEFAULT (
-        CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'China Standard Time' AS DATETIME2(3))
+        DATEADD(HOUR, 8, SYSUTCDATETIME())  -- 中国本地(UTC+8)；SQL2012 不支持 AT TIME ZONE
       ),
     updated_at DATETIME2(3) NOT NULL
       CONSTRAINT DF_agent_skills_updated DEFAULT (
-        CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'China Standard Time' AS DATETIME2(3))
+        DATEADD(HOUR, 8, SYSUTCDATETIME())  -- 中国本地(UTC+8)；SQL2012 不支持 AT TIME ZONE
       )
   );
   CREATE INDEX idx_agent_skills_enabled ON dbo.agent_skills (enabled, sort_order, name);
@@ -47,11 +47,11 @@ BEGIN
       CONSTRAINT DF_ai_conv_title DEFAULT (N'新对话'),
     created_at DATETIME2(3) NOT NULL
       CONSTRAINT DF_ai_conv_created DEFAULT (
-        CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'China Standard Time' AS DATETIME2(3))
+        DATEADD(HOUR, 8, SYSUTCDATETIME())  -- 中国本地(UTC+8)；SQL2012 不支持 AT TIME ZONE
       ),
     updated_at DATETIME2(3) NOT NULL
       CONSTRAINT DF_ai_conv_updated DEFAULT (
-        CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'China Standard Time' AS DATETIME2(3))
+        DATEADD(HOUR, 8, SYSUTCDATETIME())  -- 中国本地(UTC+8)；SQL2012 不支持 AT TIME ZONE
       )
   );
   CREATE INDEX idx_ai_conv_user ON dbo.ai_conversations (user_code, updated_at DESC);
@@ -71,7 +71,7 @@ BEGIN
     tool_calls_json NVARCHAR(MAX) NULL,            -- 本轮工具调用审计（名称/参数摘要）
     created_at DATETIME2(3) NOT NULL
       CONSTRAINT DF_ai_msg_created DEFAULT (
-        CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'China Standard Time' AS DATETIME2(3))
+        DATEADD(HOUR, 8, SYSUTCDATETIME())  -- 中国本地(UTC+8)；SQL2012 不支持 AT TIME ZONE
       )
   );
   CREATE INDEX idx_ai_msg_conv ON dbo.ai_messages (conversation_id, id);
@@ -95,11 +95,11 @@ BEGIN
       CONSTRAINT DF_awt_enabled DEFAULT (1),
     created_at DATETIME2(3) NOT NULL
       CONSTRAINT DF_awt_created DEFAULT (
-        CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'China Standard Time' AS DATETIME2(3))
+        DATEADD(HOUR, 8, SYSUTCDATETIME())  -- 中国本地(UTC+8)；SQL2012 不支持 AT TIME ZONE
       ),
     updated_at DATETIME2(3) NOT NULL
       CONSTRAINT DF_awt_updated DEFAULT (
-        CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'China Standard Time' AS DATETIME2(3))
+        DATEADD(HOUR, 8, SYSUTCDATETIME())  -- 中国本地(UTC+8)；SQL2012 不支持 AT TIME ZONE
       )
   );
 END;
@@ -120,7 +120,7 @@ BEGIN
     detail NVARCHAR(1024) NULL,
     created_at DATETIME2(3) NOT NULL
       CONSTRAINT DF_ai_act_created DEFAULT (
-        CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'China Standard Time' AS DATETIME2(3))
+        DATEADD(HOUR, 8, SYSUTCDATETIME())  -- 中国本地(UTC+8)；SQL2012 不支持 AT TIME ZONE
       )
   );
   CREATE INDEX idx_ai_act_user ON dbo.ai_action_logs (user_code, id DESC);
@@ -141,7 +141,7 @@ BEGIN
     byte_size INT NOT NULL CONSTRAINT DF_ai_doc_size DEFAULT (0),
     created_at DATETIME2(3) NOT NULL
       CONSTRAINT DF_ai_doc_created DEFAULT (
-        CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'China Standard Time' AS DATETIME2(3))
+        DATEADD(HOUR, 8, SYSUTCDATETIME())  -- 中国本地(UTC+8)；SQL2012 不支持 AT TIME ZONE
       )
   );
   CREATE INDEX idx_ai_doc_user ON dbo.ai_documents (user_code, created_at DESC);
@@ -167,19 +167,19 @@ USING (
   UNION ALL SELECT
     N'report-query',
     N'按客户/时间等条件查询销售订单额、产量等报表数据并回答。当用户询问某客户、某时间段的金额、数量、订单等数据时启用。',
-    N'# 报表数据查询
+    N'# 报表数据查询（销售订单额）
 
 ## 工作流
-1. 从问题中提取「客户名」「时间范围（默认今年）」等条件。
-2. 若涉及客户名，先调用 lookup_customer(客户名) 解析客户编码：
+1. 从问题中提取「客户名」和「年度」（未说年度则默认今年）。
+2. 涉及客户名时，先调用 lookup_options(route_key="sales-amount", field_name="customer", keyword=客户名) 解析客户编码：
    - 0 条：告知"未找到该客户"，请用户核对名称。
-   - 1 条：仍向用户确认一次（防重名误查）。
-   - 多条：必须请用户从候选中选择编码，不要自行猜测。
-3. 客户编码确定后，调用 run_report(route_key, params) 取数。
-4. 用中文回答结果，并注明客户编码与时间范围。
+   - 1 条：仍调用 ask_user_to_choose 让用户确认一次（防重名误查）。
+   - 多条：调用 ask_user_to_choose 让用户从候选中选择，不要自行猜测。
+3. 客户编码确定后，调用 run_report(route_key="sales-amount", params_json="{\"customer\":\"<编码>\",\"year\":<年度>}") 取数。
+4. 用中文回答金额，并注明客户编码与年度。
 
 ## 注意
-- 不要自行拼写 SQL；只能通过 run_report / lookup_customer 工具取数。
+- 不要自行拼写 SQL；只能通过 run_report / lookup_options 工具取数。
 - 只回答用户有权访问的数据；无权时如实告知。',
     N'["admin"]',
     CAST(0 AS BIT),
@@ -187,15 +187,16 @@ USING (
   UNION ALL SELECT
     N'save-record',
     N'按用户要求向系统写入一条记录（如新增备注、登记单据）。当用户明确要求"保存""新增""登记""录入"某条数据时启用。',
-    N'# 单条记录保存
+    N'# 单条记录保存（AI 备注）
 
 ## 工作流
-1. 与用户确认要写入的实体（entity）与各字段值；缺字段先追问。
-2. 调用 save_record(entity, payload_json) 提交。该工具会先向用户出示预览并要求确认，用户确认后才真正写库。
+1. 与用户确认要写入的内容；当前可写实体 entity="ai-note"，字段：NoteText（备注内容，必填）、DocEntry（关联单据号，可选）。
+2. 调用 save_record(entity="ai-note", payload_json="{\"NoteText\":\"...\",\"DocEntry\":123}") 提交。
+   该工具会先向用户出示预览并要求确认，用户确认后才真正写库。
 3. 写入成功后用中文回复结果；用户取消则不写。
 
 ## 注意
-- 不要自行拼写 SQL；只能通过 save_record 工具写入，且只能写后台配置的白名单实体与字段。
+- 不要自行拼写 SQL；只能通过 save_record 工具写入后台配置的白名单实体与字段。
 - 写入前务必让用户确认（工具已内置确认步骤，不要跳过）。',
     N'["admin"]',
     CAST(0 AS BIT),
@@ -206,9 +207,10 @@ USING (
     N'# 数据导出文档
 
 ## 工作流
-1. 先用 run_report 取到用户有权访问的数据。
-2. 调用 generate_document(title, fmt, columns_json, rows_json) 生成文档（fmt 取 xlsx 或 csv）。
-3. 把工具返回的下载链接转达给用户。
+1. 先用 run_report（如 route_key="sales-amount"）取到用户有权访问的数据，得到 columns 与 rows。
+2. 调用 generate_document(title, fmt="xlsx", columns_json, rows_json) 生成文档（fmt 可选 xlsx 或 csv）。
+   columns_json 传列名数组，rows_json 传行对象数组（直接用 run_report 返回的 columns / rows）。
+3. 把工具返回的下载链接（downloadUrl）以 markdown 链接形式转达给用户。
 
 ## 注意
 - 只导出用户有权查看的数据；不要包含无权字段。',
