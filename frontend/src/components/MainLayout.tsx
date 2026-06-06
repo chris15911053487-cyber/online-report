@@ -12,6 +12,7 @@ import ProSignReceiveView from '../views/ProSignReceiveView'
 import ProSignOrderDetailView from '../views/ProSignOrderDetailView'
 import WorkRegistrationView from '../views/WorkRegistrationView'
 import AiChatView from '../views/AiChatView'
+import AiSkillsView from '../views/AiSkillsView'
 import type { ViewName } from '../types'
 import { isReturnProRoute } from '../views/ReturnProPickDetail'
 
@@ -28,6 +29,7 @@ const viewComponents: Record<string, React.ComponentType> = {
   settings: SettingsView,
   'dynamic-report': DynamicReportView,
   'menu-settings': MenuSettingsView,
+  'ai-skills': AiSkillsView,
   owor: OworView,
   orders: OrdersView,
   detail: DetailView,
@@ -51,6 +53,7 @@ function getPageTitle(
     owor: '生产订单',
     orders: '报工订单',
     'menu-settings': '菜单设置',
+    'ai-skills': 'AI Skill 管理',
     detail: '订单报工',
     'report-row-detail': '行详情',
     'work-registration': '报工登记',

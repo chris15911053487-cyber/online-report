@@ -27,7 +27,35 @@ services:
       - "${APP_PUBLISH_PORT:-3000}:3000"
     env_file:
       - ${DEPLOY_ENV_FILE:-./server/.env}
+    environment:
+      # 转发给独立 AI Agent 容器（内网服务名）；与 ai-agent 共享同一 scoped 密钥
+      - AI_AGENT_URL=http://ai-agent:8080
+      - AI_AGENT_ENABLED=${AI_AGENT_ENABLED:-true}
     # 安卓 APK：不要用宿主机 /root/…（容器内 node 用户不可读）。可挂载到 /srv/apk 并设 APK_PATH，见 server/.env.example
     # volumes:
     #   - /srv/apk/手机报工1.0.apk:/srv/apk/手机报工1.0.apk:ro
+    depends_on:
+      - ai-agent
     restart: unless-stopped
+
+  # 独立 AI Agent（Python + LangGraph）。不对公网映射端口，仅内网被 app 访问。
+  # Agent 无 DB 凭据：所有数据访问回调 app 的 /ai/agent/internal/* 并受角色门禁。
+  ai-agent:
+    image: online-report-ai-agent:1.0
+    build:
+      context: ./ai-agent
+      dockerfile: Dockerfile
+    container_name: online-report-ai-agent
+    env_file:
+      - ${AI_AGENT_ENV_FILE:-./ai-agent/.env}
+    environment:
+      # 回调主后端（compose 内网服务名）
+      - AI_BACKEND_URL=http://app:3000
+    volumes:
+      # LangGraph 中断/恢复 checkpoint 持久化
+      - ai_agent_data:/data
+    # 注意：不写 ports，不对外暴露
+    restart: unless-stopped
+
+volumes:
+  ai_agent_data:

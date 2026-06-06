@@ -3,7 +3,8 @@ import { useStore } from '../store'
 import { apiFetch } from '../utils/api'
 
 export default function SettingsView() {
-  const { user, logout } = useStore()
+  const { user, logout, navigateTo } = useStore()
+  const isAdmin = user?.role === 'admin' || (user?.roles || []).includes('admin')
   const [showChangePwd, setShowChangePwd] = useState(false)
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -61,6 +62,15 @@ export default function SettingsView() {
           </p>
         </div>
       </div>
+
+      {isAdmin && !showChangePwd && (
+        <button
+          onClick={() => navigateTo('ai-skills')}
+          className="w-full py-3 bg-violet-500 text-white rounded-lg font-medium hover:bg-violet-600 transition-colors mb-4"
+        >
+          AI Skill 管理
+        </button>
+      )}
 
       {!showChangePwd ? (
         <button

@@ -21,6 +21,7 @@ const proSignRoutes = require('./routes/pro-sign');
 const returnproRoutes = require('./routes/returnpro');
 const registerOworRoutes = require('./routes/owor');
 const aiRoutes = require('./routes/ai');
+const aiAgentRoutes = require('./routes/ai-agent');
 const filesRoutes = require('./routes/files');
 const speechRoutes = require('./routes/speech');
 const { getPool } = require('./db');
@@ -97,6 +98,7 @@ async function build() {
   await fastify.register(proSignRoutes);
   await fastify.register(returnproRoutes);
   await fastify.register(aiRoutes);
+  await fastify.register(aiAgentRoutes);
   await fastify.register(filesRoutes);
 
   // 语音功能开关（默认启用，设 VOICE_ENABLED=false 关闭）

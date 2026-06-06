@@ -83,6 +83,7 @@ export type ViewName =
   | 'orders'
   | 'detail'
   | 'menu-settings'
+  | 'ai-skills'
   | 'dynamic-report'
   | 'report-row-detail'
   | 'pro-sign-receive'
