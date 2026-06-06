@@ -32,7 +32,7 @@ frontend/src/
 - 动态报表（筛选、分页、图片列+灯箱、长文本展开、扫码）
 - AI 智能分析（`/ai/analyze`）与 **AI 使用说明助手**（`/ai/chat` + `server/help/` 知识库 RAG）
 - 合并报工（Status 四段切换、点选即查询；多选 → 预检 → 接单/完工/暂停/恢复 → 保存；列表行点击订单详情；**同工序多选**、**数量须大于 0** 前端校验）
-- 菜单管理后台（CRUD、AI Prompt 生成器）
+- 菜单管理后台（CRUD、AI Prompt 生成器、**角色定义与用户角色分配**）
 - OITM 物料、报工订单、行详情、批次报工登记
 - 底部导航（菜单 / AI / 消息 / 设置）+ 语音控制（`voice.js`）
 
@@ -61,9 +61,9 @@ npm run init-db
 
 - 入口：`server/src/index.js`
 - `.env` 加载：根目录 `.env` → `server/.env`（后者覆盖）
-- 认证：OUSR 表，JWT 签发
-- 管理员：`ADMIN_USER_CODES` env var（逗号分隔）
-- 核心表：`nav_menu_items` 存储菜单、SQL 模板、filter_schema、column_name_mapping、AI prompt
+- 认证：OUSR 表，JWT 签发；**多角色权限**（`roles` 数组 + 菜单 `roles_json`）
+- 管理员：`ADMIN_USER_CODES` env var（逗号分隔）；admin 可见全部菜单
+- 核心表：`nav_menu_items` 存储菜单、SQL 模板、filter_schema、column_name_mapping、AI prompt；`app_roles` / `user_roles` 存储角色目录与用户分配
 
 ### 报表系统 (`server/src/report-query.js`)
 
@@ -90,6 +90,72 @@ npm run init-db
 **知识库维护**：编辑 `server/help/` 下 Markdown（`<!-- tags: ... -->` 与同义词组用于检索）。改完后重启 Node 服务（或调用 `clearHelpCache()`）生效。
 
 **前端**：`AiChatView` 快捷提问、`sources` 参考章节、绿色按钮跳转（设置 / 菜单 / 生产报工）。
+
+## 菜单与角色权限
+
+系统采用 **方案 A：扩展角色体系**——按岗位角色批量授权，同一角色多人共享菜单权限；不修改 SAP `OUSR` 表。
+
+### 数据表
+
+| 表 | 说明 |
+|---|---|
+| `app_roles` | 角色目录（`role_key`、`label`、是否内置） |
+| `user_roles` | 用户 → 角色（`user_code` + `role_key`） |
+| `nav_menu_items.roles_json` | 菜单可见角色 JSON 数组，如 `["operator","production"]` |
+
+迁移脚本：`server/sql/migrate-user-roles.sql`（服务启动时 `ensure-nav-menu-schema` 自动执行，或 `npm run init-db`）。
+
+**预置角色**：`admin`（管理员）、`operator`（操作员）、`production`（生产）、`warehouse`（仓库）、`quality`（质检）、`finance`（财务）。可在后台继续添加自定义角色（小写英文标识，如 `packing`）。
+
+### 权限规则
+
+| 情况 | 用户拥有的角色 |
+|------|----------------|
+| `USER_CODE` 在 `ADMIN_USER_CODES` | 含 `admin`（可见全部菜单） |
+| `user_roles` 表有记录 | 仅表中分配的角色（再并上 admin，若适用） |
+| `user_roles` 无记录 | 默认 `operator` |
+
+**菜单可见性**：用户任一角色出现在该菜单的 `roles_json` 中即可见；`admin`  bypass 全部菜单。后端在 `/menus`、`/reports/*`、`/ai/analyze`、报工等接口统一校验，不仅靠前端隐藏。
+
+**管理员**：`admin` 由环境变量 `ADMIN_USER_CODES` 控制，**不在**「用户角色」界面分配。
+
+### 管理界面
+
+管理员进入 **菜单设置**（`menu-settings`），页签：
+
+| 页签 | 作用 |
+|------|------|
+| **菜单项** | 编辑菜单；「可见角色」勾选哪些岗位能看该菜单 |
+| **角色定义** | 增删自定义岗位角色（内置 admin/operator 不可删） |
+| **用户角色** | 搜索 OUSR 用户 → 勾选岗位角色 → 保存 |
+
+### 管理 API
+
+| 接口 | 说明 |
+|------|------|
+| `GET /admin/roles` | 角色列表 |
+| `POST /admin/roles` | 新增角色 `{ roleKey, label }` |
+| `PATCH /admin/roles/:roleKey` | 修改名称/排序 |
+| `DELETE /admin/roles/:roleKey` | 删除（非内置且未被用户引用） |
+| `GET /admin/user-roles?q=` | 搜索用户及已分配角色 |
+| `GET /admin/user-roles/:userCode` | 某用户角色 |
+| `PUT /admin/user-roles/:userCode` | 设置 `{ roles: ["production", ...] }`（不可含 admin） |
+| `GET /admin/users/search?q=` | 搜索 OUSR 用户 |
+
+### 配置示例
+
+1. **角色定义**：添加 `production` / 生产（若使用预置可跳过）
+2. **用户角色**：用户 `U001` 勾选 `production`
+3. **菜单项**：「生产报工」菜单的可见角色勾选 `production`（及需要的 `operator` 等）
+4. `U001` **重新登录** 后仅能看到匹配角色的菜单
+
+清空某用户的角色分配并保存 → 该用户恢复为默认 `operator`。
+
+### 实现要点
+
+- 共享模块：`server/src/roles.js`（`resolveUserRoles`、`canAccessMenu`、`parseMenuRolesJson`）
+- 登录与 `GET /auth/me`：JWT / 响应含 `roles: string[]`，兼容旧字段 `role`（`admin` | `operator`）
+- 改用户角色后需重新登录（或等 JWT 过期）；刷新页面时 `/auth/me` 会重新读库更新设置页展示
 
 ## 合并报工
 
@@ -305,7 +371,7 @@ docker compose -f docker-compose.deploy.yml up -d --build
 | `AI_PROVIDER` | AI 提供商 |
 | `VOICE_ENABLED` | 语音功能开关（默认开） |
 | `IMAGES_DIR` | 图片静态目录 |
-| `ADMIN_USER_CODES` | 管理员用户编码 |
+| `ADMIN_USER_CODES` | 管理员用户编码（逗号分隔，对应 OUSR `USER_CODE`） |
 
 ---
 

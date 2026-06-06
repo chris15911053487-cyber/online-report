@@ -1,17 +1,10 @@
 const { getPool, sql } = require('../db');
 const { timingSafeEqualStr, userCodeToStableBigInt } = require('../ousr-auth');
-
-/** 与 ADMIN_USER_CODES（逗号分隔的 OUSR 用户代码）匹配则为 admin */
-function resolveRoleForUserCode(userCode) {
-  const raw = process.env.ADMIN_USER_CODES || '';
-  const codes = raw
-    .split(/[,，]/)
-    .map((s) => String(s).trim())
-    .filter(Boolean);
-  const u = String(userCode).trim();
-  if (codes.includes(u)) return 'admin';
-  return 'operator';
-}
+const {
+  resolveUserRoles,
+  primaryRoleFromRoles,
+  getUserRolesFromRequest,
+} = require('../roles');
 
 function isInvalidColumnError(err) {
   const n = err?.number ?? err?.originalError?.info?.number;
@@ -22,7 +15,7 @@ function isInvalidColumnError(err) {
 /** 返回给前端的 500 文案：连接类错误带库返回信息；其它错误可按 EXPOSE_SERVER_ERRORS 暴露 */
 function loginErrorPayload(err) {
   const code = err?.code || err?.originalError?.code;
-  const msg = (err && err.message) ? String(err.message).slice(0, 800) : '未知错误';
+  const msg = err && err.message ? String(err.message).slice(0, 800) : '未知错误';
   const connCodes = new Set([
     'ELOGIN',
     'ETIMEOUT',
@@ -79,6 +72,21 @@ async function fetchOusrRow(pool, code) {
   }
 }
 
+function userPayloadFromJwt(u, roles) {
+  const sub = u.sub;
+  const id =
+    typeof sub === 'number' && Number.isFinite(sub) ? sub : Number(sub);
+  const username = u.username != null ? String(u.username).trim() : '';
+  const roleList = Array.isArray(roles) ? roles : getUserRolesFromRequest(u);
+  return {
+    id,
+    username,
+    displayName: u.displayName != null ? String(u.displayName) : username,
+    role: primaryRoleFromRoles(roleList),
+    roles: roleList,
+  };
+}
+
 async function authRoutes(fastify) {
   fastify.post('/auth/login', async (request, reply) => {
     const { username, password } = request.body || {};
@@ -102,13 +110,15 @@ async function authRoutes(fastify) {
 
       const uidBig = userCodeToStableBigInt(row.user_code);
       const userId = Number(uidBig);
-      const role = resolveRoleForUserCode(row.user_code);
+      const roles = await resolveUserRoles(pool, row.user_code);
+      const role = primaryRoleFromRoles(roles);
 
       const token = await reply.jwtSign({
         sub: userId,
         username: row.user_code,
         displayName,
         role,
+        roles,
       });
 
       return {
@@ -118,6 +128,7 @@ async function authRoutes(fastify) {
           username: row.user_code,
           displayName,
           role,
+          roles,
         },
       };
     } catch (err) {
@@ -163,24 +174,25 @@ async function authRoutes(fastify) {
     { preHandler: [fastify.authenticate] },
     async (request, reply) => {
       const u = request.user;
-      const sub = u.sub;
-      const id =
-        typeof sub === 'number' && Number.isFinite(sub)
-          ? sub
-          : Number(sub);
-      if (!Number.isFinite(id)) {
-        return reply.code(401).send({ error: '无效登录' });
-      }
       const username = u.username != null ? String(u.username).trim() : '';
       if (!username) {
         return reply.code(401).send({ error: '无效登录' });
       }
-      return {
-        id,
-        username,
-        displayName: u.displayName != null ? String(u.displayName) : username,
-        role: u.role != null ? String(u.role) : 'operator',
-      };
+      const sub = u.sub;
+      const id =
+        typeof sub === 'number' && Number.isFinite(sub) ? sub : Number(sub);
+      if (!Number.isFinite(id)) {
+        return reply.code(401).send({ error: '无效登录' });
+      }
+
+      try {
+        const pool = await getPool();
+        const roles = await resolveUserRoles(pool, username);
+        return userPayloadFromJwt(u, roles);
+      } catch (err) {
+        request.log.error(err);
+        return userPayloadFromJwt(u, getUserRolesFromRequest(u));
+      }
     }
   );
 }

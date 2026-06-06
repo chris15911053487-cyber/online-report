@@ -12,8 +12,10 @@ const cors = require('@fastify/cors');
 const jwt = require('@fastify/jwt');
 const fastifyStatic = require('@fastify/static');
 const authRoutes = require('./routes/auth');
+const rolesAdminRoutes = require('./routes/roles-admin');
 const ordersRoutes = require('./routes/orders');
 const menusRoutes = require('./routes/menus');
+const { isAdminUser } = require('./roles');
 const reportsRoutes = require('./routes/reports');
 const proSignRoutes = require('./routes/pro-sign');
 const returnproRoutes = require('./routes/returnpro');
@@ -82,12 +84,13 @@ async function build() {
     } catch (err) {
       return reply.send(err);
     }
-    if (request.user.role !== 'admin') {
+    if (!isAdminUser(request.user)) {
       return reply.code(403).send({ error: '需要管理员权限' });
     }
   });
 
   await fastify.register(authRoutes);
+  await fastify.register(rolesAdminRoutes);
   await fastify.register(ordersRoutes);
   await fastify.register(menusRoutes);
   await fastify.register(reportsRoutes);

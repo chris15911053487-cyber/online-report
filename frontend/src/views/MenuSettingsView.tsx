@@ -1,6 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useStore } from '../store'
 import { apiFetch, apiFetchReport } from '../utils/api'
+import type { AppRole } from '../types'
+import {
+  RoleCheckboxGroup,
+  RolesDefinitionPanel,
+  UserRolesPanel,
+} from '../components/RoleSettingsPanels'
+import { useAppRoles, fetchAppRoles } from '../hooks/useAppRoles'
 
 interface MenuItemData {
   id: number
@@ -41,8 +48,7 @@ interface MenuEditFormState {
   icon: string
   sortOrder: number
   enabled: boolean
-  roleAdmin: boolean
-  roleOperator: boolean
+  selectedRoles: string[]
   menuKind: 'builtin' | 'report'
   queryTemplate: string
   filterSchema: string
@@ -63,8 +69,7 @@ function itemToFormState(item: MenuItemData): MenuEditFormState {
     icon: item.icon || '',
     sortOrder: item.sortOrder,
     enabled: item.enabled !== false,
-    roleAdmin: (item.roles || []).includes('admin'),
-    roleOperator: (item.roles || []).includes('operator'),
+    selectedRoles: (item.roles || []).length > 0 ? [...item.roles] : ['operator'],
     menuKind: item.menuKind || 'builtin',
     queryTemplate: item.queryTemplate || '',
     filterSchema: JSON.stringify(item.filterSchema || [], null, 2),
@@ -85,8 +90,7 @@ const emptyFormState: MenuEditFormState = {
   icon: '',
   sortOrder: 100,
   enabled: true,
-  roleAdmin: false,
-  roleOperator: true,
+  selectedRoles: ['operator'],
   menuKind: 'builtin',
   queryTemplate: '',
   filterSchema: '[]',
@@ -164,11 +168,13 @@ function AIPromptDialog({
 function MenuEditCard({
   item,
   isAdmin,
+  appRoles,
   onSaved,
   onDeleted,
 }: {
   item: MenuItemData
   isAdmin: boolean
+  appRoles: AppRole[]
   onSaved: () => void
   onDeleted: () => void
 }) {
@@ -187,9 +193,7 @@ function MenuEditCard({
     setForm((prev) => ({ ...prev, ...patch }))
 
   const handleSave = async () => {
-    const roles: string[] = []
-    if (form.roleAdmin) roles.push('admin')
-    if (form.roleOperator) roles.push('operator')
+    const roles = [...form.selectedRoles]
 
     const mk = isReserved ? 'builtin' : form.menuKind
     const qtpl = isReserved ? '' : form.queryTemplate.trim()
@@ -360,18 +364,11 @@ function MenuEditCard({
 
       <div className="space-y-1">
         <span className={labelCls}>可见角色</span>
-        <div className="flex gap-4">
-          <label className="flex items-center gap-1.5 text-sm text-slate-700">
-            <input type="checkbox" className="rounded" checked={form.roleAdmin}
-              onChange={(e) => update({ roleAdmin: e.target.checked })} />
-            管理员
-          </label>
-          <label className="flex items-center gap-1.5 text-sm text-slate-700">
-            <input type="checkbox" className="rounded" checked={form.roleOperator}
-              onChange={(e) => update({ roleOperator: e.target.checked })} />
-            普通用户
-          </label>
-        </div>
+        <RoleCheckboxGroup
+          appRoles={appRoles}
+          selected={form.selectedRoles}
+          onChange={(selectedRoles) => update({ selectedRoles })}
+        />
       </div>
 
       <label className="block">
@@ -515,6 +512,18 @@ export default function MenuSettingsView() {
   const user = useStore((s) => s.user)
   const fetchMenus = useStore((s) => s.fetchMenus)
   const isAdmin = user?.role === 'admin'
+  const { appRoles, loading: rolesLoading, reloadAppRoles } = useAppRoles()
+  const [roleDefItems, setRoleDefItems] = useState<AppRole[]>([])
+
+  const loadRoleDefs = useCallback(async () => {
+    try {
+      setRoleDefItems(await fetchAppRoles())
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : '加载角色失败')
+    }
+  }, [showToast])
+
+  const [tab, setTab] = useState<'menus' | 'roles' | 'users'>('menus')
 
   const [items, setItems] = useState<MenuItemData[]>([])
   const [loading, setLoading] = useState(true)
@@ -539,6 +548,14 @@ export default function MenuSettingsView() {
 
   useEffect(() => { loadMenus() }, [loadMenus])
 
+  useEffect(() => {
+    void reloadAppRoles()
+  }, [reloadAppRoles])
+
+  useEffect(() => {
+    if (tab === 'roles') void loadRoleDefs()
+  }, [tab, loadRoleDefs])
+
   const handleRefresh = async () => {
     await fetchMenus()
     await loadMenus()
@@ -549,9 +566,7 @@ export default function MenuSettingsView() {
 
   const handleAdd = async () => {
     setAddError('')
-    const roles: string[] = []
-    if (addForm.roleAdmin) roles.push('admin')
-    if (addForm.roleOperator) roles.push('operator')
+    const roles = [...addForm.selectedRoles]
 
     let filterSchema: any[] = []
     let columnLabels: Record<string, string> = {}
@@ -629,8 +644,43 @@ export default function MenuSettingsView() {
 
   return (
     <div className="p-4 pb-24 max-w-3xl mx-auto">
-      <h2 className="text-xl font-semibold text-slate-800 mb-4">菜单设置</h2>
+      <h2 className="text-xl font-semibold text-slate-800 mb-4">菜单与权限</h2>
 
+      <div className="flex gap-2 mb-6 border-b border-slate-200">
+        {([
+          ['menus', '菜单项'],
+          ['roles', '角色定义'],
+          ['users', '用户角色'],
+        ] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              tab === key
+                ? 'border-sky-500 text-sky-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+            onClick={() => setTab(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'roles' && (
+        <RolesDefinitionPanel
+          items={roleDefItems}
+          loading={rolesLoading}
+          onReload={async () => {
+            await loadRoleDefs()
+            await reloadAppRoles()
+          }}
+        />
+      )}
+      {tab === 'users' && <UserRolesPanel appRoles={appRoles} />}
+
+      {tab === 'menus' && (
+        <>
       {loading && <p className="text-slate-400 text-center py-8">加载中…</p>}
       {error && <p className="text-red-500 text-center py-4">{error}</p>}
 
@@ -640,6 +690,7 @@ export default function MenuSettingsView() {
             key={item.id}
             item={item}
             isAdmin={isAdmin}
+            appRoles={appRoles}
             onSaved={handleRefresh}
             onDeleted={handleRefresh}
           />
@@ -685,18 +736,11 @@ export default function MenuSettingsView() {
 
         <div className="space-y-1">
           <span className={labelCls}>可见角色</span>
-          <div className="flex gap-4">
-            <label className="flex items-center gap-1.5 text-sm text-slate-700">
-              <input type="checkbox" className="rounded" checked={addForm.roleAdmin}
-                onChange={(e) => updateAdd({ roleAdmin: e.target.checked })} />
-              管理员
-            </label>
-            <label className="flex items-center gap-1.5 text-sm text-slate-700">
-              <input type="checkbox" className="rounded" checked={addForm.roleOperator}
-                onChange={(e) => updateAdd({ roleOperator: e.target.checked })} />
-              普通用户
-            </label>
-          </div>
+          <RoleCheckboxGroup
+            appRoles={appRoles}
+            selected={addForm.selectedRoles}
+            onChange={(selectedRoles) => updateAdd({ selectedRoles })}
+          />
         </div>
 
         <label className="block">
@@ -801,6 +845,8 @@ export default function MenuSettingsView() {
           {adding ? '添加中…' : '添加菜单'}
         </button>
       </div>
+        </>
+      )}
     </div>
   )
 }

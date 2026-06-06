@@ -51,7 +51,14 @@ export default function SettingsView() {
         <div className="text-sm text-slate-600 space-y-2">
           <p>用户名：{user?.username || '-'}</p>
           <p>显示名：{user?.displayName || '-'}</p>
-          <p>角色：{user?.role === 'admin' ? '管理员' : '操作员'}</p>
+          <p>
+            角色：
+            {user?.roles && user.roles.length > 0
+              ? user.roles.join('、')
+              : user?.role === 'admin'
+                ? '管理员'
+                : '操作员'}
+          </p>
         </div>
       </div>
 

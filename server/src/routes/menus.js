@@ -5,6 +5,13 @@ const {
   parseColumnLabelsJson,
   parseColumnNameMappingJson,
 } = require('../report-query');
+const {
+  parseMenuRolesJson,
+  menuRolesToJson,
+  getUserRolesFromRequest,
+  canAccessMenu,
+  normalizeMenuRolesInput,
+} = require('../roles');
 
 const ROUTE_KEY_RE = /^[a-z][a-z0-9-]{0,62}$/;
 
@@ -25,7 +32,7 @@ const NAV_TABLE_MISSING_MSG =
   '数据库尚未创建表 nav_menu_items。请在当前库执行 server/sql/migrate-nav-menu-items-only.sql（或完整 schema-mssql.sql），或运行 npm run init-db。';
 
 /** 表未建好时 /menus 使用的内置菜单（与种子数据一致） */
-function defaultMenusForRole(userRole) {
+function defaultMenusForUser(userRoles) {
   const all = [
     {
       id: 1,
@@ -54,26 +61,7 @@ function defaultMenusForRole(userRole) {
       columnNameMapping: {},
     },
   ];
-  return all.filter((m) => m.roles.includes(userRole));
-}
-const ALLOWED_ROLES = new Set(['admin', 'operator']);
-
-function parseRolesJson(s) {
-  try {
-    const a = JSON.parse(s);
-    if (!Array.isArray(a)) return [];
-    return a.map((x) => String(x)).filter((r) => ALLOWED_ROLES.has(r));
-  } catch {
-    return [];
-  }
-}
-
-function rolesToJson(roles) {
-  const list = Array.isArray(roles)
-    ? roles.map((r) => String(r)).filter((r) => ALLOWED_ROLES.has(r))
-    : [];
-  const uniq = [...new Set(list)].sort();
-  return JSON.stringify(uniq);
+  return all.filter((m) => canAccessMenu(userRoles, m.roles));
 }
 
 function filterSchemaFromRow(filterSchemaJson) {
@@ -193,7 +181,7 @@ function rowToPublicItem(row) {
     icon: row.icon || '',
     sortOrder: row.sort_order,
     enabled: !!row.enabled,
-    roles: parseRolesJson(row.roles_json),
+    roles: parseMenuRolesJson(row.roles_json),
     menuKind: mk,
     filterSchema:
       mk === 'report'
@@ -239,13 +227,6 @@ function rowToAdminItem(row) {
   return base;
 }
 
-function normalizeRolesInput(roles) {
-  const list = Array.isArray(roles)
-    ? roles.map((r) => String(r)).filter((r) => ALLOWED_ROLES.has(r))
-    : [];
-  return [...new Set(list)];
-}
-
 /** @param {{ menuKind: string, detailNormalizedTemplate?: string|null, detailKeyColumn?: string, detailKeyParam?: string, detailKeyType?: string }} validated */
 function detailColumnsFromValidated(validated) {
   if (
@@ -279,7 +260,7 @@ async function menusRoutes(fastify) {
     '/menus',
     { preHandler: [fastify.authenticate] },
     async (request) => {
-      const userRole = String(request.user.role || 'operator');
+      const userRoles = getUserRolesFromRequest(request.user);
       const pool = await getPool();
       try {
         const result = await pool.request().query(
@@ -289,7 +270,7 @@ async function menusRoutes(fastify) {
            ORDER BY sort_order ASC, id ASC`
         );
         const items = result.recordset
-          .filter((row) => parseRolesJson(row.roles_json).includes(userRole))
+          .filter((row) => canAccessMenu(userRoles, parseMenuRolesJson(row.roles_json)))
           .map(rowToPublicItem);
         return { items };
       } catch (err) {
@@ -298,7 +279,7 @@ async function menusRoutes(fastify) {
             { err },
             'nav_menu_items 不存在，使用内置默认菜单；请执行 migrate-nav-menu-items-only.sql'
           );
-          return { items: defaultMenusForRole(userRole) };
+          return { items: defaultMenusForUser(userRoles) };
         }
         throw err;
       }
@@ -343,7 +324,8 @@ async function menusRoutes(fastify) {
       const icon = body.icon != null ? String(body.icon).slice(0, 32) : '';
       const sortOrder = Number(body.sortOrder);
       const enabled = body.enabled !== false;
-      const roles = normalizeRolesInput(body.roles);
+      const pool = await getPool();
+      const roles = await normalizeMenuRolesInput(pool, body.roles);
       const menuKind = String(body.menuKind || 'builtin').toLowerCase();
       const queryTemplate =
         body.queryTemplate != null ? String(body.queryTemplate) : '';
@@ -419,8 +401,7 @@ async function menusRoutes(fastify) {
           : null;
       const detailCols = detailColumnsFromValidated(validated);
 
-      const pool = await getPool();
-      const rolesJson = rolesToJson(roles);
+      const rolesJson = menuRolesToJson(roles);
       try {
         const ins = await pool
           .request()
@@ -504,7 +485,8 @@ async function menusRoutes(fastify) {
       const icon = body.icon != null ? String(body.icon).slice(0, 32) : '';
       const sortOrder = Number(body.sortOrder);
       const enabled = body.enabled !== false;
-      const roles = normalizeRolesInput(body.roles);
+      const pool = await getPool();
+      const roles = await normalizeMenuRolesInput(pool, body.roles);
       const menuKind = String(body.menuKind || 'builtin').toLowerCase();
       const queryTemplate =
         body.queryTemplate != null ? String(body.queryTemplate) : '';
@@ -580,8 +562,7 @@ async function menusRoutes(fastify) {
           : null;
       const detailCols = detailColumnsFromValidated(validated);
 
-      const pool = await getPool();
-      const rolesJson = rolesToJson(roles);
+      const rolesJson = menuRolesToJson(roles);
       try {
         const upd = await pool
           .request()

@@ -128,6 +128,7 @@ export const useStore = create<AppState>((set, get) => ({
             username: user.username || '',
             displayName: user.displayName || user.username || '',
             role: user.role || 'operator',
+            roles: Array.isArray(user.roles) ? user.roles : [user.role || 'operator'],
           },
         })
         await get().fetchMenus()
@@ -153,6 +154,7 @@ export const useStore = create<AppState>((set, get) => ({
           username: u.username || username,
           displayName: u.displayName || u.username || username,
           role: u.role || 'operator',
+          roles: Array.isArray(u.roles) ? u.roles : [u.role || 'operator'],
         },
       })
       await get().fetchMenus()

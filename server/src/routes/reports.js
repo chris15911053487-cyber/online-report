@@ -11,15 +11,11 @@ const {
   executeReportDetailQuery,
 } = require('../report-query');
 
-function parseRolesJson(s) {
-  try {
-    const a = JSON.parse(s);
-    if (!Array.isArray(a)) return [];
-    return a.map((x) => String(x));
-  } catch {
-    return [];
-  }
-}
+const {
+  parseMenuRolesJson,
+  getUserRolesFromRequest,
+  canAccessMenu,
+} = require('../roles');
 
 function jsonSafeFilterOptionCode(code) {
   if (code instanceof Date) return code.toISOString();
@@ -46,7 +42,7 @@ async function reportsRoutes(fastify) {
         });
       }
 
-      const userRole = String(request.user.role || 'operator');
+      const userRoles = getUserRolesFromRequest(request.user);
       const pool = await getPool();
 
       let row;
@@ -69,8 +65,8 @@ async function reportsRoutes(fastify) {
         return reply.code(404).send({ error: '菜单不存在或未启用', code: 'REPORT_MENU_NOT_FOUND' });
       }
 
-      const roles = parseRolesJson(row.roles_json);
-      if (!roles.includes(userRole)) {
+      const roles = parseMenuRolesJson(row.roles_json);
+      if (!canAccessMenu(userRoles, roles)) {
         return reply.code(403).send({ error: '无权访问该报表', code: 'REPORT_FORBIDDEN' });
       }
 
@@ -139,7 +135,7 @@ async function reportsRoutes(fastify) {
         return reply.code(400).send({ error: '请提供 routeKey', code: 'REPORT_BAD_REQUEST' });
       }
 
-      const userRole = String(request.user.role || 'operator');
+      const userRoles = getUserRolesFromRequest(request.user);
       const pool = await getPool();
 
       let row;
@@ -165,8 +161,8 @@ async function reportsRoutes(fastify) {
         return reply.code(404).send({ error: '菜单不存在或未启用', code: 'REPORT_MENU_NOT_FOUND' });
       }
 
-      const roles = parseRolesJson(row.roles_json);
-      if (!roles.includes(userRole)) {
+      const roles = parseMenuRolesJson(row.roles_json);
+      if (!canAccessMenu(userRoles, roles)) {
         return reply.code(403).send({ error: '无权访问该报表', code: 'REPORT_FORBIDDEN' });
       }
 
@@ -263,7 +259,7 @@ async function reportsRoutes(fastify) {
         return reply.code(400).send({ error: '请提供 routeKey', code: 'REPORT_BAD_REQUEST' });
       }
 
-      const userRole = String(request.user.role || 'operator');
+      const userRoles = getUserRolesFromRequest(request.user);
       const pool = await getPool();
 
       let row;
@@ -289,8 +285,8 @@ async function reportsRoutes(fastify) {
         return reply.code(404).send({ error: '菜单不存在或未启用', code: 'REPORT_MENU_NOT_FOUND' });
       }
 
-      const roles = parseRolesJson(row.roles_json);
-      if (!roles.includes(userRole)) {
+      const roles = parseMenuRolesJson(row.roles_json);
+      if (!canAccessMenu(userRoles, roles)) {
         return reply.code(403).send({ error: '无权访问该报表', code: 'REPORT_FORBIDDEN' });
       }
 

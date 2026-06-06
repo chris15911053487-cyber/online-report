@@ -16,6 +16,11 @@ const {
   detectTemplateKind,
   normalizeTemplate,
 } = require('../report-query');
+const {
+  parseMenuRolesJson,
+  getUserRolesFromRequest,
+  canAccessMenu,
+} = require('../roles');
 
 /**
  * AI 分析路由
@@ -38,7 +43,7 @@ async function aiRoutes(fastify) {
         });
       }
 
-      const userRole = String(request.user.role || 'operator');
+      const userRoles = getUserRolesFromRequest(request.user);
       const pool = await getPool();
 
       let row;
@@ -69,8 +74,8 @@ async function aiRoutes(fastify) {
         });
       }
 
-      const roles = parseRolesJson(row.roles_json || '[]');
-      if (!roles.includes(userRole)) {
+      const roles = parseMenuRolesJson(row.roles_json || '[]');
+      if (!canAccessMenu(userRoles, roles)) {
         return reply.code(403).send({ 
           error: '无权访问该报表', 
           code: 'AI_FORBIDDEN' 
@@ -269,16 +274,6 @@ async function aiRoutes(fastify) {
       }
     }
   );
-}
-
-function parseRolesJson(s) {
-  try {
-    const a = JSON.parse(s);
-    if (!Array.isArray(a)) return [];
-    return a.map((x) => String(x));
-  } catch {
-    return [];
-  }
 }
 
 module.exports = aiRoutes;

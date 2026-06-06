@@ -2,6 +2,14 @@ export interface User {
   username: string
   displayName: string
   role: 'admin' | 'operator'
+  roles?: string[]
+}
+
+export interface AppRole {
+  roleKey: string
+  label: string
+  sortOrder: number
+  isBuiltin: boolean
 }
 
 export interface NavMenuItem {

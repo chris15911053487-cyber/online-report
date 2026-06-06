@@ -13,6 +13,11 @@ const {
   buildReportSessionInject,
   executeReportQuery,
 } = require('../report-query');
+const {
+  parseMenuRolesJson,
+  getUserRolesFromRequest,
+  canAccessMenu,
+} = require('../roles');
 
 const PRO_SIGN_ROUTE = 'pro-sign';
 const MAX_BATCH_LINES = 100;
@@ -42,16 +47,6 @@ const DEFAULT_FILTER_SCHEMA = [
     scan: true,
   },
 ];
-
-function parseRolesJson(s) {
-  try {
-    const a = JSON.parse(s);
-    if (!Array.isArray(a)) return [];
-    return a.map((x) => String(x));
-  } catch {
-    return [];
-  }
-}
 
 function toBigIntId(v) {
   if (v == null || v === '') return null;
@@ -525,7 +520,7 @@ async function proSignRoutes(fastify) {
         return reply.code(400).send({ error: 'routeKey 须为 pro-sign', code: 'PRO_SIGN_BAD_REQUEST' });
       }
 
-      const userRole = String(request.user.role || 'operator');
+      const userRoles = getUserRolesFromRequest(request.user);
       const pool = await getPool();
 
       let row;
@@ -543,8 +538,8 @@ async function proSignRoutes(fastify) {
         return reply.code(404).send({ error: '菜单不存在或未启用', code: 'REPORT_MENU_NOT_FOUND' });
       }
 
-      const roles = parseRolesJson(row.roles_json);
-      if (!roles.includes(userRole)) {
+      const roles = parseMenuRolesJson(row.roles_json);
+      if (!canAccessMenu(userRoles, roles)) {
         return reply.code(403).send({ error: '无权访问', code: 'PRO_SIGN_FORBIDDEN' });
       }
 
