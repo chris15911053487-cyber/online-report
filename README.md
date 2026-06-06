@@ -137,7 +137,7 @@ npm run init-db
 | `POST /admin/roles` | 新增角色 `{ roleKey, label }` |
 | `PATCH /admin/roles/:roleKey` | 修改名称/排序 |
 | `DELETE /admin/roles/:roleKey` | 删除（非内置且未被用户引用） |
-| `GET /admin/user-roles?q=` | 搜索用户及已分配角色 |
+| `GET /admin/user-roles?page=&pageSize=&q=` | 从 OUSR 分页列出全部用户及有效角色、已分配角色 |
 | `GET /admin/user-roles/:userCode` | 某用户角色 |
 | `PUT /admin/user-roles/:userCode` | 设置 `{ roles: ["production", ...] }`（不可含 admin） |
 | `GET /admin/users/search?q=` | 搜索 OUSR 用户 |

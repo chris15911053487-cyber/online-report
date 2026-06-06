@@ -28,13 +28,34 @@ function normalizeRoleKeys(keys) {
   return out;
 }
 
-function isAdminUserCode(userCode) {
+function getAdminUserCodesSet() {
   const raw = process.env.ADMIN_USER_CODES || '';
-  const codes = raw
-    .split(/[,，]/)
-    .map((s) => String(s).trim())
-    .filter(Boolean);
-  return codes.includes(String(userCode || '').trim());
+  return new Set(
+    raw
+      .split(/[,，]/)
+      .map((s) => String(s).trim())
+      .filter(Boolean)
+  );
+}
+
+function isAdminUserCode(userCode) {
+  return getAdminUserCodesSet().has(String(userCode || '').trim());
+}
+
+/** 内存中解析有效角色（与 resolveUserRoles 规则一致，用于批量列表） */
+function resolveUserRolesSync(userCode, assignedRoleKeys, adminCodesSet) {
+  const code = String(userCode || '').trim();
+  const roles = new Set();
+  const adminSet = adminCodesSet || getAdminUserCodesSet();
+  if (adminSet.has(code)) roles.add('admin');
+
+  const assigned = normalizeRoleKeys(assignedRoleKeys);
+  if (assigned.length > 0) {
+    for (const r of assigned) roles.add(r);
+  } else if (!roles.has('admin')) {
+    roles.add('operator');
+  }
+  return [...roles].sort();
 }
 
 /** JWT / request.user → 角色数组（兼容旧 token 仅含 role 字段） */
@@ -91,7 +112,7 @@ async function resolveUserRoles(pool, userCode) {
   const code = String(userCode || '').trim();
   const roles = new Set();
 
-  if (isAdminUserCode(code)) {
+  if (getAdminUserCodesSet().has(code)) {
     roles.add('admin');
   }
 
@@ -159,7 +180,9 @@ module.exports = {
   BUILTIN_ROLE_KEYS,
   normalizeRoleKey,
   normalizeRoleKeys,
+  getAdminUserCodesSet,
   isAdminUserCode,
+  resolveUserRolesSync,
   getUserRolesFromRequest,
   isAdminUser,
   primaryRoleFromRoles,

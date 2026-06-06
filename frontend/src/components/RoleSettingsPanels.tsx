@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useStore } from '../store'
 import { apiFetch } from '../utils/api'
 import type { AppRole } from '../types'
@@ -172,39 +172,59 @@ export function RolesDefinitionPanel({
   )
 }
 
-interface OusrUser {
+interface UserRoleRow {
   userCode: string
   displayName: string
+  assignedRoles: string[]
+  roles: string[]
+  isDefaultOperator?: boolean
+}
+
+function formatRoleLabels(roleKeys: string[], appRoles: AppRole[]) {
+  const labelMap = new Map(appRoles.map((r) => [r.roleKey, r.label]))
+  return roleKeys.map((k) => labelMap.get(k) || k).join('、')
 }
 
 export function UserRolesPanel({ appRoles }: { appRoles: AppRole[] }) {
   const showToast = useStore((s) => s.showToast)
   const [query, setQuery] = useState('')
-  const [users, setUsers] = useState<OusrUser[]>([])
+  const [searchInput, setSearchInput] = useState('')
+  const [rows, setRows] = useState<UserRoleRow[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const pageSize = 50
+  const [loadingList, setLoadingList] = useState(false)
   const [selectedUser, setSelectedUser] = useState('')
   const [selectedRoles, setSelectedRoles] = useState<string[]>([])
-  const [loadingUsers, setLoadingUsers] = useState(false)
   const [loadingRoles, setLoadingRoles] = useState(false)
   const [saving, setSaving] = useState(false)
 
   const assignableRoles = appRoles.filter((r) => r.roleKey !== 'admin')
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
-  const searchUsers = useCallback(async () => {
-    const q = query.trim()
-    if (!q) {
-      setUsers([])
-      return
-    }
-    setLoadingUsers(true)
-    try {
-      const data = await apiFetch(`/admin/users/search?q=${encodeURIComponent(q)}`)
-      setUsers(data.items || [])
-    } catch (e: unknown) {
-      showToast(errMsg(e, '搜索用户失败'))
-    } finally {
-      setLoadingUsers(false)
-    }
-  }, [query, showToast])
+  const loadList = useCallback(
+    async (opts: { page: number; q: string }) => {
+      const { page: p, q } = opts
+      setLoadingList(true)
+      try {
+        const params = new URLSearchParams({
+          page: String(p),
+          pageSize: String(pageSize),
+        })
+        if (q.trim()) params.set('q', q.trim())
+        const data = await apiFetch(`/admin/user-roles?${params.toString()}`)
+        setRows(data.items || [])
+        setTotal(Number(data.total) || 0)
+        setPage(Number(data.page) || p)
+        setQuery(q)
+      } catch (e: unknown) {
+        showToast(errMsg(e, '加载用户列表失败'))
+      } finally {
+        setLoadingList(false)
+      }
+    },
+    [showToast],
+  )
 
   const loadUserRoles = useCallback(
     async (userCode: string) => {
@@ -223,6 +243,25 @@ export function UserRolesPanel({ appRoles }: { appRoles: AppRole[] }) {
     [showToast],
   )
 
+  useEffect(() => {
+    void loadList({ page: 1, q: '' })
+  }, [loadList])
+
+  const handleSearch = () => {
+    const q = searchInput.trim()
+    void loadList({ page: 1, q })
+  }
+
+  const handleClearSearch = () => {
+    setSearchInput('')
+    void loadList({ page: 1, q: '' })
+  }
+
+  const handleSelectUser = (userCode: string) => {
+    setSelectedUser(userCode)
+    void loadUserRoles(userCode)
+  }
+
   const handleSave = async () => {
     if (!selectedUser) {
       showToast('请先选择用户')
@@ -238,6 +277,8 @@ export function UserRolesPanel({ appRoles }: { appRoles: AppRole[] }) {
         body: JSON.stringify({ roles: selectedRoles }),
       })
       showToast('用户角色已保存')
+      await loadList({ page, q: query })
+      void loadUserRoles(selectedUser)
     } catch (e: unknown) {
       showToast(errMsg(e, '保存失败'))
     } finally {
@@ -251,49 +292,121 @@ export function UserRolesPanel({ appRoles }: { appRoles: AppRole[] }) {
   return (
     <div className="space-y-4">
       <p className="text-sm text-slate-500">
-        为用户分配岗位角色。未在此分配的用户登录后默认为「操作员」。管理员由 ADMIN_USER_CODES 环境变量指定。
+        列表来自 OUSR 全部用户。「有效角色」含管理员（ADMIN_USER_CODES）与未分配时的默认操作员。
+        点击某行可编辑其岗位角色分配。
       </p>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <input
-          className={inputCls}
-          value={query}
-          placeholder="搜索 OUSR 用户代码或姓名"
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && searchUsers()}
+          className={`${inputCls} flex-1 min-w-[12rem]`}
+          value={searchInput}
+          placeholder="筛选用户代码或姓名"
+          onChange={(e) => setSearchInput(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
         />
         <button
           type="button"
           className="shrink-0 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm hover:bg-slate-200"
-          onClick={searchUsers}
+          onClick={handleSearch}
         >
-          {loadingUsers ? '搜索中…' : '搜索'}
+          筛选
+        </button>
+        {query && (
+          <button
+            type="button"
+            className="shrink-0 px-4 py-2 text-slate-500 rounded-lg text-sm hover:bg-slate-100"
+            onClick={handleClearSearch}
+          >
+            清除
+          </button>
+        )}
+        <button
+          type="button"
+          className="shrink-0 px-4 py-2 bg-sky-50 text-sky-700 rounded-lg text-sm hover:bg-sky-100"
+          onClick={() => void loadList({ page, q: query })}
+        >
+          {loadingList ? '刷新中…' : '刷新列表'}
         </button>
       </div>
 
-      {users.length > 0 && (
-        <div className="space-y-1 max-h-48 overflow-y-auto border border-slate-200 rounded-lg">
-          {users.map((u) => (
-            <button
-              key={u.userCode}
-              type="button"
-              className={`w-full text-left px-3 py-2 text-sm hover:bg-sky-50 ${
-                selectedUser === u.userCode ? 'bg-sky-100 font-medium' : ''
-              }`}
-              onClick={() => {
-                setSelectedUser(u.userCode)
-                void loadUserRoles(u.userCode)
-              }}
-            >
-              {u.displayName} <span className="text-slate-400">({u.userCode})</span>
-            </button>
-          ))}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="overflow-x-auto max-h-[28rem] overflow-y-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 sticky top-0 z-10">
+              <tr className="text-left text-slate-600">
+                <th className="px-3 py-2 font-medium">用户代码</th>
+                <th className="px-3 py-2 font-medium">姓名</th>
+                <th className="px-3 py-2 font-medium">有效角色</th>
+                <th className="px-3 py-2 font-medium">已分配</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 && !loadingList && (
+                <tr>
+                  <td colSpan={4} className="px-3 py-8 text-center text-slate-400">
+                    {query ? '无匹配用户' : '暂无用户'}
+                  </td>
+                </tr>
+              )}
+              {rows.map((row) => (
+                <tr
+                  key={row.userCode}
+                  className={`border-t border-slate-100 cursor-pointer hover:bg-sky-50/80 ${
+                    selectedUser === row.userCode ? 'bg-sky-50' : ''
+                  }`}
+                  onClick={() => handleSelectUser(row.userCode)}
+                >
+                  <td className="px-3 py-2 font-mono text-xs">{row.userCode}</td>
+                  <td className="px-3 py-2">{row.displayName}</td>
+                  <td className="px-3 py-2">
+                    {formatRoleLabels(row.roles || [], appRoles)}
+                    {row.isDefaultOperator && (
+                      <span className="ml-1 text-xs text-slate-400">(默认)</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-slate-500">
+                    {(row.assignedRoles || []).length > 0
+                      ? formatRoleLabels(row.assignedRoles, appRoles)
+                      : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      )}
+
+        <div className="flex items-center justify-between px-3 py-2 border-t border-slate-100 bg-slate-50 text-xs text-slate-600">
+          <span>
+            共 {total} 人
+            {query ? `（筛选：${query}）` : ''}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={page <= 1 || loadingList}
+              className="px-2 py-1 rounded hover:bg-white disabled:opacity-40"
+              onClick={() => void loadList({ page: page - 1, q: query })}
+            >
+              上一页
+            </button>
+            <span>
+              {page} / {totalPages}
+            </span>
+            <button
+              type="button"
+              disabled={page >= totalPages || loadingList}
+              className="px-2 py-1 rounded hover:bg-white disabled:opacity-40"
+              onClick={() => void loadList({ page: page + 1, q: query })}
+            >
+              下一页
+            </button>
+          </div>
+        </div>
+      </div>
 
       {selectedUser && (
         <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
-          <h3 className="font-semibold text-slate-700">用户：{selectedUser}</h3>
+          <h3 className="font-semibold text-slate-700">编辑用户：{selectedUser}</h3>
           {loadingRoles ? (
             <p className="text-sm text-slate-400">加载角色中…</p>
           ) : (

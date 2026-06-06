@@ -5,12 +5,146 @@ const {
   BUILTIN_ROLE_KEYS,
   loadAppRoles,
   resolveUserRoles,
+  getAdminUserCodesSet,
+  resolveUserRolesSync,
 } = require('../roles');
 
 function isInvalidColumnError(err) {
   const n = err?.number ?? err?.originalError?.info?.number;
   if (n === 207) return true;
   return typeof err?.message === 'string' && err.message.includes('Invalid column name');
+}
+
+function escapeLikeTerm(term) {
+  return String(term || '').replace(/[%_\[\]]/g, (c) => `[${c}]`);
+}
+
+function parsePageQuery(request) {
+  const page = Math.max(1, Number.parseInt(String(request.query?.page || '1'), 10) || 1);
+  const pageSize = Math.min(
+    200,
+    Math.max(1, Number.parseInt(String(request.query?.pageSize || '50'), 10) || 50)
+  );
+  return { page, pageSize, offset: (page - 1) * pageSize };
+}
+
+/** 从 OUSR 分页列出用户，并附带已分配角色与有效角色 */
+async function listOusrUsersWithRoles(pool, { q = '', page = 1, pageSize = 50, offset = 0 }) {
+  const term = String(q || '').trim();
+  const like = term ? `%${escapeLikeTerm(term)}%` : null;
+  const adminCodes = getAdminUserCodesSet();
+
+  let hasUName = true;
+  let countRs;
+  let listRs;
+  try {
+    const countReq = pool.request();
+    if (like) countReq.input('like', sql.NVarChar(128), like);
+    countRs = await countReq.query(
+      like
+        ? `SELECT COUNT(1) AS cnt FROM [OUSR]
+           WHERE [USER_CODE] LIKE @like OR [U_NAME] LIKE @like`
+        : `SELECT COUNT(1) AS cnt FROM [OUSR]`
+    );
+
+    const listReq = pool
+      .request()
+      .input('offset', sql.Int, offset)
+      .input('pageSize', sql.Int, pageSize);
+    if (like) listReq.input('like', sql.NVarChar(128), like);
+    listRs = await listReq.query(
+      like
+        ? `SELECT [USER_CODE] AS user_code, [U_NAME] AS u_name
+           FROM [OUSR]
+           WHERE [USER_CODE] LIKE @like OR [U_NAME] LIKE @like
+           ORDER BY [USER_CODE]
+           OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY`
+        : `SELECT [USER_CODE] AS user_code, [U_NAME] AS u_name
+           FROM [OUSR]
+           ORDER BY [USER_CODE]
+           OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY`
+    );
+  } catch (e) {
+    if (!isInvalidColumnError(e)) throw e;
+    hasUName = false;
+    const countReq = pool.request();
+    if (like) countReq.input('like', sql.NVarChar(128), like);
+    countRs = await countReq.query(
+      like
+        ? `SELECT COUNT(1) AS cnt FROM [OUSR] WHERE [USER_CODE] LIKE @like`
+        : `SELECT COUNT(1) AS cnt FROM [OUSR]`
+    );
+
+    const listReq = pool
+      .request()
+      .input('offset', sql.Int, offset)
+      .input('pageSize', sql.Int, pageSize);
+    if (like) listReq.input('like', sql.NVarChar(128), like);
+    listRs = await listReq.query(
+      like
+        ? `SELECT [USER_CODE] AS user_code
+           FROM [OUSR]
+           WHERE [USER_CODE] LIKE @like
+           ORDER BY [USER_CODE]
+           OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY`
+        : `SELECT [USER_CODE] AS user_code
+           FROM [OUSR]
+           ORDER BY [USER_CODE]
+           OFFSET @offset ROWS FETCH NEXT @pageSize ROWS ONLY`
+    );
+  }
+
+  const total = Number(countRs.recordset?.[0]?.cnt) || 0;
+  const rows = listRs.recordset || [];
+  if (rows.length === 0) {
+    return { items: [], total, page, pageSize };
+  }
+
+  const users = rows.map((row) => {
+    const userCode = String(row.user_code);
+    const displayName =
+      hasUName && row.u_name != null && String(row.u_name).trim() !== ''
+        ? String(row.u_name).trim()
+        : userCode;
+    return { userCode, displayName };
+  });
+
+  const req = pool.request();
+  users.forEach((u, i) => {
+    req.input(`c${i}`, sql.NVarChar(64), u.userCode);
+  });
+  const inList = users.map((_, i) => `@c${i}`).join(', ');
+  let urRows = [];
+  try {
+    const urRs = await req.query(
+      `SELECT user_code, role_key FROM dbo.user_roles WHERE user_code IN (${inList})`
+    );
+    urRows = urRs.recordset || [];
+  } catch (err) {
+    const n = err?.number ?? err?.originalError?.info?.number;
+    if (n !== 208) throw err;
+  }
+
+  const assignedMap = new Map();
+  for (const row of urRows) {
+    const code = String(row.user_code);
+    if (!assignedMap.has(code)) assignedMap.set(code, []);
+    assignedMap.get(code).push(String(row.role_key));
+  }
+
+  const items = users.map((u) => {
+    const assignedRoles = [...new Set(assignedMap.get(u.userCode) || [])].sort();
+    const roles = resolveUserRolesSync(u.userCode, assignedRoles, adminCodes);
+    return {
+      userCode: u.userCode,
+      displayName: u.displayName,
+      assignedRoles,
+      roles,
+      isDefaultOperator: assignedRoles.length === 0 && !adminCodes.has(u.userCode),
+    };
+  });
+
+  return { items, total, page, pageSize };
 }
 
 async function searchOusrUsers(pool, q, limit = 50) {
@@ -190,33 +324,9 @@ async function rolesAdminRoutes(fastify) {
     { preHandler: [fastify.requireAdmin] },
     async (request) => {
       const q = String(request.query?.q || '').trim();
+      const { page, pageSize, offset } = parsePageQuery(request);
       const pool = await getPool();
-      if (q) {
-        const users = await searchOusrUsers(pool, q, 30);
-        const out = [];
-        for (const u of users) {
-          const roles = await resolveUserRoles(pool, u.userCode);
-          out.push({ userCode: u.userCode, displayName: u.displayName, roles });
-        }
-        return { items: out };
-      }
-
-      const rs = await pool.request().query(
-        `SELECT ur.user_code, ur.role_key
-         FROM dbo.user_roles ur
-         ORDER BY ur.user_code, ur.role_key`
-      );
-      const map = new Map();
-      for (const row of rs.recordset || []) {
-        const code = String(row.user_code);
-        if (!map.has(code)) map.set(code, []);
-        map.get(code).push(String(row.role_key));
-      }
-      const items = [];
-      for (const [userCode, roles] of map) {
-        items.push({ userCode, roles: [...new Set(roles)].sort() });
-      }
-      return { items };
+      return listOusrUsersWithRoles(pool, { q, page, pageSize, offset });
     }
   );
 
