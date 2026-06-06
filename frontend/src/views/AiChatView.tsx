@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { apiFetch, apiUrl, authHeaders } from '../utils/api'
+import { isAdminUser } from '../utils/helpers'
 import { runHelpNavAction, type HelpNavAction } from '../utils/helpActions'
 
 type ChatRole = 'user' | 'assistant'
@@ -91,7 +92,7 @@ function newConversationId(): string {
 }
 
 export default function AiChatView() {
-  const { showToast, setView, navigateTo, navMenus, openProSign } = useStore()
+  const { user, showToast, setView, navigateTo, navMenus, openProSign } = useStore()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -106,6 +107,7 @@ export default function AiChatView() {
   }, [messages, loading])
 
   useEffect(() => {
+    if (!isAdminUser(user)) return
     let cancelled = false
     apiFetch('/ai/help/bootstrap')
       .then((data) => {
@@ -116,7 +118,7 @@ export default function AiChatView() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [user])
 
   const navStore = { setView, navigateTo, navMenus, openProSign, showToast }
 
@@ -262,6 +264,17 @@ export default function AiChatView() {
   )
 
   const send = useCallback(() => void sendText(input), [input, sendText])
+
+  if (!isAdminUser(user)) {
+    return (
+      <div className="p-6 max-w-2xl mx-auto text-center text-slate-500">
+        <p className="text-sm mb-3">AI 助手仅管理员可用。</p>
+        <button type="button" onClick={() => setView('catalog')} className="text-sm text-sky-600">
+          返回菜单
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col bg-slate-50 min-h-[calc(100dvh-7.5rem)] max-w-2xl mx-auto relative">

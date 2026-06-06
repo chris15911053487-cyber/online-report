@@ -1,16 +1,18 @@
 import { useStore } from '../store'
 import { Home, Sparkles, MessageCircle, Settings } from 'lucide-react'
 import type { ViewName } from '../types'
+import { isAdminUser } from '../utils/helpers'
 
-const tabs: { id: ViewName; label: string; icon: typeof Home }[] = [
+const allTabs: { id: ViewName; label: string; icon: typeof Home; adminOnly?: boolean }[] = [
   { id: 'catalog', label: '菜单', icon: Home },
-  { id: 'ai', label: 'AI', icon: Sparkles },
+  { id: 'ai', label: 'AI', icon: Sparkles, adminOnly: true },
   { id: 'messages', label: '消息', icon: MessageCircle },
   { id: 'settings', label: '设置', icon: Settings },
 ]
 
 export default function BottomNav() {
-  const { currentView, setView } = useStore()
+  const { currentView, setView, user } = useStore()
+  const tabs = allTabs.filter((t) => !t.adminOnly || isAdminUser(user))
 
   return (
     <nav

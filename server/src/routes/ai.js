@@ -163,20 +163,20 @@ async function aiRoutes(fastify) {
     }
   );
 
-  /** AI 助手：快捷问题与知识库元信息 */
+  /** AI 助手：快捷问题与知识库元信息（仅管理员，供底部 AI 对话页） */
   fastify.get(
     '/ai/help/bootstrap',
-    { preHandler: [fastify.authenticate] },
+    { preHandler: [fastify.requireAdmin] },
     async (request) => {
       const userRole = String(request.user.role || 'operator');
       return getHelpBootstrap(userRole);
     }
   );
 
-  /** 主界面 AI 对话（使用说明 RAG + 可选跳转建议） */
+  /** 主界面 AI 对话（使用说明 RAG + 可选跳转建议，仅管理员） */
   fastify.post(
     '/ai/chat',
-    { preHandler: [fastify.authenticate] },
+    { preHandler: [fastify.requireAdmin] },
     async (request, reply) => {
       const body = request.body || {};
       const raw = body.messages;

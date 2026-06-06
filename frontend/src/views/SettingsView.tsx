@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useStore } from '../store'
 import { apiFetch } from '../utils/api'
+import { isAdminUser } from '../utils/helpers'
 
 export default function SettingsView() {
   const { user, logout, navigateTo } = useStore()
-  const isAdmin = user?.role === 'admin' || (user?.roles || []).includes('admin')
+  const isAdmin = isAdminUser(user)
   const [showChangePwd, setShowChangePwd] = useState(false)
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')

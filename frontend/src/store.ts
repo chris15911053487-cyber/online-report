@@ -1,6 +1,15 @@
 import { create } from 'zustand'
 import { apiFetch, getToken, setToken } from './utils/api'
+import { isAdminUser } from './utils/helpers'
 import type { User, NavMenuItem, ViewName } from './types'
+
+function guardAiView(view: ViewName, user: User | null, showToast: (msg: string) => void): ViewName {
+  if (view === 'ai' && !isAdminUser(user)) {
+    showToast('AI 助手仅管理员可用')
+    return 'catalog'
+  }
+  return view
+}
 
 let toastHideTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -190,14 +199,16 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setView: (view: ViewName) => {
-    set({ currentView: view })
+    const { user, showToast } = get()
+    set({ currentView: guardAiView(view, user, showToast) })
   },
 
   navigateTo: (view: ViewName) => {
-    const current = get().currentView
+    const { user, showToast, currentView } = get()
+    const next = guardAiView(view, user, showToast)
     set((s) => ({
-      currentView: view,
-      viewHistory: [...s.viewHistory, current],
+      currentView: next,
+      viewHistory: next === view ? [...s.viewHistory, currentView] : s.viewHistory,
     }))
   },
 

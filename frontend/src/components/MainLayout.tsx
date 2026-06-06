@@ -1,4 +1,6 @@
+import { useEffect } from 'react'
 import { useStore } from '../store'
+import { isAdminUser } from '../utils/helpers'
 import BottomNav from './BottomNav'
 import CatalogView from '../views/CatalogView'
 import DynamicReportView from '../views/DynamicReportView'
@@ -76,11 +78,18 @@ export default function MainLayout() {
     currentView,
     user,
     goBack,
+    setView,
     activeMenu,
     proSignMergeButtonLabel,
     proSignMode,
     reportDetailRouteKey,
   } = useStore()
+
+  useEffect(() => {
+    if (currentView === 'ai' && !isAdminUser(user)) {
+      setView('catalog')
+    }
+  }, [currentView, user, setView])
 
   const isRootTab = rootTabs.includes(currentView)
   const showBackButton = !isRootTab

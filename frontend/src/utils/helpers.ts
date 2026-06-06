@@ -1,3 +1,11 @@
+import type { User } from '../types'
+
+/** 与后端 isAdminUser 一致：role=admin 或 roles 含 admin */
+export function isAdminUser(user: User | null | undefined): boolean {
+  if (!user) return false
+  return user.role === 'admin' || (user.roles || []).includes('admin')
+}
+
 /** Column naming convention: _img / _image / _pic / _photo suffix = image column */
 const IMAGE_COLUMN_PATTERN = /_(img|image|pic|photo)$/i
 

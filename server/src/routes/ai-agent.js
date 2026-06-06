@@ -142,10 +142,10 @@ async function aiAgentRoutes(fastify) {
   // 公网入口（用户 JWT）
   // ===========================================================================
 
-  /** 主对话入口：转发到 ai-agent，落历史，支持澄清/续聊 */
+  /** 主对话入口：转发到 ai-agent，落历史，支持澄清/续聊（仅管理员） */
   fastify.post(
     '/ai/agent/chat',
-    { preHandler: [fastify.authenticate] },
+    { preHandler: [fastify.requireAdmin] },
     async (request, reply) => {
       const body = request.body || {};
       const conversationId = String(body.conversationId || '').trim();
@@ -249,10 +249,10 @@ async function aiAgentRoutes(fastify) {
     }
   );
 
-  /** 会话列表 */
+  /** 会话列表（仅管理员） */
   fastify.get(
     '/ai/agent/conversations',
-    { preHandler: [fastify.authenticate] },
+    { preHandler: [fastify.requireAdmin] },
     async (request) => {
       const pool = await getPool();
       const userCode = String(request.user.username || '').trim();
@@ -261,10 +261,10 @@ async function aiAgentRoutes(fastify) {
     }
   );
 
-  /** 会话消息（续聊时加载） */
+  /** 会话消息（续聊时加载，仅管理员） */
   fastify.get(
     '/ai/agent/conversations/:id',
-    { preHandler: [fastify.authenticate] },
+    { preHandler: [fastify.requireAdmin] },
     async (request, reply) => {
       const conversationId = String(request.params.id || '').trim();
       if (!isValidConversationId(conversationId)) {
@@ -280,10 +280,10 @@ async function aiAgentRoutes(fastify) {
     }
   );
 
-  /** 删除会话 */
+  /** 删除会话（仅管理员） */
   fastify.delete(
     '/ai/agent/conversations/:id',
-    { preHandler: [fastify.authenticate] },
+    { preHandler: [fastify.requireAdmin] },
     async (request, reply) => {
       const conversationId = String(request.params.id || '').trim();
       if (!isValidConversationId(conversationId)) {
@@ -296,10 +296,10 @@ async function aiAgentRoutes(fastify) {
     }
   );
 
-  /** 当前用户可用的 skill（前端展示"AI 能做什么"） */
+  /** 当前用户可用的 skill（仅管理员） */
   fastify.get(
     '/ai/agent/skills',
-    { preHandler: [fastify.authenticate] },
+    { preHandler: [fastify.requireAdmin] },
     async (request) => {
       const pool = await getPool();
       const userRoles = getUserRolesFromRequest(request.user);
@@ -490,10 +490,10 @@ async function aiAgentRoutes(fastify) {
     }
   });
 
-  /** 鉴权下载（用户 JWT + 归属校验） */
+  /** 鉴权下载（仅管理员） */
   fastify.get(
     '/ai/agent/documents/:id',
-    { preHandler: [fastify.authenticate] },
+    { preHandler: [fastify.requireAdmin] },
     async (request, reply) => {
       const id = String(request.params.id || '');
       const pool = await getPool();
