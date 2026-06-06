@@ -131,6 +131,35 @@ export default function ProSignReceiveView() {
     })
   }, [])
 
+  const getLineQuantity = useCallback(
+    (idx: number) => {
+      const raw = quantities[idx] ?? lines[idx]?.quantity ?? 0
+      const n = typeof raw === 'number' ? raw : parseFloat(String(raw))
+      return Number.isFinite(n) ? n : 0
+    },
+    [quantities, lines],
+  )
+
+  const validateQuantitiesForSubmit = useCallback((): boolean => {
+    for (let i = 0; i < lines.length; i++) {
+      if (getLineQuantity(i) <= 0) {
+        showToast('存在数量为 0 的明细，不能提交，请修改数量后再保存')
+        return false
+      }
+    }
+    return true
+  }, [lines.length, getLineQuantity, showToast])
+
+  const openSavePreview = useCallback(() => {
+    if (!validateQuantitiesForSubmit()) return
+    setShowPreview(true)
+  }, [validateQuantitiesForSubmit])
+
+  const openPausePreview = useCallback(() => {
+    if (!validateQuantitiesForSubmit()) return
+    setShowPausePreview(true)
+  }, [validateQuantitiesForSubmit])
+
   const operatorCodesArr = Array.from(selectedCodes)
   const selectedSummary =
     selectedCodes.size > 0
@@ -188,6 +217,7 @@ export default function ProSignReceiveView() {
 
   const handleConfirmSave = useCallback(async () => {
     if (saving) return
+    if (!validateQuantitiesForSubmit()) return
     setSaving(true)
     const body = buildOnlineSignBody(signType, '')
 
@@ -206,10 +236,11 @@ export default function ProSignReceiveView() {
     } finally {
       if (mountedRef.current) setSaving(false)
     }
-  }, [saving, buildOnlineSignBody, signType, showToast, goBack])
+  }, [saving, validateQuantitiesForSubmit, buildOnlineSignBody, signType, showToast, goBack])
 
   const handleConfirmPause = useCallback(async () => {
     if (pauseSaving) return
+    if (!validateQuantitiesForSubmit()) return
     setPauseSaving(true)
     const body = buildOnlineSignBody('暂停报工', pauseRemarks)
 
@@ -229,7 +260,7 @@ export default function ProSignReceiveView() {
     } finally {
       if (mountedRef.current) setPauseSaving(false)
     }
-  }, [pauseSaving, buildOnlineSignBody, pauseRemarks, showToast, goBack])
+  }, [pauseSaving, validateQuantitiesForSubmit, buildOnlineSignBody, pauseRemarks, showToast, goBack])
 
   if (!items.length) {
     return (
@@ -335,7 +366,7 @@ export default function ProSignReceiveView() {
           {isCompletionFlow && (
             <button
               type="button"
-              onClick={() => setShowPausePreview(true)}
+              onClick={openPausePreview}
               disabled={saving || pauseSaving}
               className="flex-1 py-3 rounded-xl border-2 border-amber-500 text-amber-800 bg-amber-50 font-medium active:bg-amber-100 transition-colors disabled:opacity-50"
             >
@@ -344,7 +375,7 @@ export default function ProSignReceiveView() {
           )}
           <button
             type="button"
-            onClick={() => setShowPreview(true)}
+            onClick={openSavePreview}
             disabled={saving || pauseSaving}
             className={`py-3 rounded-xl font-medium transition-colors disabled:opacity-50 ${
               isCompletionFlow ? 'flex-1' : 'w-full'

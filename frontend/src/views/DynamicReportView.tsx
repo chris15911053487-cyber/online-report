@@ -119,6 +119,48 @@ function isProSignStatusFieldName(name: string | undefined): boolean {
   return (name || '').trim().toLowerCase() === 'status'
 }
 
+const PRO_SIGN_MULTI_STEP_MSG = '不能同时勾选多个不同工序进行报工，请只选择同一工序的明细'
+
+/** 列表行工序编码（StepCode），与 handleMerge 一致 */
+function proSignRowStepCode(row: Record<string, any> | undefined): string {
+  if (!row) return ''
+  const opRaw = getRowValue(row, 'StepCode')
+  if (opRaw == null || opRaw === '') return ''
+  let stepStr = String(opRaw).trim()
+  if (!stepStr) return ''
+  if (stepStr.length > 50) stepStr = stepStr.slice(0, 50)
+  return stepStr
+}
+
+function proSignSelectedStepCodes(
+  rows: Record<string, any>[],
+  indices: Iterable<number>,
+): Set<string> {
+  const codes = new Set<string>()
+  for (const i of indices) {
+    const code = proSignRowStepCode(rows[i])
+    if (code) codes.add(code)
+  }
+  return codes
+}
+
+/** 勾选该行是否会与已选行的工序冲突 */
+function proSignWouldMixSteps(
+  rows: Record<string, any>[],
+  selected: Set<number>,
+  idx: number,
+): boolean {
+  const step = proSignRowStepCode(rows[idx])
+  if (!step) return false
+  const existing = proSignSelectedStepCodes(rows, selected)
+  if (existing.size === 0) return false
+  return !existing.has(step) || existing.size > 1
+}
+
+function proSignVisibleRowsHaveMultipleSteps(rows: Record<string, any>[]): boolean {
+  return proSignSelectedStepCodes(rows, rows.map((_, i) => i)).size > 1
+}
+
 /** 读取表单值（字段名大小写不敏感，兼容 Status / status） */
 function getFormFieldValue(formValues: Record<string, any>, fieldName: string): unknown {
   if (!fieldName) return undefined
@@ -789,6 +831,12 @@ export default function DynamicReportView() {
       return
     }
 
+    const distinctStepCodes = new Set(selected.map((s) => s.operationId))
+    if (distinctStepCodes.size > 1) {
+      showToast(PRO_SIGN_MULTI_STEP_MSG)
+      return
+    }
+
     const statusVal = proSignStatusField
       ? String(getFormFieldValue(formValues, proSignStatusField.name) ?? '').trim()
       : ''
@@ -865,16 +913,28 @@ export default function DynamicReportView() {
   const toggleSelectAll = () => {
     if (allSelected) {
       setSelectedRows(new Set())
-    } else {
-      setSelectedRows(new Set(visibleRows.map((_, i) => i)))
+      return
     }
+    if (proSignMode && proSignVisibleRowsHaveMultipleSteps(visibleRows)) {
+      showToast(PRO_SIGN_MULTI_STEP_MSG)
+      return
+    }
+    setSelectedRows(new Set(visibleRows.map((_, i) => i)))
   }
 
   const toggleRow = (idx: number) => {
     setSelectedRows((prev) => {
+      if (prev.has(idx)) {
+        const next = new Set(prev)
+        next.delete(idx)
+        return next
+      }
+      if (proSignMode && proSignWouldMixSteps(visibleRows, prev, idx)) {
+        showToast(PRO_SIGN_MULTI_STEP_MSG)
+        return prev
+      }
       const next = new Set(prev)
-      if (next.has(idx)) next.delete(idx)
-      else next.add(idx)
+      next.add(idx)
       return next
     })
   }
