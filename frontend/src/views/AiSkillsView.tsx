@@ -1,13 +1,19 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
-import { apiFetch } from '../utils/api'
+import { apiFetch, apiFetchReport, apiUpload } from '../utils/api'
 import type { AppRole } from '../types'
 import AiWriteTargetsPanel from './AiWriteTargetsPanel'
+
+interface SkillResource {
+  content: string
+  size: number
+}
 
 interface AgentSkill {
   name: string
   description: string
   bodyMd: string
+  resources?: Record<string, SkillResource>
   roles: string[]
   producesDocument: boolean
   enabled: boolean
@@ -18,10 +24,15 @@ const EMPTY_SKILL: AgentSkill = {
   name: '',
   description: '',
   bodyMd: '',
+  resources: {},
   roles: [],
   producesDocument: false,
   enabled: true,
   sortOrder: 100,
+}
+
+function resourceCount(s: AgentSkill): number {
+  return Object.keys(s.resources || {}).length
 }
 
 export default function AiSkillsView() {
@@ -33,6 +44,11 @@ export default function AiSkillsView() {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [tab, setTab] = useState<'skills' | 'write'>('skills')
+  const [importing, setImporting] = useState(false)
+  const [previewPath, setPreviewPath] = useState<string | null>(null)
+  const [showAIDialog, setShowAIDialog] = useState(false)
+  const [aiGenerating, setAiGenerating] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -57,10 +73,64 @@ export default function AiSkillsView() {
   const startEdit = (s: AgentSkill) => {
     setEditing({ ...s, roles: [...s.roles] })
     setIsNew(false)
+    setPreviewPath(null)
+  }
+
+  const importZip = async (file: File) => {
+    setImporting(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const data = (await apiUpload('/ai/agent/skills-admin/import', fd)) as {
+        updated?: boolean
+        skill?: { name?: string; resourceCount?: number }
+      }
+      const sk = data?.skill
+      showToast(
+        `已${data?.updated ? '更新' : '导入'} skill「${sk?.name}」（${sk?.resourceCount ?? 0} 个资源文件）` +
+          (data?.updated ? '' : '，默认仅管理员可用，请编辑分配角色'),
+      )
+      await load()
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : '导入失败')
+    } finally {
+      setImporting(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
   }
   const startNew = () => {
     setEditing({ ...EMPTY_SKILL })
     setIsNew(true)
+  }
+
+  const handleAIGenerate = async (requirement: string) => {
+    setShowAIDialog(false)
+    setAiGenerating(true)
+    showToast('🤖 AI 正在生成 Skill…（约需数十秒）', 95000)
+    try {
+      const data = await apiFetchReport(
+        '/ai/generate-skill',
+        { method: 'POST', body: JSON.stringify({ requirement }) },
+        120000,
+      ) as { success?: boolean; skill?: { name: string; description: string; bodyMd: string }; error?: string }
+      if (data.success && data.skill) {
+        setEditing({
+          ...EMPTY_SKILL,
+          name: data.skill.name,
+          description: data.skill.description,
+          bodyMd: data.skill.bodyMd,
+        })
+        setIsNew(true)
+        showToast('✅ AI 生成成功！请检查内容后保存。')
+      } else {
+        showToast('生成失败：' + (data.error || '未知错误'))
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : '网络错误'
+      showToast('AI 生成失败：' + (/abort|超时|timeout/i.test(msg) ? '请求超时，请重试' : msg))
+    } finally {
+      setAiGenerating(false)
+    }
   }
 
   const toggleRole = (key: string) => {
@@ -109,7 +179,16 @@ export default function AiSkillsView() {
   if (editing) {
     return (
       <div className="p-4 max-w-2xl mx-auto pb-24">
-        <h2 className="text-lg font-semibold mb-3">{isNew ? '新建 Skill' : `编辑：${editing.name}`}</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-semibold">{isNew ? '新建 Skill' : `编辑：${editing.name}`}</h2>
+          <button
+            onClick={() => setShowAIDialog(true)}
+            disabled={aiGenerating}
+            className="text-xs px-3 py-1.5 border border-purple-400 text-purple-600 rounded-lg hover:bg-purple-50 disabled:opacity-50"
+          >
+            {aiGenerating ? '生成中…' : '🤖 AI 辅助生成'}
+          </button>
+        </div>
         <div className="space-y-3 bg-white rounded-lg shadow p-4">
           <div>
             <label className="block text-sm text-slate-600 mb-1">名称（小写连字符，唯一）</label>
@@ -142,6 +221,34 @@ export default function AiSkillsView() {
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
             />
           </div>
+          {resourceCount(editing) > 0 && (
+            <div>
+              <label className="block text-sm text-slate-600 mb-1">
+                包内资源文件（随压缩包导入，只读；重新导入同名包可更新）
+              </label>
+              <div className="space-y-1">
+                {Object.entries(editing.resources || {}).map(([p, r]) => (
+                  <div key={p} className="border border-slate-200 rounded-lg">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewPath(previewPath === p ? null : p)}
+                      className="w-full flex items-center justify-between px-3 py-2 text-left"
+                    >
+                      <span className="text-xs font-mono text-slate-700">{p}</span>
+                      <span className="text-[10px] text-slate-400">
+                        {((r?.size ?? 0) / 1024).toFixed(1)} KB {previewPath === p ? '▲' : '▼'}
+                      </span>
+                    </button>
+                    {previewPath === p && (
+                      <pre className="px-3 pb-2 text-[11px] text-slate-600 whitespace-pre-wrap break-all max-h-60 overflow-y-auto">
+                        {r?.content || ''}
+                      </pre>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div>
             <label className="block text-sm text-slate-600 mb-1">可使用此 Skill 的角色（不选=仅管理员）</label>
             <div className="flex flex-wrap gap-2">
@@ -204,6 +311,46 @@ export default function AiSkillsView() {
             {saving ? '保存中…' : '保存'}
           </button>
         </div>
+        {showAIDialog && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+            onClick={(e) => { if (e.target === e.currentTarget) setShowAIDialog(false) }}
+          >
+            <div className="bg-white rounded-xl shadow-xl w-[90%] max-w-lg p-5">
+              <p className="font-semibold text-slate-800 mb-3">描述你想要的 Skill 功能：</p>
+              <div className="text-xs text-slate-500 mb-1">示例：</div>
+              <div className="text-xs text-slate-600 bg-slate-50 rounded p-2 mb-3 leading-relaxed">
+                帮我创建一个 Skill，用于分析生产报工数据，统计每个工序的效率和异常情况，给出改进建议。
+              </div>
+              <textarea
+                id="ai-skill-requirement"
+                className="w-full border border-slate-300 rounded-lg p-2 text-sm min-h-[100px] focus:ring-2 focus:ring-sky-300 focus:border-sky-400 outline-none"
+                autoFocus
+                placeholder="描述 Skill 的用途、工作流程和期望输出…"
+              />
+              <div className="flex justify-end gap-2 mt-4">
+                <button
+                  type="button"
+                  className="px-4 py-2 text-sm rounded-lg border border-slate-300 text-slate-600"
+                  onClick={() => setShowAIDialog(false)}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="px-4 py-2 text-sm rounded-lg bg-purple-500 text-white disabled:opacity-50"
+                  onClick={() => {
+                    const el = document.getElementById('ai-skill-requirement') as HTMLTextAreaElement | null
+                    const v = el?.value.trim()
+                    if (v) void handleAIGenerate(v)
+                  }}
+                >
+                  生成
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -213,9 +360,35 @@ export default function AiSkillsView() {
       <div className="flex items-center justify-between mb-3">
         <button onClick={goBack} className="text-sm text-sky-600">← 返回</button>
         {tab === 'skills' && (
-          <button onClick={startNew} className="text-sm px-3 py-1.5 bg-sky-500 text-white rounded-lg">
-            + 新建 Skill
-          </button>
+          <div className="flex gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".zip,application/zip,application/x-zip-compressed"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) void importZip(f)
+              }}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={importing}
+              className="text-sm px-3 py-1.5 border border-violet-400 text-violet-600 rounded-lg disabled:opacity-50"
+            >
+              {importing ? '导入中…' : '导入 Skill 包 (.zip)'}
+            </button>
+            <button
+              onClick={() => { startNew(); setShowAIDialog(true) }}
+              disabled={aiGenerating}
+              className="text-sm px-3 py-1.5 border border-purple-400 text-purple-600 rounded-lg disabled:opacity-50"
+            >
+              {aiGenerating ? '生成中…' : '🤖 AI 新建'}
+            </button>
+            <button onClick={startNew} className="text-sm px-3 py-1.5 bg-sky-500 text-white rounded-lg">
+              + 新建 Skill
+            </button>
+          </div>
         )}
       </div>
 
@@ -254,6 +427,11 @@ export default function AiSkillsView() {
                 {!s.enabled && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-400">停用</span>}
                 {s.producesDocument && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-600">文档</span>
+                )}
+                {resourceCount(s) > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600">
+                    {resourceCount(s)} 资源
+                  </span>
                 )}
               </div>
               <div className="flex gap-3">

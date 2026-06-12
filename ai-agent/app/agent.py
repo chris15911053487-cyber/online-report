@@ -4,10 +4,11 @@
 - SqliteSaver 做 checkpoint，按 thread_id 支持 interrupt/resume；
 - system prompt 注入"按角色过滤后的 skill 清单"（第 1 层权限），执行落白名单工具。
 """
-import sqlite3
+import json
 import os
+import sqlite3
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.prebuilt import create_react_agent
 from langgraph.types import Command
@@ -60,6 +61,14 @@ def build_system_prompt(skills, user) -> str:
         lines.append("（当前无可用 skill，仅可做一般性回答）")
     for s in skills or []:
         lines.append(f"\n### {s.get('name')}\n{s.get('description','')}\n{s.get('bodyMd','')}")
+        resources = s.get("resources") or []
+        if resources:
+            lines.append("\n本 skill 附带以下资源文件（仅列清单，内容未加载）：")
+            for r in resources:
+                lines.append(f"- {r.get('path')}（{r.get('size', 0)} 字节）")
+            lines.append(
+                "需要其中细节时，用 read_skill_resource(skill_name, path) 按需读取；不要凭空臆测资源内容。"
+            )
     roles = (user or {}).get("roles") or []
     if roles:
         lines.append(f"\n当前用户角色：{', '.join(roles)}")
@@ -74,20 +83,123 @@ def _interrupt_payload(result):
     return getattr(first, "value", None) or (first if isinstance(first, dict) else None)
 
 
-def _collect_tool_names(messages):
-    names = []
+TOOL_LABELS = {
+    "knowledge_search": "检索知识库",
+    "read_skill_resource": "读取 Skill 资源",
+    "lookup_options": "查找候选项",
+    "run_report": "执行报表查询",
+    "ask_user_to_choose": "等待用户确认",
+    "save_record": "保存记录",
+    "generate_document": "生成文档",
+}
+
+
+def _truncate_text(text, limit=180):
+    s = str(text or "").replace("\n", " ").strip()
+    return s if len(s) <= limit else s[:limit] + "…"
+
+
+def _summarize_args(tool, args):
+    if not isinstance(args, dict):
+        return {}
+    out = dict(args)
+    if tool == "run_report" and "params_json" in out:
+        try:
+            raw = out.get("params_json")
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+            out["params"] = parsed if isinstance(parsed, dict) else raw
+        except Exception:  # noqa: BLE001
+            pass
+        out.pop("params_json", None)
+    if tool == "save_record" and "payload_json" in out:
+        try:
+            raw = out.get("payload_json")
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+            out["payload"] = parsed if isinstance(parsed, (dict, list)) else raw
+        except Exception:  # noqa: BLE001
+            pass
+        out.pop("payload_json", None)
+    if tool == "generate_document":
+        for key in ("columns_json", "rows_json"):
+            if key in out:
+                try:
+                    raw = out.get(key)
+                    parsed = json.loads(raw) if isinstance(raw, str) else raw
+                    out[key.replace("_json", "")] = parsed
+                except Exception:  # noqa: BLE001
+                    pass
+                out.pop(key, None)
+    if tool == "lookup_options" and "options_json" in out:
+        out.pop("options_json", None)
+    out.pop("config", None)
+    return out
+
+
+def _collect_tool_steps(messages):
+    """收集本轮工具调用明细（名称、参数摘要、结果预览），供前端展示执行过程。"""
+    steps = []
+    pending = {}
     for m in messages or []:
-        tc = getattr(m, "tool_calls", None)
-        if tc:
-            for c in tc:
-                n = c.get("name") if isinstance(c, dict) else getattr(c, "name", None)
-                if n:
-                    names.append(n)
-    return names
+        if isinstance(m, AIMessage):
+            for c in getattr(m, "tool_calls", None) or []:
+                name = c.get("name") if isinstance(c, dict) else getattr(c, "name", None)
+                if not name:
+                    continue
+                raw_args = c.get("args") if isinstance(c, dict) else getattr(c, "args", {})
+                tid = c.get("id") if isinstance(c, dict) else getattr(c, "id", None)
+                step = {
+                    "tool": name,
+                    "label": TOOL_LABELS.get(name, name),
+                    "args": _summarize_args(name, raw_args),
+                }
+                steps.append(step)
+                if tid:
+                    pending[tid] = len(steps) - 1
+        elif isinstance(m, ToolMessage):
+            tid = getattr(m, "tool_call_id", None)
+            idx = pending.get(tid)
+            if idx is not None:
+                content = m.content if isinstance(m.content, str) else str(m.content or "")
+                preview, is_err = _tool_result_preview(content)
+                steps[idx]["resultPreview"] = preview
+                if is_err:
+                    steps[idx]["status"] = "error"
+    return steps
 
 
-def _guess_skill(tool_names):
+def _tool_result_preview(content: str):
+    """解析工具返回；失败时提取可读错误供前台展示。"""
+    text = str(content or "").strip()
+    if not text:
+        return "", False
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict) and data.get("success") is False:
+            err = str(data.get("error") or "工具调用失败")
+            return _truncate_text(err), True
+    except Exception:  # noqa: BLE001
+        pass
+    if "失败" in text or text.startswith("（读取资源失败"):
+        return _truncate_text(text), True
+    return _truncate_text(text), False
+
+
+def _collect_tool_names(steps):
+    return [s.get("tool") for s in steps if s.get("tool")]
+
+
+def _guess_skill(tool_names, steps):
+    for s in steps:
+        if s.get("tool") == "read_skill_resource":
+            sk = (s.get("args") or {}).get("skill_name")
+            if sk:
+                return str(sk)
     if "save_record" in tool_names:
+        for s in steps:
+            if s.get("tool") == "save_record":
+                ent = (s.get("args") or {}).get("entity")
+                if ent:
+                    return str(ent)
         return "save-record"
     if "generate_document" in tool_names:
         return "doc-export"
@@ -128,8 +240,9 @@ def run_turn(*, thread_id, scoped_token, input_obj, history, skills, user):
 
     clar = _interrupt_payload(result)
     msgs = result.get("messages", []) if isinstance(result, dict) else []
-    tool_names = _collect_tool_names(msgs)
-    skill_used = _guess_skill(tool_names)
+    tool_steps = _collect_tool_steps(msgs)
+    tool_names = _collect_tool_names(tool_steps)
+    skill_used = _guess_skill(tool_names, tool_steps)
 
     if clar:
         # 透传整个中断负载：消歧为 {type:'clarification', field, question, options}，
@@ -148,6 +261,7 @@ def run_turn(*, thread_id, scoped_token, input_obj, history, skills, user):
             "clarification": clarification,
             "skillUsed": skill_used,
             "toolCalls": tool_names,
+            "toolSteps": tool_steps,
         }
 
     final = ""
@@ -155,4 +269,10 @@ def run_turn(*, thread_id, scoped_token, input_obj, history, skills, user):
         if isinstance(m, AIMessage) and getattr(m, "content", ""):
             final = m.content if isinstance(m.content, str) else str(m.content)
             break
-    return {"status": "final", "message": final or "（无回复）", "skillUsed": skill_used, "toolCalls": tool_names}
+    return {
+        "status": "final",
+        "message": final or "（无回复）",
+        "skillUsed": skill_used,
+        "toolCalls": tool_names,
+        "toolSteps": tool_steps,
+    }

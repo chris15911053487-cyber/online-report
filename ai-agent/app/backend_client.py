@@ -19,7 +19,13 @@ class BackendClient:
             except Exception:  # noqa: BLE001
                 data = {"error": resp.text}
             if resp.status_code >= 400:
-                msg = data.get("error") if isinstance(data, dict) else resp.text
+                if isinstance(data, dict):
+                    msg = data.get("error") or resp.text
+                    detail = data.get("detail") or data.get("code")
+                    if detail and detail not in str(msg):
+                        msg = f"{msg}（{detail}）"
+                else:
+                    msg = resp.text
                 raise RuntimeError(f"backend {path} {resp.status_code}: {msg}")
             return data
 
@@ -42,4 +48,10 @@ class BackendClient:
         return self._post(
             "/ai/agent/internal/store-document",
             {"filename": filename, "ext": ext, "contentBase64": content_base64},
+        )
+
+    def skill_resource(self, skill_name: str, path: str) -> dict:
+        return self._post(
+            "/ai/agent/internal/skill-resource",
+            {"skillName": skill_name, "path": path},
         )

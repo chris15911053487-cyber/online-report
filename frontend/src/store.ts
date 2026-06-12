@@ -1,15 +1,6 @@
 import { create } from 'zustand'
 import { apiFetch, getToken, setToken } from './utils/api'
-import { isAdminUser } from './utils/helpers'
-import type { User, NavMenuItem, ViewName } from './types'
-
-function guardAiView(view: ViewName, user: User | null, showToast: (msg: string) => void): ViewName {
-  if (view === 'ai' && !isAdminUser(user)) {
-    showToast('AI 助手仅管理员可用')
-    return 'catalog'
-  }
-  return view
-}
+import type { User, NavMenuItem, ViewName, MessageSummary } from './types'
 
 let toastHideTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -29,6 +20,9 @@ interface AppState {
   // Toast
   toastMessage: string | null
   toastDuration: number
+
+  // Message alerts
+  messageSummary: MessageSummary | null
 
   // Dynamic report context
   activeMenu: NavMenuItem | null
@@ -69,6 +63,7 @@ interface AppState {
   navigateTo: (view: ViewName) => void
   goBack: () => void
   fetchMenus: () => Promise<void>
+  fetchMessageSummary: () => Promise<void>
   showToast: (msg: string, durationMs?: number) => void
   hideToast: () => void
   openMenu: (menu: NavMenuItem, opts?: { prefilledFilters?: Record<string, any>; autoQuery?: boolean }) => void
@@ -91,6 +86,7 @@ export const useStore = create<AppState>((set, get) => ({
   isLoading: false,
   toastMessage: null,
   toastDuration: 2200,
+  messageSummary: null,
   activeMenu: null,
   proSignMode: false,
   prefilledFilters: null,
@@ -141,6 +137,7 @@ export const useStore = create<AppState>((set, get) => ({
           },
         })
         await get().fetchMenus()
+        void get().fetchMessageSummary()
       } catch {
         setToken(null)
         set({ isAuthenticated: false })
@@ -167,6 +164,7 @@ export const useStore = create<AppState>((set, get) => ({
         },
       })
       await get().fetchMenus()
+      void get().fetchMessageSummary()
     } finally {
       set({ isLoading: false })
     }
@@ -190,6 +188,7 @@ export const useStore = create<AppState>((set, get) => ({
       shouldRefreshProSignListAfterReceive: false,
       prefilledFilters: null,
       prefilledAutoQuery: false,
+      messageSummary: null,
     })
     try {
       ;(window as any).__voiceMenus = []
@@ -199,16 +198,14 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setView: (view: ViewName) => {
-    const { user, showToast } = get()
-    set({ currentView: guardAiView(view, user, showToast) })
+    set({ currentView: view })
   },
 
   navigateTo: (view: ViewName) => {
-    const { user, showToast, currentView } = get()
-    const next = guardAiView(view, user, showToast)
+    const current = get().currentView
     set((s) => ({
-      currentView: next,
-      viewHistory: next === view ? [...s.viewHistory, currentView] : s.viewHistory,
+      currentView: view,
+      viewHistory: [...s.viewHistory, current],
     }))
   },
 
@@ -277,6 +274,23 @@ export const useStore = create<AppState>((set, get) => ({
       console.error('Failed to fetch menus:', err)
       const msg = err instanceof Error ? err.message : '菜单加载失败'
       get().showToast(msg)
+    }
+  },
+
+  fetchMessageSummary: async () => {
+    if (!get().isAuthenticated) return
+    try {
+      const data = await apiFetch('/messages/summary')
+      set({
+        messageSummary: {
+          totalUnread: Number(data?.totalUnread) || 0,
+          refreshSeconds: Number(data?.refreshSeconds) || 60,
+          rules: Array.isArray(data?.rules) ? data.rules : [],
+          refreshedAt: data?.refreshedAt || null,
+        },
+      })
+    } catch (err) {
+      console.error('Failed to fetch message summary:', err)
     }
   },
 

@@ -1,6 +1,5 @@
 import { useEffect } from 'react'
 import { useStore } from '../store'
-import { isAdminUser } from '../utils/helpers'
 import BottomNav from './BottomNav'
 import CatalogView from '../views/CatalogView'
 import DynamicReportView from '../views/DynamicReportView'
@@ -15,14 +14,12 @@ import ProSignOrderDetailView from '../views/ProSignOrderDetailView'
 import WorkRegistrationView from '../views/WorkRegistrationView'
 import AiChatView from '../views/AiChatView'
 import AiSkillsView from '../views/AiSkillsView'
+import MessagesView from '../views/MessagesView'
+import MessageAlertSettingsView from '../views/MessageAlertSettingsView'
 import type { ViewName } from '../types'
 import { isReturnProRoute } from '../views/ReturnProPickDetail'
 
 const rootTabs: ViewName[] = ['catalog', 'ai', 'messages', 'settings']
-
-function MessagesView() {
-  return <div className="p-4 py-16 text-center text-slate-400">消息将显示在这里</div>
-}
 
 const viewComponents: Record<string, React.ComponentType> = {
   catalog: CatalogView,
@@ -32,6 +29,7 @@ const viewComponents: Record<string, React.ComponentType> = {
   'dynamic-report': DynamicReportView,
   'menu-settings': MenuSettingsView,
   'ai-skills': AiSkillsView,
+  'message-alert-settings': MessageAlertSettingsView,
   owor: OworView,
   orders: OrdersView,
   detail: DetailView,
@@ -56,6 +54,7 @@ function getPageTitle(
     orders: '报工订单',
     'menu-settings': '菜单设置',
     'ai-skills': 'AI Skill 管理',
+    'message-alert-settings': '消息提醒设置',
     detail: '订单报工',
     'report-row-detail': '行详情',
     'work-registration': '报工登记',
@@ -78,18 +77,30 @@ export default function MainLayout() {
     currentView,
     user,
     goBack,
-    setView,
     activeMenu,
     proSignMergeButtonLabel,
     proSignMode,
     reportDetailRouteKey,
+    fetchMessageSummary,
+    messageSummary,
+    isAuthenticated,
   } = useStore()
 
   useEffect(() => {
-    if (currentView === 'ai' && !isAdminUser(user)) {
-      setView('catalog')
+    if (!isAuthenticated) return
+    void fetchMessageSummary()
+    const intervalSec = messageSummary?.refreshSeconds || 60
+    const timer = window.setInterval(() => {
+      void fetchMessageSummary()
+    }, Math.max(15, intervalSec) * 1000)
+    return () => window.clearInterval(timer)
+  }, [isAuthenticated, fetchMessageSummary, messageSummary?.refreshSeconds])
+
+  useEffect(() => {
+    if (currentView === 'messages' && isAuthenticated) {
+      void fetchMessageSummary()
     }
-  }, [currentView, user, setView])
+  }, [currentView, isAuthenticated, fetchMessageSummary])
 
   const isRootTab = rootTabs.includes(currentView)
   const showBackButton = !isRootTab
@@ -101,6 +112,7 @@ export default function MainLayout() {
     reportDetailRouteKey,
   )
 
+  const aiChatVisible = currentView === 'ai'
   const CurrentView = viewComponents[currentView] || CatalogView
 
   /** 合并报工页仍挂载列表报表（display:none），避免返回时 DynamicReportView 卸载导致筛选条件被初始化逻辑重置 */
@@ -141,7 +153,13 @@ export default function MainLayout() {
             <DynamicReportView />
           </div>
         )}
-        {!dynamicReportVisible && <CurrentView />}
+        <div
+          className={aiChatVisible ? undefined : 'hidden'}
+          aria-hidden={!aiChatVisible}
+        >
+          <AiChatView />
+        </div>
+        {!dynamicReportVisible && !aiChatVisible && <CurrentView />}
       </main>
 
       {showBottomNav && <BottomNav />}

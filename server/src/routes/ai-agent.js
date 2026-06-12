@@ -29,7 +29,7 @@ const {
   verifyScopedToken,
   userFromScopedPayload,
 } = require('../ai-scoped-token');
-const { listSkillsForRoles } = require('../agent-skills');
+const { listSkillsForRoles, canUseSkill } = require('../agent-skills');
 const {
   isValidConversationId,
   ensureConversation,
@@ -52,6 +52,7 @@ const {
   deleteWriteTarget,
 } = require('../agent-write');
 const { storeDocument, getOwnedDocument } = require('../agent-documents');
+const { getAction: getAgentAction, listActions: listAgentActions } = require('../agent-actions');
 
 function agentBaseUrl() {
   return String(process.env.AI_AGENT_URL || 'http://ai-agent:8080').replace(/\/+$/, '');
@@ -85,6 +86,58 @@ async function postAgent(pathname, payload, scopedToken) {
       data = { error: text };
     }
     return { ok: res.ok, status: res.status, data };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** 探测 ai-agent 健康（供状态页/指示灯；短超时，不阻塞对话） */
+async function probeAgentHealth() {
+  const url = agentBaseUrl();
+  const enabled = agentEnabled();
+  if (!enabled) {
+    return {
+      enabled: false,
+      reachable: false,
+      mode: 'knowledge_only',
+      url,
+      hint: 'AI_AGENT_ENABLED=false，仅使用本地知识问答（Skill/查数不可用）',
+      checkedAt: new Date().toISOString(),
+    };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(`${url}/health`, { signal: controller.signal });
+    const text = await res.text();
+    let data = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      data = {};
+    }
+    const reachable = res.ok && data.ok === true;
+    return {
+      enabled: true,
+      reachable,
+      mode: reachable ? 'agent' : 'degraded',
+      url,
+      service: data.service || null,
+      hint: reachable
+        ? 'Agent 已连接，可使用 Skill、报表查询等能力'
+        : 'Agent 不可达，将降级为本地知识问答（Skill/查数不可用）',
+      checkedAt: new Date().toISOString(),
+    };
+  } catch (err) {
+    return {
+      enabled: true,
+      reachable: false,
+      mode: 'degraded',
+      url,
+      error: err.message || String(err),
+      hint: 'Agent 不可达，将降级为本地知识问答（Skill/查数不可用）',
+      checkedAt: new Date().toISOString(),
+    };
   } finally {
     clearTimeout(timer);
   }
@@ -142,10 +195,10 @@ async function aiAgentRoutes(fastify) {
   // 公网入口（用户 JWT）
   // ===========================================================================
 
-  /** 主对话入口：转发到 ai-agent，落历史，支持澄清/续聊（仅管理员） */
+  /** 主对话入口：转发到 ai-agent，落历史，支持澄清/续聊 */
   fastify.post(
     '/ai/agent/chat',
-    { preHandler: [fastify.requireAdmin] },
+    { preHandler: [fastify.authenticate] },
     async (request, reply) => {
       const body = request.body || {};
       const conversationId = String(body.conversationId || '').trim();
@@ -198,6 +251,11 @@ async function aiAgentRoutes(fastify) {
           description: s.description,
           bodyMd: s.bodyMd,
           producesDocument: s.producesDocument,
+          // 资源只传清单（路径+大小），内容由 Agent 经 read_skill_resource 按需读取
+          resources: Object.entries(s.resources || {}).map(([p, r]) => ({
+            path: p,
+            size: Number(r?.size) || (typeof r?.content === 'string' ? r.content.length : 0),
+          })),
         }));
       } catch {}
 
@@ -226,6 +284,7 @@ async function aiAgentRoutes(fastify) {
                 content: assistantText,
                 skillUsed: data.skillUsed || null,
                 toolCalls: data.toolCalls || null,
+                toolSteps: data.toolSteps || null,
               });
               await touchConversation(pool, conversationId);
             } catch (err) {
@@ -249,10 +308,10 @@ async function aiAgentRoutes(fastify) {
     }
   );
 
-  /** 会话列表（仅管理员） */
+  /** 会话列表 */
   fastify.get(
     '/ai/agent/conversations',
-    { preHandler: [fastify.requireAdmin] },
+    { preHandler: [fastify.authenticate] },
     async (request) => {
       const pool = await getPool();
       const userCode = String(request.user.username || '').trim();
@@ -261,10 +320,10 @@ async function aiAgentRoutes(fastify) {
     }
   );
 
-  /** 会话消息（续聊时加载，仅管理员） */
+  /** 会话消息（续聊时加载） */
   fastify.get(
     '/ai/agent/conversations/:id',
-    { preHandler: [fastify.requireAdmin] },
+    { preHandler: [fastify.authenticate] },
     async (request, reply) => {
       const conversationId = String(request.params.id || '').trim();
       if (!isValidConversationId(conversationId)) {
@@ -280,10 +339,10 @@ async function aiAgentRoutes(fastify) {
     }
   );
 
-  /** 删除会话（仅管理员） */
+  /** 删除会话 */
   fastify.delete(
     '/ai/agent/conversations/:id',
-    { preHandler: [fastify.requireAdmin] },
+    { preHandler: [fastify.authenticate] },
     async (request, reply) => {
       const conversationId = String(request.params.id || '').trim();
       if (!isValidConversationId(conversationId)) {
@@ -296,10 +355,10 @@ async function aiAgentRoutes(fastify) {
     }
   );
 
-  /** 当前用户可用的 skill（仅管理员） */
+  /** 当前用户可用的 skill（前端展示"AI 能做什么"） */
   fastify.get(
     '/ai/agent/skills',
-    { preHandler: [fastify.requireAdmin] },
+    { preHandler: [fastify.authenticate] },
     async (request) => {
       const pool = await getPool();
       const userRoles = getUserRolesFromRequest(request.user);
@@ -312,6 +371,13 @@ async function aiAgentRoutes(fastify) {
         })),
       };
     }
+  );
+
+  /** Agent 连接状态（前端指示灯） */
+  fastify.get(
+    '/ai/agent/status',
+    { preHandler: [fastify.authenticate] },
+    async () => probeAgentHealth()
   );
 
   // ===========================================================================
@@ -358,7 +424,11 @@ async function aiAgentRoutes(fastify) {
       };
     } catch (err) {
       request.log.error({ err, routeKey }, 'agent internal run-report');
-      return reply.code(500).send({ error: '查询失败', code: 'AGENT_QUERY_ERROR', detail: err.message });
+      return reply.code(500).send({
+        error: err.message || '查询失败',
+        code: err.code || 'AGENT_QUERY_ERROR',
+        detail: err.message,
+      });
     }
   });
 
@@ -413,7 +483,12 @@ async function aiAgentRoutes(fastify) {
     return { chunks };
   });
 
-  /** 受控写入（单保存）：LLM 只传结构化 payload，按写入目标白名单参数化 INSERT + 审计 */
+  /**
+   * 受控写入（单保存）：LLM 只传结构化 payload。
+   * - target_kind='table'：按字段白名单参数化 INSERT；
+   * - target_kind='action'：分发到 agent-actions.js 代码注册的业务动作（如返工单领料）。
+   * 两种类型都落 ai_action_logs 审计。
+   */
   fastify.post('/ai/agent/internal/save-record', async (request, reply) => {
     const auth = requireScopedToken(request, reply);
     if (!auth) return;
@@ -436,12 +511,26 @@ async function aiAgentRoutes(fastify) {
       return reply.code(403).send({ error: '无权写入该实体', code: 'AGENT_WRITE_FORBIDDEN' });
     }
     try {
-      const { insertedRow } = await performWrite(pool, target, payload);
+      let inserted;
+      if (target.targetKind === 'action') {
+        const action = getAgentAction(target.targetTable);
+        if (!action) {
+          return reply.code(503).send({
+            error: `动作「${target.targetTable}」未在代码注册表中（请检查 agent-actions.js）`,
+            code: 'AGENT_ACTION_NOT_REGISTERED',
+          });
+        }
+        inserted = await action.run({ user: auth.user, payload, log: request.log });
+      } else {
+        const { insertedRow } = await performWrite(pool, target, payload);
+        inserted = insertedRow;
+      }
       await writeAuditLog(pool, {
         userCode: auth.user.username, conversationId, action: 'save_record',
-        entity, payload, result: 'ok', detail: target.targetTable,
+        entity, payload, result: 'ok',
+        detail: `${target.targetKind === 'action' ? 'action:' : ''}${target.targetTable}`,
       });
-      return { success: true, entity, inserted: insertedRow };
+      return { success: true, entity, inserted };
     } catch (err) {
       request.log.error({ err, entity }, 'agent internal save-record');
       await writeAuditLog(pool, {
@@ -490,10 +579,40 @@ async function aiAgentRoutes(fastify) {
     }
   });
 
-  /** 鉴权下载（仅管理员） */
+  /** Agent 按需读取 skill 文本资源（渐进式披露）；按用户角色做 skill 门禁 */
+  fastify.post('/ai/agent/internal/skill-resource', async (request, reply) => {
+    const auth = requireScopedToken(request, reply);
+    if (!auth) return;
+    const body = request.body || {};
+    const skillName = String(body.skillName || '').trim().toLowerCase();
+    const resourcePath = String(body.path || '').trim().replace(/^\/+/, '');
+    if (!skillName || !resourcePath) {
+      return reply.code(400).send({ error: '缺少 skillName/path', code: 'AGENT_BAD_REQUEST' });
+    }
+    const pool = await getPool();
+    const skill = await getSkill(pool, skillName);
+    if (!skill || !skill.enabled) {
+      return reply.code(404).send({ error: 'skill 不存在或未启用', code: 'AGENT_SKILL_NOT_FOUND' });
+    }
+    if (!canUseSkill(auth.user.roles, skill.roles)) {
+      return reply.code(403).send({ error: '无权使用该 skill', code: 'AGENT_FORBIDDEN' });
+    }
+    const res = skill.resources && skill.resources[resourcePath];
+    if (!res || typeof res.content !== 'string') {
+      const available = Object.keys(skill.resources || {});
+      return reply.code(404).send({
+        error: `资源不存在：${resourcePath}`,
+        code: 'AGENT_RESOURCE_NOT_FOUND',
+        available,
+      });
+    }
+    return { skillName, path: resourcePath, content: res.content };
+  });
+
+  /** 鉴权下载（用户 JWT + 归属校验） */
   fastify.get(
     '/ai/agent/documents/:id',
-    { preHandler: [fastify.requireAdmin] },
+    { preHandler: [fastify.authenticate] },
     async (request, reply) => {
       const id = String(request.params.id || '');
       const pool = await getPool();
@@ -524,6 +643,7 @@ async function aiAgentRoutes(fastify) {
     upsertSkill,
     deleteSkill,
   } = require('../agent-skills');
+  const { parseSkillPackage } = require('../skill-package');
 
   fastify.get(
     '/ai/agent/skills-admin',
@@ -562,6 +682,63 @@ async function aiAgentRoutes(fastify) {
     }
   );
 
+  /**
+   * 导入标准 Skill 压缩包（SKILL.md + references/ 等文本资源）。
+   * - roles 不从包里读：新 skill 默认仅管理员；覆盖导入保留已配置的角色与启用状态。
+   */
+  fastify.post(
+    '/ai/agent/skills-admin/import',
+    { preHandler: [fastify.requireAdmin] },
+    async (request, reply) => {
+      let file;
+      try {
+        file = await request.file();
+      } catch (err) {
+        return reply.code(400).send({ error: '上传失败：' + err.message, code: 'SKILL_UPLOAD_ERROR' });
+      }
+      if (!file) {
+        return reply.code(400).send({ error: '请上传 zip 文件', code: 'SKILL_NO_FILE' });
+      }
+      let buf;
+      try {
+        buf = await file.toBuffer();
+      } catch {
+        return reply.code(400).send({ error: 'zip 文件超出大小限制（5MB）', code: 'SKILL_ZIP_TOO_LARGE' });
+      }
+
+      const parsed = parseSkillPackage(buf);
+      if (!parsed.ok) {
+        return reply.code(400).send({ error: parsed.error, code: 'SKILL_PACKAGE_INVALID' });
+      }
+
+      const pool = await getPool();
+      const existing = await getSkill(pool, parsed.value.name);
+      const v = validateSkillInput({
+        ...parsed.value,
+        roles: existing ? existing.roles : [],
+        enabled: existing ? existing.enabled : true,
+      });
+      if (!v.ok) return reply.code(400).send({ error: v.error, code: 'SKILL_INVALID' });
+
+      try {
+        const saved = await upsertSkill(pool, v.value);
+        return {
+          success: true,
+          updated: !!existing,
+          skill: {
+            name: saved.name,
+            description: saved.description,
+            resourceCount: Object.keys(saved.resources || {}).length,
+            roles: saved.roles,
+          },
+        };
+      } catch (err) {
+        request.log.error({ err }, 'skills-admin import');
+        return reply.code(500).send({ error: '导入 skill 失败', code: 'SKILL_IMPORT_ERROR', detail: err.message });
+      }
+    }
+  );
+
   // ===========================================================================
   // 写入目标管理（管理员）
   // ===========================================================================
@@ -573,6 +750,13 @@ async function aiAgentRoutes(fastify) {
       const items = await listWriteTargets(pool);
       return { items };
     }
+  );
+
+  /** 代码注册的 API 动作清单（供写入目标表单的动作下拉） */
+  fastify.get(
+    '/ai/agent/actions-admin',
+    { preHandler: [fastify.requireAdmin] },
+    async () => ({ items: listAgentActions() })
   );
 
   fastify.post(

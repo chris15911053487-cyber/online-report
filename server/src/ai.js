@@ -565,6 +565,73 @@ ${sample}
       };
     }
   }
+
+  /**
+   * AI 辅助生成 Skill 内容（name / description / bodyMd）。
+   * @param {string} requirement 用户对 Skill 的需求描述
+   * @returns {Promise<{success: boolean, skill?: {name: string, description: string, bodyMd: string}, error?: string}>}
+   */
+  async generateSkillContent(requirement) {
+    if (!requirement || typeof requirement !== 'string' || requirement.trim().length < 5) {
+      return { success: false, error: '需求描述太短，请至少输入 5 个字符' };
+    }
+    const configuredKey = this.getConfiguredApiKey();
+    if (!configuredKey) {
+      return { success: false, error: `未配置 AI API Key（AI_PROVIDER=${this.provider}）` };
+    }
+
+    const systemPrompt = `你是一个 AI Agent Skill 编写专家。用户会描述一个业务需求，你需要生成一个完整的 Skill 定义。
+
+Skill 用于指导 AI Agent 执行特定工作流。请严格按以下 JSON 格式返回（不要包裹在 markdown 代码块中）：
+
+{
+  "name": "小写字母开头、仅含小写字母/数字/连字符，最长64字符，如 report-analysis",
+  "description": "一句话描述此 Skill 的用途和触发条件（注入 AI 提示，决定何时使用此 Skill）",
+  "bodyMd": "Markdown 格式的工作流正文，描述具体执行步骤、规范和约束"
+}
+
+bodyMd 编写规范：
+- 使用 Markdown 标题分段（## 目标、## 步骤、## 约束等）
+- 步骤要具体、可操作
+- 不要包含可执行脚本代码块（bash/python 等）
+- 语言使用中文`;
+
+    try {
+      const completion = await this.client.chat.completions.create({
+        model: this.defaultModel,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `需求描述：${requirement.trim()}` },
+        ],
+        temperature: 0.3,
+        max_tokens: 2000,
+      });
+
+      let text = AIService.extractChatTextContent(completion.choices?.[0]?.message).trim();
+      if (!text) return { success: false, error: 'AI 返回内容为空，请重试' };
+
+      // Strip markdown code fences if present
+      text = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+
+      let parsed;
+      try { parsed = JSON.parse(text); } catch {
+        return { success: false, error: 'AI 返回格式异常，请重试' };
+      }
+
+      const name = String(parsed.name || '').trim().toLowerCase();
+      const description = String(parsed.description || '').trim();
+      const bodyMd = String(parsed.bodyMd || parsed.body_md || '').trim()
+        .replace(/\\n/g, '\n').replace(/\\t/g, '\t');
+
+      if (!name || !description || !bodyMd) {
+        return { success: false, error: 'AI 生成内容不完整，请重试' };
+      }
+
+      return { success: true, skill: { name, description, bodyMd } };
+    } catch (error) {
+      return { success: false, error: error.message || '生成 Skill 失败' };
+    }
+  }
 }
 
 const aiService = new AIService();

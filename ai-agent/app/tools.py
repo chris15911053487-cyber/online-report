@@ -25,6 +25,36 @@ def _client(config: RunnableConfig) -> BackendClient:
     return BackendClient(token)
 
 
+def _lenient_json_parse(value, fallback=None):
+    """尝试解析 JSON，容忍 LLM 常见格式问题（单引号、尾逗号、已是 Python 对象等）。"""
+    if not isinstance(value, str):
+        return value if value is not None else fallback
+    text = value.strip()
+    if not text:
+        return fallback
+    # 标准 JSON 解析
+    try:
+        return json.loads(text)
+    except Exception:  # noqa: BLE001
+        pass
+    # LLM 有时用单引号或 Python repr 风格
+    import ast
+    try:
+        result = ast.literal_eval(text)
+        if isinstance(result, (list, dict)):
+            return result
+    except Exception:  # noqa: BLE001
+        pass
+    # 去除尾逗号后重试
+    import re
+    cleaned = re.sub(r",\s*([}\]])", r"\1", text)
+    try:
+        return json.loads(cleaned)
+    except Exception:  # noqa: BLE001
+        pass
+    return fallback
+
+
 @tool
 def knowledge_search(query: str, config: RunnableConfig) -> str:
     """检索系统使用说明 / 操作流程知识库。用于回答"怎么用、如何操作、是什么意思"类问题。
@@ -37,13 +67,35 @@ def knowledge_search(query: str, config: RunnableConfig) -> str:
 
 
 @tool
+def read_skill_resource(skill_name: str, path: str, config: RunnableConfig) -> str:
+    """按需读取某个 skill 包内的文本资源文件（references/examples 等）。
+    当 skill 的资源清单里列出了相关文件、且你需要其中细节（流程规范、字段说明、示例）时调用。
+    skill_name：skill 名称；path：资源相对路径（如 references/fields.md）。返回文件文本内容。"""
+    try:
+        data = _client(config).skill_resource(skill_name, path)
+    except RuntimeError as e:
+        return f"（读取资源失败：{e}）"
+    return str(data.get("content", ""))
+
+
+def _tool_error(tool: str, exc: Exception) -> str:
+    return json.dumps({"success": False, "tool": tool, "error": str(exc)}, ensure_ascii=False)
+
+
+@tool
 def lookup_options(route_key: str, field_name: str, keyword: str, config: RunnableConfig) -> str:
     """按关键词查找某报表筛选字段的候选项（用于实体消歧，如按客户名找客户编码）。
     route_key：报表路由；field_name：筛选字段名（如 customer）；keyword：搜索关键词（如客户名）。
     返回候选项 JSON 列表 [{value, label}]，供后续让用户确认编码。"""
-    data = _client(config).lookup_options(route_key, field_name, keyword)
+    try:
+        data = _client(config).lookup_options(route_key, field_name, keyword)
+    except RuntimeError as e:
+        return _tool_error("lookup_options", e)
     options = data.get("options", [])
-    return json.dumps({"options": options, "total": data.get("total", len(options))}, ensure_ascii=False)
+    return json.dumps(
+        {"success": True, "options": options, "total": data.get("total", len(options))},
+        ensure_ascii=False,
+    )
 
 
 @tool
@@ -54,9 +106,13 @@ def run_report(route_key: str, params_json: str, config: RunnableConfig) -> str:
         params = json.loads(params_json) if isinstance(params_json, str) else (params_json or {})
     except Exception:  # noqa: BLE001
         params = {}
-    data = _client(config).run_report(route_key, params)
+    try:
+        data = _client(config).run_report(route_key, params)
+    except RuntimeError as e:
+        return _tool_error("run_report", e)
     return json.dumps(
         {
+            "success": True,
             "label": data.get("label"),
             "columns": data.get("columns", []),
             "rows": data.get("rows", []),
@@ -91,9 +147,8 @@ def save_record(entity: str, payload_json: str, config: RunnableConfig) -> str:
     """向系统写入一条记录（单保存）。entity：后台配置的写入实体名；
     payload_json：字段对象的 JSON 字符串。会先向用户出示预览并要求确认，确认后才真正写库。
     只能写后台白名单实体与字段，且受角色门禁。"""
-    try:
-        payload = json.loads(payload_json) if isinstance(payload_json, str) else (payload_json or {})
-    except Exception:  # noqa: BLE001
+    payload = _lenient_json_parse(payload_json, None)
+    if not isinstance(payload, dict):
         return "payload_json 不是合法 JSON，已取消保存。"
     decision = interrupt(
         {
@@ -114,10 +169,9 @@ def generate_document(title: str, fmt: str, columns_json: str, rows_json: str, c
     """把数据导出为可下载文档。title：文件标题；fmt：'xlsx' 或 'csv'；
     columns_json：列名数组 JSON；rows_json：行数组 JSON（每行为对象）。
     返回包含鉴权下载链接的说明，请把链接转达给用户。"""
-    try:
-        columns = json.loads(columns_json) if isinstance(columns_json, str) else (columns_json or [])
-        rows = json.loads(rows_json) if isinstance(rows_json, str) else (rows_json or [])
-    except Exception:  # noqa: BLE001
+    columns = _lenient_json_parse(columns_json, [])
+    rows = _lenient_json_parse(rows_json, [])
+    if not isinstance(columns, list) or not isinstance(rows, list):
         return "columns_json / rows_json 不是合法 JSON，已取消导出。"
 
     fmt = (fmt or "xlsx").lower()
@@ -159,6 +213,7 @@ def generate_document(title: str, fmt: str, columns_json: str, rows_json: str, c
 
 ALL_TOOLS = [
     knowledge_search,
+    read_skill_resource,
     lookup_options,
     run_report,
     ask_user_to_choose,

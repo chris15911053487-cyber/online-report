@@ -73,6 +73,42 @@ export interface ReportResult {
   pageSize?: number
 }
 
+export interface MessageAlertRuleSummary {
+  id: number
+  name: string
+  total: number
+  unread: number
+  refreshSeconds: number
+  fetchedAt: string | null
+  error: string | null
+}
+
+export interface MessageSummary {
+  totalUnread: number
+  refreshSeconds: number
+  rules: MessageAlertRuleSummary[]
+  refreshedAt: string | null
+}
+
+export interface MessageAlertItem {
+  key: string
+  title: string
+  unread: boolean
+  row: Record<string, unknown>
+}
+
+export interface MessageAlertRule {
+  id: number
+  name: string
+  sqlTemplate: string
+  keyColumn: string
+  titleTemplate: string
+  roles: string[]
+  refreshSeconds: number
+  enabled: boolean
+  sortOrder: number
+}
+
 export type ViewName =
   | 'login'
   | 'catalog'
@@ -84,6 +120,7 @@ export type ViewName =
   | 'detail'
   | 'menu-settings'
   | 'ai-skills'
+  | 'message-alert-settings'
   | 'dynamic-report'
   | 'report-row-detail'
   | 'pro-sign-receive'

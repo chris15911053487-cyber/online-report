@@ -11,6 +11,7 @@ const Fastify = require('fastify');
 const cors = require('@fastify/cors');
 const jwt = require('@fastify/jwt');
 const fastifyStatic = require('@fastify/static');
+const fastifyMultipart = require('@fastify/multipart');
 const authRoutes = require('./routes/auth');
 const rolesAdminRoutes = require('./routes/roles-admin');
 const ordersRoutes = require('./routes/orders');
@@ -24,6 +25,7 @@ const aiRoutes = require('./routes/ai');
 const aiAgentRoutes = require('./routes/ai-agent');
 const filesRoutes = require('./routes/files');
 const speechRoutes = require('./routes/speech');
+const messagesRoutes = require('./routes/messages');
 const { getPool } = require('./db');
 const ensureNavMenuSchema = require('./ensure-nav-menu-schema');
 
@@ -71,6 +73,11 @@ async function build() {
     sign: { expiresIn: process.env.JWT_EXPIRES_IN || '7d' },
   });
 
+  // 文件上传（目前仅 skill 压缩包导入）；大小上限与 skill-package.js 一致
+  await fastify.register(fastifyMultipart, {
+    limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  });
+
   fastify.decorate('authenticate', async function authenticate(request, reply) {
     try {
       await request.jwtVerify();
@@ -99,6 +106,7 @@ async function build() {
   await fastify.register(returnproRoutes);
   await fastify.register(aiRoutes);
   await fastify.register(aiAgentRoutes);
+  await fastify.register(messagesRoutes);
   await fastify.register(filesRoutes);
 
   // 语音功能开关（默认启用，设 VOICE_ENABLED=false 关闭）

@@ -206,6 +206,23 @@
   function execVoiceText(text, options) {
     options = options || {};
 
+    // AI 对话页打开时：识别文本直接填入聊天输入框（钩子由 AiChatView 挂载/卸载），
+    // 不再走指令匹配——在对话页里说话就是想跟 AI 说。
+    if (text && typeof window.__voiceAiChatInput === 'function') {
+      var filled = false;
+      try {
+        filled = window.__voiceAiChatInput(text) === true;
+      } catch (e) { /* hook 异常时回退到指令匹配 */ }
+      if (filled) {
+        if (options.onSuccess) {
+          options.onSuccess(text, { keywords: [] }, '已填入对话输入框');
+        } else {
+          showToast('已填入对话输入框');
+        }
+        return true;
+      }
+    }
+
     // 优先尝试菜单上配置的「语音动作模板」（方案 B：可带参数操作菜单）
     var tpl = tryVoiceActionTemplates(text);
     if (tpl) {

@@ -1,18 +1,17 @@
 import { useStore } from '../store'
 import { Home, Sparkles, MessageCircle, Settings } from 'lucide-react'
 import type { ViewName } from '../types'
-import { isAdminUser } from '../utils/helpers'
 
-const allTabs: { id: ViewName; label: string; icon: typeof Home; adminOnly?: boolean }[] = [
+const tabs: { id: ViewName; label: string; icon: typeof Home }[] = [
   { id: 'catalog', label: '菜单', icon: Home },
-  { id: 'ai', label: 'AI', icon: Sparkles, adminOnly: true },
+  { id: 'ai', label: 'AI', icon: Sparkles },
   { id: 'messages', label: '消息', icon: MessageCircle },
   { id: 'settings', label: '设置', icon: Settings },
 ]
 
 export default function BottomNav() {
-  const { currentView, setView, user } = useStore()
-  const tabs = allTabs.filter((t) => !t.adminOnly || isAdminUser(user))
+  const { currentView, setView, messageSummary } = useStore()
+  const unreadCount = messageSummary?.totalUnread || 0
 
   return (
     <nav
@@ -30,7 +29,14 @@ export default function BottomNav() {
               : 'text-slate-400 hover:text-slate-600'
           }`}
         >
-          <Icon className="w-5 h-5 mb-0.5" />
+          <span className="relative">
+            <Icon className="w-5 h-5 mb-0.5" />
+            {id === 'messages' && unreadCount > 0 && (
+              <span className="absolute -top-1 -right-2 min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                {unreadCount > 99 ? '99+' : unreadCount}
+              </span>
+            )}
+          </span>
           <span className="text-[11px] font-medium">{label}</span>
         </button>
       ))}

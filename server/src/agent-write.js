@@ -45,9 +45,12 @@ function normalizeField(f) {
 }
 
 function rowToTarget(row) {
+  const targetKind = String(row.target_kind || 'table').trim().toLowerCase() === 'action' ? 'action' : 'table';
   return {
     name: String(row.name),
     label: String(row.label || ''),
+    targetKind,
+    // table 类型 = 目标表名；action 类型 = 动作名（agent-actions.js 注册表 key）
     targetTable: String(row.target_table || ''),
     fields: (safeParseJson(row.fields_json, []) || []).map(normalizeField).filter(Boolean),
     roles: normalizeRoleKeys(safeParseJson(row.roles_json, ['admin'])),
@@ -55,32 +58,49 @@ function rowToTarget(row) {
   };
 }
 
+const SELECT_TARGET_COLS_V2 =
+  'SELECT name, label, target_table, fields_json, roles_json, enabled, target_kind FROM dbo.agent_write_targets';
+// 兼容尚未跑 migrate-agent-write-target-kind.sql 的库（缺列报 207）
+const SELECT_TARGET_COLS_V1 =
+  'SELECT name, label, target_table, fields_json, roles_json, enabled FROM dbo.agent_write_targets';
+
+function isMissingColumn(err) {
+  return sqlErrorNumber(err) === 207;
+}
+
 async function listWriteTargets(pool) {
   try {
-    const rs = await pool.request().query(
-      `SELECT name, label, target_table, fields_json, roles_json, enabled
-       FROM dbo.agent_write_targets ORDER BY name ASC`
-    );
+    const rs = await pool.request().query(`${SELECT_TARGET_COLS_V2} ORDER BY name ASC`);
     return (rs.recordset || []).map(rowToTarget);
   } catch (err) {
     if (isMissingTable(err)) return [];
+    if (isMissingColumn(err)) {
+      const rs = await pool.request().query(`${SELECT_TARGET_COLS_V1} ORDER BY name ASC`);
+      return (rs.recordset || []).map(rowToTarget);
+    }
     throw err;
   }
 }
 
 async function getWriteTarget(pool, name) {
+  const n = String(name || '').toLowerCase();
   try {
     const rs = await pool
       .request()
-      .input('n', sql.NVarChar(64), String(name || '').toLowerCase())
-      .query(
-        `SELECT name, label, target_table, fields_json, roles_json, enabled
-         FROM dbo.agent_write_targets WHERE name = @n`
-      );
+      .input('n', sql.NVarChar(64), n)
+      .query(`${SELECT_TARGET_COLS_V2} WHERE name = @n`);
     const row = rs.recordset && rs.recordset[0];
     return row ? rowToTarget(row) : null;
   } catch (err) {
     if (isMissingTable(err)) return null;
+    if (isMissingColumn(err)) {
+      const rs = await pool
+        .request()
+        .input('n', sql.NVarChar(64), n)
+        .query(`${SELECT_TARGET_COLS_V1} WHERE name = @n`);
+      const row = rs.recordset && rs.recordset[0];
+      return row ? rowToTarget(row) : null;
+    }
     throw err;
   }
 }
@@ -92,16 +112,32 @@ function validateTargetInput(input) {
   }
   const label = String(input?.label || '').trim();
   if (!label) return { ok: false, error: 'label 不能为空' };
+  const targetKind =
+    String(input?.targetKind || 'table').trim().toLowerCase() === 'action' ? 'action' : 'table';
   const targetTable = String(input?.targetTable || '').trim();
+  const roles = normalizeRoleKeys(Array.isArray(input?.roles) ? input.roles : ['admin']);
+  const enabled = input?.enabled !== false;
+
+  if (targetKind === 'action') {
+    // 动作必须已在 agent-actions.js 代码注册（安全红线：不接受任意接口）
+    const { isRegisteredAction } = require('./agent-actions');
+    const actionName = targetTable.toLowerCase();
+    if (!isRegisteredAction(actionName)) {
+      return { ok: false, error: `动作「${targetTable}」未在代码注册表（agent-actions.js）中` };
+    }
+    return {
+      ok: true,
+      value: { name, label, targetKind, targetTable: actionName, fields: [], roles, enabled },
+    };
+  }
+
   if (!IDENTIFIER_RE.test(targetTable)) {
     return { ok: false, error: 'targetTable 须为合法表名标识符（字母/数字/下划线）' };
   }
   const rawFields = Array.isArray(input?.fields) ? input.fields : [];
   const fields = rawFields.map(normalizeField).filter(Boolean);
   if (fields.length === 0) return { ok: false, error: '至少配置一个合法字段（sqlType 限 nvarchar/int/decimal/datetime/bit）' };
-  const roles = normalizeRoleKeys(Array.isArray(input?.roles) ? input.roles : ['admin']);
-  const enabled = input?.enabled !== false;
-  return { ok: true, value: { name, label, targetTable, fields, roles, enabled } };
+  return { ok: true, value: { name, label, targetKind, targetTable, fields, roles, enabled } };
 }
 
 async function upsertWriteTarget(pool, value) {
@@ -109,6 +145,7 @@ async function upsertWriteTarget(pool, value) {
     .request()
     .input('name', sql.NVarChar(64), value.name)
     .input('label', sql.NVarChar(128), value.label)
+    .input('target_kind', sql.NVarChar(16), value.targetKind || 'table')
     .input('target_table', sql.NVarChar(128), value.targetTable)
     .input('fields_json', sql.NVarChar(sql.MAX), JSON.stringify(value.fields))
     .input('roles_json', sql.NVarChar(sql.MAX), JSON.stringify(value.roles))
@@ -117,11 +154,12 @@ async function upsertWriteTarget(pool, value) {
       MERGE dbo.agent_write_targets AS t
       USING (SELECT @name AS name) AS s ON t.name = s.name
       WHEN MATCHED THEN UPDATE SET
-        label = @label, target_table = @target_table, fields_json = @fields_json,
+        label = @label, target_kind = @target_kind, target_table = @target_table,
+        fields_json = @fields_json,
         roles_json = @roles_json, enabled = @enabled, updated_at = ${SQL_CHINA_LOCAL_NOW_EXPR}
       WHEN NOT MATCHED THEN
-        INSERT (name, label, target_table, fields_json, roles_json, enabled)
-        VALUES (@name, @label, @target_table, @fields_json, @roles_json, @enabled);
+        INSERT (name, label, target_kind, target_table, fields_json, roles_json, enabled)
+        VALUES (@name, @label, @target_kind, @target_table, @fields_json, @roles_json, @enabled);
     `);
   return getWriteTarget(pool, value.name);
 }

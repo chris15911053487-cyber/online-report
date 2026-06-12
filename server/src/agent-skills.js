@@ -3,7 +3,7 @@
  * Skill 为"纯指令型"（body_md 工作流/规范），执行落到白名单 tool，本模块不执行任何脚本。
  */
 const { getPool, sql } = require('./db');
-const { normalizeRoleKeys, canAccessMenu } = require('./roles');
+const { normalizeRoleKeys } = require('./roles');
 
 const SKILL_NAME_RE = /^[a-z][a-z0-9-]{0,63}$/;
 const MAX_BODY_LINES = 500;
@@ -53,10 +53,21 @@ async function listAllSkills(pool) {
   }
 }
 
+/**
+ * skill 门禁：管理员始终可用；roles 为空 = 仅管理员（与管理界面「不选=仅管理员」一致）。
+ * 注意与 canAccessMenu 不同——后者 roles 为空时对所有人（含管理员）关闭。
+ */
+function canUseSkill(userRoles, skillRoles) {
+  const u = normalizeRoleKeys(userRoles);
+  if (u.includes('admin')) return true;
+  const m = normalizeRoleKeys(skillRoles);
+  return m.some((r) => u.includes(r));
+}
+
 /** 列出某用户角色可用且启用的 skill（注入 Agent system prompt 用，第 1 层权限） */
 async function listSkillsForRoles(pool, userRoles) {
   const all = await listAllSkills(pool);
-  return all.filter((s) => s.enabled && canAccessMenu(userRoles, s.roles));
+  return all.filter((s) => s.enabled && canUseSkill(userRoles, s.roles));
 }
 
 async function getSkill(pool, name) {
@@ -151,6 +162,7 @@ async function deleteSkill(pool, name) {
 
 module.exports = {
   SKILL_NAME_RE,
+  canUseSkill,
   listAllSkills,
   listSkillsForRoles,
   getSkill,

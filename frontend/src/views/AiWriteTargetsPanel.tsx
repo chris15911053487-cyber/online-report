@@ -13,18 +13,28 @@ interface FieldDef {
   maxLen: number
 }
 
+type TargetKind = 'table' | 'action'
+
 interface WriteTarget {
   name: string
   label: string
+  targetKind?: TargetKind
   targetTable: string
   fields: FieldDef[]
   roles: string[]
   enabled: boolean
 }
 
+interface AgentAction {
+  name: string
+  label: string
+  payloadHint: string
+}
+
 const EMPTY_TARGET: WriteTarget = {
   name: '',
   label: '',
+  targetKind: 'table',
   targetTable: '',
   fields: [],
   roles: ['admin'],
@@ -36,6 +46,7 @@ const SQL_TYPES: SqlType[] = ['nvarchar', 'int', 'decimal', 'datetime', 'bit']
 export default function AiWriteTargetsPanel({ roles }: { roles: AppRole[] }) {
   const { showToast } = useStore()
   const [targets, setTargets] = useState<WriteTarget[]>([])
+  const [actions, setActions] = useState<AgentAction[]>([])
   const [editing, setEditing] = useState<WriteTarget | null>(null)
   const [isNew, setIsNew] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -44,8 +55,12 @@ export default function AiWriteTargetsPanel({ roles }: { roles: AppRole[] }) {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await apiFetch('/ai/agent/write-targets-admin')
+      const [data, actionData] = await Promise.all([
+        apiFetch('/ai/agent/write-targets-admin'),
+        apiFetch('/ai/agent/actions-admin').catch(() => ({ items: [] })),
+      ])
       setTargets(Array.isArray(data?.items) ? data.items : [])
+      setActions(Array.isArray(actionData?.items) ? actionData.items : [])
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : '加载失败')
     } finally {
@@ -89,10 +104,15 @@ export default function AiWriteTargetsPanel({ roles }: { roles: AppRole[] }) {
 
   const save = async () => {
     if (!editing) return
+    const kind: TargetKind = editing.targetKind === 'action' ? 'action' : 'table'
     if (!/^[a-z][a-z0-9-]{0,63}$/.test(editing.name)) return showToast('实体名须为小写字母开头的标识')
     if (!editing.label.trim()) return showToast('请填写显示名')
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(editing.targetTable)) return showToast('目标表名不合法')
-    if (editing.fields.length === 0) return showToast('至少配置一个字段')
+    if (kind === 'action') {
+      if (!editing.targetTable) return showToast('请选择 API 动作')
+    } else {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(editing.targetTable)) return showToast('目标表名不合法')
+      if (editing.fields.length === 0) return showToast('至少配置一个字段')
+    }
     setSaving(true)
     try {
       await apiFetch('/ai/agent/write-targets-admin', { method: 'POST', body: JSON.stringify(editing) })
@@ -143,6 +163,61 @@ export default function AiWriteTargetsPanel({ roles }: { roles: AppRole[] }) {
             </div>
           </div>
           <div>
+            <label className="block text-xs text-slate-500 mb-1">类型</label>
+            <div className="flex gap-2">
+              {([
+                { kind: 'table' as TargetKind, label: '表写入（白名单 INSERT）' },
+                { kind: 'action' as TargetKind, label: 'API 动作（调业务接口）' },
+              ]).map((opt) => (
+                <button
+                  key={opt.kind}
+                  type="button"
+                  onClick={() =>
+                    setEditing({
+                      ...editing,
+                      targetKind: opt.kind,
+                      targetTable: '',
+                      fields: opt.kind === 'action' ? [] : editing.fields,
+                    })
+                  }
+                  className={`text-xs px-3 py-1.5 rounded-full border ${
+                    (editing.targetKind === 'action' ? 'action' : 'table') === opt.kind
+                      ? 'border-sky-500 bg-sky-50 text-sky-700'
+                      : 'border-slate-200 text-slate-500'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {editing.targetKind === 'action' ? (
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">API 动作（仅可选代码注册的动作）</label>
+              <select
+                value={editing.targetTable}
+                onChange={(e) => setEditing({ ...editing, targetTable: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+              >
+                <option value="">请选择动作…</option>
+                {actions.map((a) => (
+                  <option key={a.name} value={a.name}>
+                    {a.label}（{a.name}）
+                  </option>
+                ))}
+              </select>
+              {(() => {
+                const act = actions.find((a) => a.name === editing.targetTable)
+                return act?.payloadHint ? (
+                  <p className="text-[11px] text-slate-400 mt-1 font-mono break-all">
+                    payload 格式：{act.payloadHint}
+                  </p>
+                ) : null
+              })()}
+            </div>
+          ) : (
+          <div>
             <label className="block text-xs text-slate-500 mb-1">目标表名（仅字母/数字/下划线）</label>
             <input
               value={editing.targetTable}
@@ -151,7 +226,9 @@ export default function AiWriteTargetsPanel({ roles }: { roles: AppRole[] }) {
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
             />
           </div>
+          )}
 
+          {editing.targetKind !== 'action' && (
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="text-xs text-slate-500">字段白名单</label>
@@ -204,6 +281,7 @@ export default function AiWriteTargetsPanel({ roles }: { roles: AppRole[] }) {
               {editing.fields.length === 0 && <p className="text-xs text-slate-400">尚未添加字段</p>}
             </div>
           </div>
+          )}
 
           <div>
             <label className="block text-xs text-slate-500 mb-1">允许写入的角色</label>
@@ -272,6 +350,9 @@ export default function AiWriteTargetsPanel({ roles }: { roles: AppRole[] }) {
               <div className="flex items-center gap-2">
                 <span className="font-medium text-slate-800">{t.label}</span>
                 <span className="text-[10px] text-slate-400 font-mono">{t.name} → {t.targetTable}</span>
+                {t.targetKind === 'action' && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-600">API 动作</span>
+                )}
                 {!t.enabled && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-400">停用</span>}
               </div>
               <div className="flex gap-3">
@@ -280,7 +361,11 @@ export default function AiWriteTargetsPanel({ roles }: { roles: AppRole[] }) {
               </div>
             </div>
             <p className="text-[10px] text-slate-400 mt-1">
-              字段：{t.fields.map((f) => f.name).join('、') || '—'} · 角色：{t.roles.join('、') || '仅管理员'}
+              {t.targetKind === 'action'
+                ? `动作：${t.targetTable}`
+                : `字段：${t.fields.map((f) => f.name).join('、') || '—'}`}
+              {' · 角色：'}
+              {t.roles.join('、') || '仅管理员'}
             </p>
           </div>
         ))}

@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import AgentStatusBadge from '../components/AgentStatusBadge'
+import AgentTracePanel, { parseAgentTrace, type AgentToolStep } from '../components/AgentTracePanel'
+import ChatMarkdown, { bareDocUrls } from '../components/ChatMarkdown'
 import { useStore } from '../store'
 import { apiFetch, apiUrl, authHeaders } from '../utils/api'
-import { isAdminUser } from '../utils/helpers'
 import { runHelpNavAction, type HelpNavAction } from '../utils/helpActions'
 
 type ChatRole = 'user' | 'assistant'
@@ -18,15 +20,6 @@ interface Clarification {
   options: ClarificationOption[]
   entity?: string
   payload?: Record<string, unknown>
-}
-
-const DOC_URL_RE = /\/ai\/agent\/documents\/doc-[0-9a-f]+/g
-
-/** 提取助手消息里的文档下载链接 */
-function extractDocUrls(text: string): string[] {
-  const found = text.match(DOC_URL_RE)
-  if (!found) return []
-  return Array.from(new Set(found))
 }
 
 /** 带鉴权下载文档（JWT 不能走普通 <a>，需 fetch blob） */
@@ -61,6 +54,9 @@ interface ChatMessage {
   actions?: HelpNavAction[]
   clarification?: Clarification
   clarificationResolved?: boolean
+  skillUsed?: string
+  toolSteps?: AgentToolStep[]
+  degraded?: boolean
 }
 
 interface HelpTopic {
@@ -73,6 +69,34 @@ interface ConversationItem {
   id: string
   title: string
   updatedAt?: string
+}
+
+interface AgentSkill {
+  name: string
+  description: string
+  producesDocument?: boolean
+}
+
+/** 从 skill 描述推导一键提问文案（优先引号内示例话术） */
+function skillQuickPrompt(skill: AgentSkill): string {
+  const d = skill.description.trim()
+  const quoted = d.match(/[「『"']([^」』"']{2,48})[」』"']/)
+  if (quoted?.[1]) return quoted[1]
+  const head = d.split(/[。；;\n]/)[0]?.trim() || ''
+  if (/^当用户/.test(head)) {
+    const sub = head.replace(/^当用户(要求|说|提到|需要)/, '').trim()
+    if (sub) return sub.length <= 48 ? sub : `${sub.slice(0, 46)}…`
+  }
+  if (head && head.length <= 48) {
+    return head.endsWith('？') || head.endsWith('?') ? head : `请帮我${head}`
+  }
+  return `请帮我处理：${skill.name.replace(/-/g, ' ')}`
+}
+
+/** 按钮上显示的短标签 */
+function skillChipLabel(skill: AgentSkill): string {
+  const prompt = skillQuickPrompt(skill)
+  return prompt.length > 28 ? `${prompt.slice(0, 26)}…` : prompt
 }
 
 const FALLBACK_TOPICS: HelpTopic[] = [
@@ -92,14 +116,16 @@ function newConversationId(): string {
 }
 
 export default function AiChatView() {
-  const { user, showToast, setView, navigateTo, navMenus, openProSign } = useStore()
+  const { showToast, setView, navigateTo, navMenus, openProSign } = useStore()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [topics, setTopics] = useState<HelpTopic[]>(FALLBACK_TOPICS)
+  const [skills, setSkills] = useState<AgentSkill[]>([])
   const [conversationId, setConversationId] = useState<string>(() => newConversationId())
   const [conversations, setConversations] = useState<ConversationItem[]>([])
   const [showHistory, setShowHistory] = useState(false)
+  const [showSkills, setShowSkills] = useState(false)
   const endRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -107,18 +133,33 @@ export default function AiChatView() {
   }, [messages, loading])
 
   useEffect(() => {
-    if (!isAdminUser(user)) return
     let cancelled = false
-    apiFetch('/ai/help/bootstrap')
-      .then((data) => {
-        if (cancelled) return
-        if (Array.isArray(data?.topics) && data.topics.length > 0) setTopics(data.topics)
-      })
-      .catch(() => {})
+    Promise.all([
+      apiFetch('/ai/help/bootstrap').catch(() => null),
+      apiFetch('/ai/agent/skills').catch(() => null),
+    ]).then(([bootstrap, skillData]) => {
+      if (cancelled) return
+      if (Array.isArray(bootstrap?.topics) && bootstrap.topics.length > 0) setTopics(bootstrap.topics)
+      if (Array.isArray(skillData?.items)) setSkills(skillData.items)
+    })
     return () => {
       cancelled = true
     }
-  }, [user])
+  }, [])
+
+  // 语音输入：对话页挂载期间，悬浮语音按钮识别出的文本由 voice.js 经此钩子填入输入框
+  useEffect(() => {
+    const w = window as Window & { __voiceAiChatInput?: (text: string) => boolean }
+    w.__voiceAiChatInput = (text: string) => {
+      const t = String(text || '').trim()
+      if (!t) return false
+      setInput((prev) => (prev ? `${prev}${t}` : t))
+      return true
+    }
+    return () => {
+      delete w.__voiceAiChatInput
+    }
+  }, [])
 
   const navStore = { setView, navigateTo, navMenus, openProSign, showToast }
 
@@ -133,6 +174,7 @@ export default function AiChatView() {
 
   /** 统一处理 Agent 响应（最终回答 / 需要澄清） */
   const applyAgentResponse = useCallback((base: ChatMessage[], data: Record<string, unknown>) => {
+    const trace = parseAgentTrace(data)
     const status = String(data?.status || 'final')
     if (status === 'need_clarification' && data?.clarification) {
       const cl = data.clarification as Clarification
@@ -142,10 +184,14 @@ export default function AiChatView() {
           role: 'assistant',
           content: String(cl.question || '请补充信息'),
           clarification: {
+            type: cl.type,
             field: String(cl.field || 'value'),
             question: String(cl.question || ''),
             options: Array.isArray(cl.options) ? cl.options : [],
+            entity: cl.entity,
+            payload: cl.payload,
           },
+          ...trace,
         },
       ])
       return
@@ -153,33 +199,50 @@ export default function AiChatView() {
     const reply = typeof data?.message === 'string' ? data.message : String(data?.message ?? '')
     const sources = Array.isArray(data?.sources) ? data.sources.map((s: unknown) => String(s)) : undefined
     const actions = Array.isArray(data?.actions) ? (data.actions as HelpNavAction[]) : undefined
-    setMessages([...base, { role: 'assistant', content: reply || '（无内容）', sources, actions }])
+    setMessages([
+      ...base,
+      { role: 'assistant', content: reply || '（无内容）', sources, actions, ...trace },
+    ])
   }, [])
 
   const sendText = useCallback(
-    async (text: string) => {
+    async (text: string, opts?: { freshThread?: boolean }) => {
       const trimmed = text.trim()
       if (!trimmed || loading) return
+      const cid = opts?.freshThread ? newConversationId() : conversationId
+      const base = opts?.freshThread ? [] : messages
+      if (opts?.freshThread) {
+        setMessages([])
+        setConversationId(cid)
+      }
       const userMsg: ChatMessage = { role: 'user', content: trimmed }
-      const nextMsgs = [...messages, userMsg]
+      const nextMsgs = [...base, userMsg]
       setMessages(nextMsgs)
       setInput('')
       setLoading(true)
       try {
         const data = await apiFetch('/ai/agent/chat', {
           method: 'POST',
-          body: JSON.stringify({ conversationId, message: trimmed }),
+          body: JSON.stringify({ conversationId: cid, message: trimmed }),
         })
         applyAgentResponse(nextMsgs, data)
         void refreshConversations()
       } catch (e: unknown) {
-        setMessages((prev) => prev.slice(0, -1))
+        setMessages((prev) => (opts?.freshThread ? [] : prev.slice(0, -1)))
         showToast(e instanceof Error ? e.message : '发送失败，请检查网络或 AI 配置')
       } finally {
         setLoading(false)
       }
     },
     [loading, messages, showToast, conversationId, applyAgentResponse, refreshConversations],
+  )
+
+  const invokeSkill = useCallback(
+    (skill: AgentSkill) => {
+      const fresh = messages.length > 0
+      void sendText(skillQuickPrompt(skill), fresh ? { freshThread: true } : undefined)
+    },
+    [messages.length, sendText],
   )
 
   /** 通用：用户做出选择/确认 → 恢复对话 */
@@ -232,12 +295,17 @@ export default function AiChatView() {
     setLoading(true)
     try {
       const data = await apiFetch(`/ai/agent/conversations/${id}`)
-      const rawMsgs: Array<{ role?: string; content?: unknown }> = Array.isArray(data?.messages)
-        ? data.messages
-        : []
+      const rawMsgs: Array<{
+        role?: string
+        content?: unknown
+        skillUsed?: string
+        toolSteps?: AgentToolStep[]
+      }> = Array.isArray(data?.messages) ? data.messages : []
       const msgs: ChatMessage[] = rawMsgs.map((m) => ({
         role: m.role === 'user' ? 'user' : 'assistant',
         content: String(m.content || ''),
+        skillUsed: m.skillUsed,
+        toolSteps: Array.isArray(m.toolSteps) ? m.toolSteps : undefined,
       }))
       setMessages(msgs)
       setConversationId(id)
@@ -265,17 +333,6 @@ export default function AiChatView() {
 
   const send = useCallback(() => void sendText(input), [input, sendText])
 
-  if (!isAdminUser(user)) {
-    return (
-      <div className="p-6 max-w-2xl mx-auto text-center text-slate-500">
-        <p className="text-sm mb-3">AI 助手仅管理员可用。</p>
-        <button type="button" onClick={() => setView('catalog')} className="text-sm text-sky-600">
-          返回菜单
-        </button>
-      </div>
-    )
-  }
-
   return (
     <div className="flex flex-col bg-slate-50 min-h-[calc(100dvh-7.5rem)] max-w-2xl mx-auto relative">
       <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 bg-white/80">
@@ -289,11 +346,64 @@ export default function AiChatView() {
         >
           ☰ 历史对话
         </button>
-        <p className="text-xs text-slate-500">AI 智能助手</p>
+        {skills.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setShowSkills((v) => !v)}
+            className="text-xs text-slate-500"
+          >
+            AI 智能助手
+            <span className="ml-1 text-violet-600">· {skills.length} 个 Skill</span>
+          </button>
+        ) : (
+          <p className="text-xs text-slate-500">AI 智能助手</p>
+        )}
         <button type="button" onClick={startNewChat} disabled={loading} className="text-xs text-sky-600 disabled:text-slate-300">
           + 新对话
         </button>
       </div>
+      <AgentStatusBadge variant="compact" />
+
+      {showSkills && skills.length > 0 && (
+        <div className="absolute inset-0 z-30 bg-black/20" onClick={() => setShowSkills(false)}>
+          <div
+            className="absolute left-3 right-3 top-12 max-h-[70vh] bg-white shadow-xl rounded-xl p-3 overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-sm font-medium text-slate-700">可用 Skill（{skills.length}）</span>
+              <button type="button" onClick={() => setShowSkills(false)} className="text-xs text-slate-400">
+                关闭
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-400 mb-2">点击后将开启新对话并发送（确保 Skill 工作流完整加载）</p>
+            <div className="space-y-2">
+              {skills.map((s) => (
+                <button
+                  key={s.name}
+                  type="button"
+                  disabled={loading}
+                  onClick={() => {
+                    setShowSkills(false)
+                    invokeSkill(s)
+                  }}
+                  className="w-full text-left rounded-xl border border-violet-200 bg-violet-50/80 px-3 py-2.5 active:bg-violet-100 disabled:opacity-50"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-violet-900">{skillChipLabel(s)}</span>
+                    {s.producesDocument && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600 shrink-0">
+                        文档
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-violet-700/70 mt-0.5 line-clamp-2">{s.description}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {showHistory && (
         <div className="absolute inset-0 z-30 bg-black/20" onClick={() => setShowHistory(false)}>
@@ -336,6 +446,34 @@ export default function AiChatView() {
                 知识问答（操作说明）、按权限查询报表数据（如客户销售额）。涉及多个同名客户时会让您确认。
               </p>
             </div>
+            {skills.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-slate-500 mb-2">
+                  可用 Skill（{skills.length}）
+                </p>
+                <div className="space-y-2">
+                  {skills.map((s) => (
+                    <button
+                      key={s.name}
+                      type="button"
+                      disabled={loading}
+                      onClick={() => invokeSkill(s)}
+                      className="w-full text-left rounded-xl border border-violet-200 bg-violet-50/80 px-3 py-2.5 active:bg-violet-100 disabled:opacity-50"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-violet-900">{skillChipLabel(s)}</span>
+                        {s.producesDocument && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600 shrink-0">
+                            文档
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-violet-700/70 mt-0.5 line-clamp-2">{s.description}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div>
               <p className="text-xs font-medium text-slate-500 mb-2">快捷提问</p>
               <div className="flex flex-wrap gap-2">
@@ -356,17 +494,33 @@ export default function AiChatView() {
         )}
 
         {messages.map((m, i) => (
-          <div key={i} className={`flex flex-col ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
+          <div key={i} className={`flex flex-col w-full ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
             <div
               className={
-                'max-w-[88%] rounded-2xl px-3 py-2.5 text-sm whitespace-pre-wrap break-words ' +
+                (m.role === 'user' ? 'max-w-[88%] ' : 'max-w-full w-full ') +
+                'rounded-2xl break-words ' +
                 (m.role === 'user'
-                  ? 'bg-sky-600 text-white rounded-br-md'
-                  : 'bg-white border border-slate-100 text-slate-800 shadow-sm rounded-bl-md')
+                  ? 'px-3 py-2.5 text-sm bg-sky-600 text-white rounded-br-md whitespace-pre-wrap'
+                  : 'px-3.5 py-3 text-sm bg-white border border-slate-100 text-slate-800 shadow-sm rounded-bl-md')
               }
             >
-              {m.content}
+              {m.role === 'assistant' ? (
+                <ChatMarkdown
+                  content={m.content}
+                  onDocDownload={(url) => downloadDocument(url).catch(() => showToast('下载失败'))}
+                />
+              ) : (
+                m.content
+              )}
             </div>
+
+            {m.role === 'assistant' && (
+              <AgentTracePanel
+                skillUsed={m.skillUsed}
+                toolSteps={m.toolSteps}
+                degraded={m.degraded}
+              />
+            )}
 
             {m.role === 'assistant' &&
               m.clarification &&
@@ -428,7 +582,7 @@ export default function AiChatView() {
               )}
 
             {m.role === 'assistant' &&
-              extractDocUrls(m.content).map((url, j) => (
+              bareDocUrls(m.content).map((url, j) => (
                 <button
                   key={`doc-${j}`}
                   type="button"
@@ -460,12 +614,15 @@ export default function AiChatView() {
         ))}
 
         {loading && (
-          <div className="flex justify-start">
-            <div className="rounded-2xl rounded-bl-md bg-white border border-slate-100 px-4 py-3 text-sm text-slate-400 shadow-sm">
-              <span className="inline-flex gap-1">
-                <span className="animate-pulse">正在思考</span>
-                <span className="animate-bounce">…</span>
-              </span>
+          <div className="flex justify-start w-full">
+            <div className="max-w-full w-full space-y-2">
+              <div className="rounded-2xl rounded-bl-md bg-white border border-slate-100 px-4 py-3 text-sm text-slate-400 shadow-sm">
+                <span className="inline-flex gap-1">
+                  <span className="animate-pulse">正在分析并调用工具</span>
+                  <span className="animate-bounce">…</span>
+                </span>
+                <p className="text-[10px] text-slate-400 mt-1">完成后将展示 Skill 与工具调用明细</p>
+              </div>
             </div>
           </div>
         )}

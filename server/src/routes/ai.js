@@ -163,20 +163,20 @@ async function aiRoutes(fastify) {
     }
   );
 
-  /** AI 助手：快捷问题与知识库元信息（仅管理员，供底部 AI 对话页） */
+  /** AI 助手：快捷问题与知识库元信息 */
   fastify.get(
     '/ai/help/bootstrap',
-    { preHandler: [fastify.requireAdmin] },
+    { preHandler: [fastify.authenticate] },
     async (request) => {
       const userRole = String(request.user.role || 'operator');
       return getHelpBootstrap(userRole);
     }
   );
 
-  /** 主界面 AI 对话（使用说明 RAG + 可选跳转建议，仅管理员） */
+  /** 主界面 AI 对话（使用说明 RAG + 可选跳转建议） */
   fastify.post(
     '/ai/chat',
-    { preHandler: [fastify.requireAdmin] },
+    { preHandler: [fastify.authenticate] },
     async (request, reply) => {
       const body = request.body || {};
       const raw = body.messages;
@@ -271,6 +271,26 @@ async function aiRoutes(fastify) {
           code: 'PROMPT_GEN_ERROR',
           detail: err.message
         });
+      }
+    }
+  );
+
+  // AI 辅助生成 Skill 内容 - 仅管理员可用
+  fastify.post(
+    '/ai/generate-skill',
+    { preHandler: [fastify.requireAdmin] },
+    async (request, reply) => {
+      const requirement = String((request.body || {}).requirement || '').trim();
+      if (!requirement) {
+        return reply.code(400).send({ success: false, error: '请提供需求描述' });
+      }
+      try {
+        const result = await aiService.generateSkillContent(requirement);
+        if (!result.success) return reply.code(400).send(result);
+        return result;
+      } catch (err) {
+        request.log.error({ err }, 'ai/generate-skill');
+        return reply.code(500).send({ success: false, error: '生成 Skill 失败', detail: err.message });
       }
     }
   );
