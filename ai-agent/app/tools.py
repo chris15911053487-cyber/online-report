@@ -124,6 +124,29 @@ def run_report(route_key: str, params_json: str, config: RunnableConfig) -> str:
 
 
 @tool
+def run_sql(sql_query: str, skill_name: str, config: RunnableConfig) -> str:
+    """直接执行只读 SQL 查询（仅允许 SELECT）。必须在某个 skill 工作流中使用。
+    sql_query：完整的 SELECT 语句；skill_name：当前正在执行的 skill 名称（如 customer-master-data-query）。
+    返回列名与数据行（最多 200 行）。"""
+    try:
+        data = _client(config).run_sql(sql_query)
+    except RuntimeError as e:
+        return _tool_error("run_sql", e)
+    return json.dumps(
+        {
+            "success": True,
+            "skill": skill_name,
+            "columns": data.get("columns", []),
+            "rows": data.get("rows", []),
+            "totalRowCount": data.get("totalRowCount", 0),
+            "truncated": data.get("truncated", False),
+        },
+        ensure_ascii=False,
+        default=str,
+    )
+
+
+@tool
 def ask_user_to_choose(field: str, question: str, options_json: str) -> str:
     """当需要用户确认（如多个同名客户、保存前最终确认）时调用。会暂停并向用户出示结构化选项。
     field：要确认的字段名（如 customer_code）；question：给用户看的问题；
@@ -214,8 +237,7 @@ def generate_document(title: str, fmt: str, columns_json: str, rows_json: str, c
 ALL_TOOLS = [
     knowledge_search,
     read_skill_resource,
-    lookup_options,
-    run_report,
+    run_sql,
     ask_user_to_choose,
     save_record,
     generate_document,

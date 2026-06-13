@@ -1,7 +1,8 @@
 """FastAPI 入口：被主后端网关内网调用（不对公网开放）。"""
+import asyncio
 import logging
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -35,7 +36,7 @@ async def health():
 
 
 @app.post("/chat")
-async def chat(req: ChatRequest, x_scoped_token: str | None = Header(default=None)):
+async def chat(req: ChatRequest, request: Request, x_scoped_token: str | None = Header(default=None)):
     if not x_scoped_token:
         raise HTTPException(status_code=401, detail="missing scoped token")
     try:
@@ -48,16 +49,27 @@ async def chat(req: ChatRequest, x_scoped_token: str | None = Header(default=Non
         raise HTTPException(status_code=403, detail="thread/token mismatch")
 
     try:
-        result = await run_in_threadpool(
-            run_turn,
-            thread_id=req.threadId,
-            scoped_token=x_scoped_token,
-            input_obj=req.input.model_dump(),
-            history=req.messages,
-            skills=req.skills,
-            user=req.user,
+        task = asyncio.ensure_future(
+            run_in_threadpool(
+                run_turn,
+                thread_id=req.threadId,
+                scoped_token=x_scoped_token,
+                input_obj=req.input.model_dump(),
+                history=req.messages,
+                skills=req.skills,
+                user=req.user,
+            )
         )
-        return result
+        # 等待任务完成或客户端断开
+        while not task.done():
+            if await request.is_disconnected():
+                task.cancel()
+                log.info("client disconnected, cancelled agent task for thread=%s", req.threadId)
+                return {"status": "cancelled", "message": ""}
+            await asyncio.sleep(0.3)
+        return task.result()
+    except asyncio.CancelledError:
+        return {"status": "cancelled", "message": ""}
     except Exception as exc:  # noqa: BLE001
         log.exception("chat failed")
         raise HTTPException(status_code=500, detail=f"agent error: {exc}") from exc

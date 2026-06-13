@@ -45,6 +45,9 @@ function formatStepArgs(step: AgentToolStep): string[] {
   } else if (tool === 'run_report') {
     if (args.route_key) lines.push(`报表：${formatArgValue(args.route_key)}`)
     if (args.params) lines.push(`参数：${formatArgValue(args.params)}`)
+  } else if (tool === 'run_sql') {
+    if (args.skill_name) lines.push(`Skill：${formatArgValue(args.skill_name)}`)
+    if (args.sql_query) lines.push(`sql_query：${formatArgValue(args.sql_query)}`)
   } else if (tool === 'ask_user_to_choose') {
     if (args.field) lines.push(`字段：${formatArgValue(args.field)}`)
     if (args.question) lines.push(`问题：${formatArgValue(args.question)}`)

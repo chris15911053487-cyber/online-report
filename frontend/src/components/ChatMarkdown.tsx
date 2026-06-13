@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
@@ -15,6 +15,38 @@ function extractDocPath(href: string): string | null {
 function codeLanguage(className?: string): string {
   const m = /language-([\w-]+)/.exec(className || '')
   return m?.[1] || ''
+}
+
+function CodeCopyBtn({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const doCopy = () => {
+    const write = () => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    }
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(write).catch(() => {
+        const ta = document.createElement('textarea')
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy')
+        document.body.removeChild(ta); write()
+      })
+    } else {
+      const ta = document.createElement('textarea')
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'
+      document.body.appendChild(ta); ta.select(); document.execCommand('copy')
+      document.body.removeChild(ta); write()
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={doCopy}
+      className="absolute top-1.5 right-1.5 text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-200 hover:bg-slate-600 opacity-0 group-hover:opacity-100 transition-opacity"
+    >
+      {copied ? '已复制' : '复制'}
+    </button>
+  )
 }
 
 interface ChatMarkdownProps {
@@ -71,8 +103,9 @@ export default function ChatMarkdown({ content, onDocDownload }: ChatMarkdownPro
       }
       const lang = codeLanguage(className)
       return (
-        <div className="chat-md-pre-wrap">
+        <div className="chat-md-pre-wrap group relative">
           {lang && <div className="chat-md-pre-lang">{lang}</div>}
+          <CodeCopyBtn text={text} />
           <pre className="chat-md-pre">
             <code>{text}</code>
           </pre>

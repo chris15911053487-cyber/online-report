@@ -294,6 +294,26 @@ async function aiRoutes(fastify) {
       }
     }
   );
+
+  // AI 辅助生成写入目标配置 - 仅管理员可用
+  fastify.post(
+    '/ai/generate-write-target',
+    { preHandler: [fastify.requireAdmin] },
+    async (request, reply) => {
+      const requirement = String((request.body || {}).requirement || '').trim();
+      if (!requirement) {
+        return reply.code(400).send({ success: false, error: '请提供需求描述' });
+      }
+      try {
+        const result = await aiService.generateWriteTarget(requirement);
+        if (!result.success) return reply.code(400).send(result);
+        return result;
+      } catch (err) {
+        request.log.error({ err }, 'ai/generate-write-target');
+        return reply.code(500).send({ success: false, error: '生成写入目标失败', detail: err.message });
+      }
+    }
+  );
 }
 
 module.exports = aiRoutes;

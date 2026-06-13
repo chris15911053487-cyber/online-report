@@ -91,6 +91,54 @@ npm run init-db
 
 **前端**：`AiChatView` 快捷提问、`sources` 参考章节、绿色按钮跳转（设置 / 菜单 / 生产报工）。
 
+### AI Agent（独立容器）
+
+底部 Tab「AI」的主对话能力由独立 Python 容器 `ai-agent/` 提供（LangGraph + DeepSeek/OpenAI）。
+
+**架构**：前端 → 主后端 `/ai/agent/chat` → 转发 ai-agent 容器 → LLM 决策 + 工具调用 → 回调主后端 internal 接口。
+
+| 组件 | 说明 |
+|------|------|
+| `ai-agent/app/agent.py` | LangGraph ReAct Agent，system prompt + skill 注入 |
+| `ai-agent/app/tools.py` | 白名单工具：`run_sql`、`knowledge_search`、`save_record`、`generate_document` 等 |
+| `ai-agent/app/backend_client.py` | 回调主后端 internal 端点取数据 |
+
+**SQL 查询机制**：Agent 通过 `run_sql` 工具执行只读 SELECT 查询，但**必须在 Skill 上下文中使用**——只能执行 Skill `body_md` 中明确描述的 SQL 模式和表，不可自行发挥。主后端 `/ai/agent/internal/run-sql` 接口仅允许 SELECT，禁止写操作。
+
+**Skill 管理**：管理员在前台「AI Skill 管理」中配置 Skill（描述 + 工作流 + 约束），支持 AI 辅助生成。Skill 按角色过滤注入 Agent system prompt。
+
+**写入目标**：AI 写入数据须经白名单控制（`agent_write_targets` 表），支持两种类型：
+- `table`：参数化 INSERT（前台配置字段白名单）
+- `action`：调用代码注册的 API 动作
+
+**API 动作（模块化）**：
+
+```
+server/src/
+├── agent-actions.js       ← 自动扫描加载器（不需改动）
+└── actions/               ← 每个动作一个文件，新增只需加文件重启
+    └── returnpro-pick.js  ← 返工单领料（调 B1 Service Layer）
+```
+
+新增动作文件格式：
+
+```javascript
+// server/src/actions/my-action.js
+module.exports = {
+  name: 'my-action',
+  label: '动作显示名',
+  payloadHint: '{ "field": "说明" }',
+  async run({ user, payload, log }) {
+    // 业务逻辑：调外部API、写库等
+    // 成功 return 结果对象，失败 throw Error
+  },
+}
+```
+
+**AI 对话交互功能**：复制消息、引用回复、重新生成、消息反馈（有用/没用）、清空对话、代码块复制。
+
+**降级**：ai-agent 不可达时自动降级为本地知识问答（仅操作说明，不执行 SQL、不编造数据）。
+
 ## 菜单与角色权限
 
 系统采用 **方案 A：扩展角色体系**——按岗位角色批量授权，同一角色多人共享菜单权限；不修改 SAP `OUSR` 表。

@@ -50,6 +50,9 @@ class BackendClient:
             {"filename": filename, "ext": ext, "contentBase64": content_base64},
         )
 
+    def run_sql(self, sql: str) -> dict:
+        return self._post("/ai/agent/internal/run-sql", {"sql": sql})
+
     def skill_resource(self, skill_name: str, path: str) -> dict:
         return self._post(
             "/ai/agent/internal/skill-resource",

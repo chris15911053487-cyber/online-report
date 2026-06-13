@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useStore } from '../store'
-import { apiFetch } from '../utils/api'
+import { apiFetch, apiFetchReport } from '../utils/api'
 import type { AppRole } from '../types'
 
 type SqlType = 'nvarchar' | 'int' | 'decimal' | 'datetime' | 'bit'
@@ -51,6 +51,8 @@ export default function AiWriteTargetsPanel({ roles }: { roles: AppRole[] }) {
   const [isNew, setIsNew] = useState(false)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [showAIDialog, setShowAIDialog] = useState(false)
+  const [aiGenerating, setAiGenerating] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -79,6 +81,37 @@ export default function AiWriteTargetsPanel({ roles }: { roles: AppRole[] }) {
   const startEdit = (t: WriteTarget) => {
     setEditing({ ...t, fields: t.fields.map((f) => ({ ...f })), roles: [...t.roles] })
     setIsNew(false)
+  }
+
+  const handleAIGenerate = async (requirement: string) => {
+    setShowAIDialog(false)
+    setAiGenerating(true)
+    showToast('AI 正在生成写入目标配置…', 95000)
+    try {
+      const data = await apiFetchReport(
+        '/ai/generate-write-target',
+        { method: 'POST', body: JSON.stringify({ requirement }) },
+        120000,
+      ) as { success?: boolean; target?: { name: string; label: string; targetTable: string; fields: FieldDef[] }; error?: string }
+      if (data.success && data.target) {
+        setEditing({
+          ...EMPTY_TARGET,
+          name: data.target.name,
+          label: data.target.label,
+          targetTable: data.target.targetTable,
+          fields: data.target.fields,
+        })
+        setIsNew(true)
+        showToast('AI 生成成功！请检查内容后保存。')
+      } else {
+        showToast('生成失败：' + (data.error || '未知错误'))
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : '网络错误'
+      showToast('AI 生成失败：' + (/abort|超时|timeout/i.test(msg) ? '请求超时，请重试' : msg))
+    } finally {
+      setAiGenerating(false)
+    }
   }
 
   const addField = () => {
@@ -335,10 +368,60 @@ export default function AiWriteTargetsPanel({ roles }: { roles: AppRole[] }) {
         <p className="text-xs text-slate-500">
           定义 AI 可写入的实体与字段白名单。写入经人工确认 + 参数化 + 审计。
         </p>
-        <button onClick={startNew} className="text-sm px-3 py-1.5 bg-sky-500 text-white rounded-lg shrink-0 ml-2">
-          + 新建
-        </button>
+        <div className="flex gap-2 shrink-0 ml-2">
+          <button
+            onClick={() => setShowAIDialog(true)}
+            disabled={aiGenerating}
+            className="text-sm px-3 py-1.5 bg-purple-500 text-white rounded-lg disabled:opacity-50"
+          >
+            {aiGenerating ? '生成中…' : 'AI 辅助生成'}
+          </button>
+          <button onClick={startNew} className="text-sm px-3 py-1.5 bg-sky-500 text-white rounded-lg">
+            + 新建
+          </button>
+        </div>
       </div>
+
+      {showAIDialog && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowAIDialog(false) }}
+        >
+          <div className="bg-white rounded-xl shadow-xl w-[90%] max-w-lg p-5">
+            <p className="font-semibold text-slate-800 mb-3">描述你想要的写入目标：</p>
+            <div className="text-xs text-slate-500 mb-1">示例：</div>
+            <div className="text-xs text-slate-600 bg-slate-50 rounded p-2 mb-3 leading-relaxed">
+              创建一个 AI 备注表，包含备注内容（必填，最长500字）、关联单据号（可选）和填写人字段。
+            </div>
+            <textarea
+              id="ai-write-target-requirement"
+              className="w-full border border-slate-300 rounded-lg p-2 text-sm min-h-[100px] focus:ring-2 focus:ring-sky-300 focus:border-sky-400 outline-none"
+              autoFocus
+              placeholder="描述写入目标的用途、需要哪些字段…"
+            />
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                type="button"
+                className="px-4 py-2 text-sm rounded-lg border border-slate-300 text-slate-600"
+                onClick={() => setShowAIDialog(false)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="px-4 py-2 text-sm rounded-lg bg-purple-500 text-white disabled:opacity-50"
+                onClick={() => {
+                  const el = document.getElementById('ai-write-target-requirement') as HTMLTextAreaElement | null
+                  const v = el?.value.trim()
+                  if (v) void handleAIGenerate(v)
+                }}
+              >
+                生成
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {loading && <p className="text-sm text-slate-400 py-6 text-center">加载中…</p>}
       {!loading && targets.length === 0 && (
         <p className="text-sm text-slate-400 py-6 text-center">暂无写入目标</p>

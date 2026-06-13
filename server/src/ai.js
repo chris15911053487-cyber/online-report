@@ -632,6 +632,69 @@ bodyMd 编写规范：
       return { success: false, error: error.message || '生成 Skill 失败' };
     }
   }
+
+  async generateWriteTarget(requirement) {
+    if (!requirement || typeof requirement !== 'string' || requirement.trim().length < 5) {
+      return { success: false, error: '需求描述太短，请至少输入 5 个字符' };
+    }
+    const configuredKey = this.getConfiguredApiKey();
+    if (!configuredKey) {
+      return { success: false, error: `未配置 AI API Key（AI_PROVIDER=${this.provider}）` };
+    }
+
+    const systemPrompt = `你是一个数据库写入目标配置专家。用户会描述一个业务需求，你需要生成一个写入目标的配置。
+
+写入目标用于 AI Agent 向数据库安全地写入数据（白名单字段参数化 INSERT）。请严格按以下 JSON 格式返回（不要包裹在 markdown 代码块中）：
+
+{
+  "name": "小写字母开头、仅含小写字母/数字/连字符，如 order-note",
+  "label": "中文显示名，如 订单备注",
+  "targetTable": "目标数据库表名，仅字母/数字/下划线，如 X_ORDER_NOTE",
+  "fields": [
+    {"name": "列名", "label": "中文标签", "sqlType": "nvarchar|int|decimal|datetime|bit", "required": true, "maxLen": 255}
+  ]
+}
+
+规则：
+- targetTable 建议以 X_ 前缀命名（自定义表，不影响 SAP 标准表）
+- fields 中每个字段必须有 name、label、sqlType、required、maxLen（nvarchar 类型需要 maxLen）
+- sqlType 只能是：nvarchar、int、decimal、datetime、bit
+- 字段命名用英文 PascalCase（如 NoteText、DocEntry）`;
+
+    try {
+      const completion = await this.client.chat.completions.create({
+        model: this.defaultModel,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `需求描述：${requirement.trim()}` },
+        ],
+        temperature: 0.3,
+        max_tokens: 1500,
+      });
+
+      let text = AIService.extractChatTextContent(completion.choices?.[0]?.message).trim();
+      if (!text) return { success: false, error: 'AI 返回内容为空，请重试' };
+      text = text.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
+
+      let parsed;
+      try { parsed = JSON.parse(text); } catch {
+        return { success: false, error: 'AI 返回格式异常，请重试' };
+      }
+
+      const name = String(parsed.name || '').trim().toLowerCase();
+      const label = String(parsed.label || '').trim();
+      const targetTable = String(parsed.targetTable || '').trim();
+      const fields = Array.isArray(parsed.fields) ? parsed.fields : [];
+
+      if (!name || !label || !targetTable || fields.length === 0) {
+        return { success: false, error: 'AI 生成内容不完整，请重试' };
+      }
+
+      return { success: true, target: { name, label, targetTable, fields } };
+    } catch (error) {
+      return { success: false, error: error.message || '生成写入目标失败' };
+    }
+  }
 }
 
 const aiService = new AIService();

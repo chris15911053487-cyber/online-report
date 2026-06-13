@@ -18,11 +18,14 @@ from .tools import ALL_TOOLS
 
 BASE_INSTRUCTIONS = (
     "你是工厂在线报表系统的 AI 助手。遵循以下原则：\n"
-    "1. 只能通过提供的工具获取数据，严禁编造数据或自行拼写 SQL。\n"
-    "2. 需要用户确认时（如多个同名客户、保存前最终确认），调用 ask_user_to_choose 出示候选，不要自行猜测。\n"
-    "3. 即使只匹配到一个候选，也按对应 skill 的要求决定是否仍需确认。\n"
-    "4. 只回答用户有权访问的数据；工具返回无权/未找到时如实告知。\n"
-    "5. 用简洁中文作答；涉及知识问答时注明参考来源标题。\n"
+    "1. 你可以通过 run_sql 工具直接编写并执行 SELECT 查询来获取数据（仅允许 SELECT，禁止写操作）。\n"
+    "2. **重要**：run_sql 只能在某个 skill 的工作流中使用。每次执行 SQL 查询时，你必须明确是在执行哪个 skill。\n"
+    "   如果用户的请求不匹配任何可用 skill，告知用户当前无对应能力，不要自行执行 SQL。\n"
+    "   且只能执行该 skill 的 body_md 中明确描述或示例的 SQL 模式和表，不可自行发挥查询其他表或拼接 skill 未提及的逻辑。\n"
+    "3. 只回答用户有权访问的数据；工具返回无权/未找到时如实告知。\n"
+    "4. 用简洁中文作答；涉及知识问答时注明参考来源标题。\n"
+    "5. 所有数据查询统一通过 run_sql 工具执行，不依赖菜单预配置的报表。\n"
+    "6. 如果 run_sql 未返回数据，严禁编造数字，如实告知用户查无结果。\n"
 )
 
 
@@ -69,6 +72,8 @@ def build_system_prompt(skills, user) -> str:
             lines.append(
                 "需要其中细节时，用 read_skill_resource(skill_name, path) 按需读取；不要凭空臆测资源内容。"
             )
+        else:
+            lines.append("\n注意：本 skill 无附带资源文件，不要调用 read_skill_resource。正文中如提到文件路径属于说明文本，直接按正文指引执行即可。")
     roles = (user or {}).get("roles") or []
     if roles:
         lines.append(f"\n当前用户角色：{', '.join(roles)}")
@@ -88,6 +93,7 @@ TOOL_LABELS = {
     "read_skill_resource": "读取 Skill 资源",
     "lookup_options": "查找候选项",
     "run_report": "执行报表查询",
+    "run_sql": "执行 SQL 查询",
     "ask_user_to_choose": "等待用户确认",
     "save_record": "保存记录",
     "generate_document": "生成文档",
@@ -203,7 +209,13 @@ def _guess_skill(tool_names, steps):
         return "save-record"
     if "generate_document" in tool_names:
         return "doc-export"
-    if any(t in ("run_report", "lookup_options") for t in tool_names):
+    if any(t in ("run_report", "lookup_options", "run_sql") for t in tool_names):
+        # 优先从 run_sql 的 skill_name 参数获取真实 skill 名称
+        for s in steps:
+            if s.get("tool") == "run_sql":
+                sk = (s.get("args") or {}).get("skill_name")
+                if sk:
+                    return str(sk)
         return "report-query"
     if "knowledge_search" in tool_names:
         return "knowledge-qa"

@@ -65,9 +65,16 @@ function agentTimeoutMs() {
   return Number.isFinite(n) && n > 0 ? n : 90000;
 }
 
-async function postAgent(pathname, payload, scopedToken) {
+async function postAgent(pathname, payload, scopedToken, opts) {
+  const { signal } = opts || {};
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), agentTimeoutMs());
+  // 外部 signal（客户端断开）也触发 abort
+  const onExternalAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) { clearTimeout(timer); return { ok: false, status: 0, data: { error: 'aborted' } }; }
+    signal.addEventListener('abort', onExternalAbort, { once: true });
+  }
   try {
     const res = await fetch(`${agentBaseUrl()}${pathname}`, {
       method: 'POST',
@@ -88,6 +95,7 @@ async function postAgent(pathname, payload, scopedToken) {
     return { ok: res.ok, status: res.status, data };
   } finally {
     clearTimeout(timer);
+    if (signal) signal.removeEventListener('abort', onExternalAbort);
   }
 }
 
@@ -261,6 +269,11 @@ async function aiAgentRoutes(fastify) {
 
       const scopedToken = signScopedToken({ userCode, displayName, roles: userRoles, conversationId });
 
+      // 客户端断开检测：前端 abort 触发 socket close → 中止 Agent 转发
+      const clientAbort = new AbortController();
+      const onClose = () => clientAbort.abort();
+      request.raw.on('close', onClose);
+
       // 调用 Agent；不可用时优雅降级到本地知识问答
       if (agentEnabled()) {
         try {
@@ -270,8 +283,13 @@ async function aiAgentRoutes(fastify) {
           const { ok, data } = await postAgent(
             '/chat',
             { threadId: conversationId, input, messages: history, skills, user: { displayName, roles: userRoles } },
-            scopedToken
+            scopedToken,
+            { signal: clientAbort.signal }
           );
+          if (clientAbort.signal.aborted) {
+            request.raw.removeListener('close', onClose);
+            return reply.code(499).send({ error: 'client closed', code: 'CLIENT_CLOSED' });
+          }
           if (ok && data && data.status) {
             const assistantText =
               data.status === 'need_clarification'
@@ -292,11 +310,23 @@ async function aiAgentRoutes(fastify) {
             }
             return { conversationId, ...data };
           }
+          // Agent 返回错误（如 checkpoint 历史损坏）：直接告知用户，不降级编造数据
+          if (!ok && data?.detail && /INVALID_CHAT_HISTORY|tool_calls/.test(String(data.detail))) {
+            const errMsg = '当前对话会话状态异常，请点击「+ 新对话」开始新会话后重试。';
+            try { await addMessage(pool, { conversationId, role: 'assistant', content: errMsg }); } catch {}
+            return { conversationId, status: 'final', message: errMsg };
+          }
           request.log.warn({ status: data?.status, err: data?.error }, 'ai/agent unexpected response, falling back');
         } catch (err) {
+          if (clientAbort.signal.aborted) {
+            request.raw.removeListener('close', onClose);
+            return reply.code(499).send({ error: 'client closed', code: 'CLIENT_CLOSED' });
+          }
           request.log.warn({ err: err.message }, 'ai/agent unreachable, falling back to local knowledge chat');
         }
       }
+
+      request.raw.removeListener('close', onClose);
 
       // ---- 降级：本地知识问答（保证 AI tab 在 Agent 不可用时仍能用）----
       const fallback = await localKnowledgeChat(history, message, request.user);
@@ -429,6 +459,41 @@ async function aiAgentRoutes(fastify) {
         code: err.code || 'AGENT_QUERY_ERROR',
         detail: err.message,
       });
+    }
+  });
+
+  /** 直接执行 Agent 生成的只读 SQL（SELECT only） */
+  fastify.post('/ai/agent/internal/run-sql', async (request, reply) => {
+    const auth = requireScopedToken(request, reply);
+    if (!auth) return;
+    const body = request.body || {};
+    const rawSql = String(body.sql || '').trim();
+    if (!rawSql) return reply.code(400).send({ error: '缺少 sql', code: 'AGENT_BAD_REQUEST' });
+
+    // 安全：仅允许 SELECT（禁止写操作）
+    const normalized = rawSql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '').trim();
+    const firstWord = normalized.split(/\s+/)[0].toUpperCase();
+    const blocked = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'CREATE', 'TRUNCATE', 'EXEC', 'EXECUTE', 'MERGE', 'GRANT', 'REVOKE'];
+    if (blocked.includes(firstWord)) {
+      return reply.code(403).send({ error: '仅允许 SELECT 查询', code: 'AGENT_SQL_WRITE_BLOCKED' });
+    }
+
+    const pool = await getPool();
+    try {
+      const req = pool.request();
+      req.timeout = 30000;
+      const result = await req.query(rawSql);
+      const rows = result.recordset || [];
+      const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+      return {
+        columns,
+        rows: rows.slice(0, 200),
+        totalRowCount: rows.length,
+        truncated: rows.length > 200,
+      };
+    } catch (err) {
+      request.log.error({ err }, 'agent internal run-sql');
+      return reply.code(400).send({ error: err.message || 'SQL 执行失败', code: 'AGENT_SQL_ERROR' });
     }
   });
 
@@ -793,7 +858,8 @@ async function localKnowledgeChat(history, message, user) {
     const { buildHelpSystemPrompt } = require('../help-knowledge');
     const userRole = String(user?.role || 'operator');
     const lastUser = message || [...history].reverse().find((m) => m.role === 'user')?.content || '';
-    const systemPrompt = buildHelpSystemPrompt(lastUser, userRole);
+    const systemPrompt = buildHelpSystemPrompt(lastUser, userRole)
+      + '\n\n【重要】你当前处于降级模式，无法访问数据库，不能执行任何SQL查询。如果用户询问具体的业务数据（如销售额、订单、库存等数字），请如实告知"当前无法查询数据库，请稍后重试或开启新对话"，严禁编造任何数据。';
     const sources = retrieveRelevantChunks(lastUser, 5).map((c) => c.title);
     const trimmed = message ? [...history, { role: 'user', content: message }] : history;
     const messages = [{ role: 'system', content: systemPrompt }, ...trimmed.slice(-24)];
