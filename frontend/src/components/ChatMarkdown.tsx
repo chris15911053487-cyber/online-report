@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
@@ -161,7 +161,7 @@ export default function ChatMarkdown({ content, onDocDownload, charts }: ChatMar
 
   return (
     <div className="chat-markdown">
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={components}>
+      <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]} components={components} urlTransform={(url) => url.startsWith('chart:') ? url : defaultUrlTransform(url)}>
         {prepared}
       </ReactMarkdown>
     </div>
