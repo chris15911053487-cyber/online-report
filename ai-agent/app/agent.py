@@ -97,6 +97,7 @@ TOOL_LABELS = {
     "ask_user_to_choose": "等待用户确认",
     "save_record": "保存记录",
     "generate_document": "生成文档",
+    "generate_chart": "生成图表",
 }
 
 

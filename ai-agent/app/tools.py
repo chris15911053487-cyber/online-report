@@ -234,6 +234,27 @@ def generate_document(title: str, fmt: str, columns_json: str, rows_json: str, c
     )
 
 
+@tool
+def generate_chart(title: str, chart_type: str, option_json: str, config: RunnableConfig) -> str:
+    """生成一个前端可渲染的图表。当用户需要数据可视化（趋势图、对比图、占比图等）时调用。
+    title：图表标题；chart_type：'bar'|'line'|'pie'；
+    option_json：ECharts option 对象的 JSON 字符串（包含 xAxis/yAxis/series 等，无需包含 title）。
+    示例 bar: {"xAxis":{"type":"category","data":["A","B"]},"yAxis":{"type":"value"},"series":[{"type":"bar","data":[10,20]}]}
+    示例 pie: {"series":[{"type":"pie","data":[{"name":"A","value":10},{"name":"B","value":20}]}]}
+    重要：调用此工具后，在你的文字回复中用 ![图表标题] 标记图表应出现的位置（标题需与参数 title 对应），前端会自动在该位置渲染图表。
+    返回成功标识，前端会自动渲染图表。"""
+    option = _lenient_json_parse(option_json, None)
+    if not isinstance(option, dict):
+        return json.dumps({"success": False, "error": "option_json 不是合法 JSON"}, ensure_ascii=False)
+    # 注入标题
+    option.setdefault("title", {})
+    if isinstance(option["title"], dict):
+        option["title"].setdefault("text", title)
+    # 注入 tooltip
+    option.setdefault("tooltip", {"trigger": "axis" if chart_type != "pie" else "item"})
+    return json.dumps({"success": True, "chart": option}, ensure_ascii=False, default=str)
+
+
 ALL_TOOLS = [
     knowledge_search,
     read_skill_resource,
@@ -241,4 +262,5 @@ ALL_TOOLS = [
     ask_user_to_choose,
     save_record,
     generate_document,
+    generate_chart,
 ]

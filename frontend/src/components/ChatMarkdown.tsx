@@ -4,6 +4,9 @@ import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
 import { prepareAssistantContent } from '../utils/assistantContent'
+import ChartRendererComp from './ChartRenderer'
+
+const lazyChart = ChartRendererComp
 
 const DOC_URL_RE = /\/ai\/agent\/documents\/doc-[0-9a-f]+/
 
@@ -52,12 +55,35 @@ function CodeCopyBtn({ text }: { text: string }) {
 interface ChatMarkdownProps {
   content: string
   onDocDownload?: (url: string) => void
+  charts?: Record<string, unknown>[]
 }
 
-export default function ChatMarkdown({ content, onDocDownload }: ChatMarkdownProps) {
-  const prepared = useMemo(() => prepareAssistantContent(content), [content])
+export default function ChatMarkdown({ content, onDocDownload, charts }: ChatMarkdownProps) {
+  const prepared = useMemo(() => {
+    let text = prepareAssistantContent(content)
+    // 将 ![图表标题] 或 ![图表标题]() 转为 ![图表标题](chart:N) 以触发 img 组件
+    if (charts && charts.length > 0) {
+      let idx = 0
+      text = text.replace(/!\[([^\]]*)\](?:\(\s*\))?/g, (match, alt) => {
+        if (idx < charts.length) return `![${alt}](chart:${idx++})`
+        return match
+      })
+    }
+    return text
+  }, [content, charts])
 
   const components: Components = {
+    img: ({ src, alt }) => {
+      // chart:N 占位符 → 渲染对应图表
+      if (src && src.startsWith('chart:') && charts) {
+        const ci = parseInt(src.slice(6), 10)
+        if (ci >= 0 && ci < charts.length) {
+          const ChartRenderer = lazyChart
+          return <ChartRenderer option={charts[ci]} />
+        }
+      }
+      return src ? <img src={src} alt={alt || ''} className="max-w-full rounded" /> : <span>{alt ? `[${alt}]` : ''}</span>
+    },
     table: ({ children }) => (
       <div className="chat-md-table-wrap">
         <table className="chat-md-table">{children}</table>

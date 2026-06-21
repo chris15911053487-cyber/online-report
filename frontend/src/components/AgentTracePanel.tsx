@@ -93,6 +93,9 @@ function formatStepArgs(step: AgentToolStep): string[] {
   } else if (tool === 'generate_document') {
     if (args.title) lines.push(`标题：${formatArgValue(args.title)}`)
     if (args.fmt) lines.push(`格式：${formatArgValue(args.fmt)}`)
+  } else if (tool === 'generate_chart') {
+    if (args.title) lines.push(`标题：${formatArgValue(args.title)}`)
+    if (args.chart_type) lines.push(`类型：${formatArgValue(args.chart_type)}`)
   } else {
     for (const [k, v] of Object.entries(args)) {
       if (v != null && v !== '') lines.push(`${k}：${formatArgValue(v)}`)

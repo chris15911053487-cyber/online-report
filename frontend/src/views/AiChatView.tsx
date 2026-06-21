@@ -57,6 +57,7 @@ interface ChatMessage {
   skillUsed?: string
   toolSteps?: AgentToolStep[]
   degraded?: boolean
+  charts?: Record<string, unknown>[]
 }
 
 interface HelpTopic {
@@ -126,6 +127,21 @@ function newConversationId(): string {
   return 'c-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10)
 }
 
+/** 从 toolSteps 中提取 generate_chart 工具返回的 ECharts option */
+function extractCharts(steps?: AgentToolStep[]): Record<string, unknown>[] | undefined {
+  if (!steps) return undefined
+  const charts: Record<string, unknown>[] = []
+  for (const s of steps) {
+    if (s.tool !== 'generate_chart') continue
+    const raw = s.resultFull || s.resultPreview || ''
+    try {
+      const data = JSON.parse(raw)
+      if (data?.success && data.chart) charts.push(data.chart as Record<string, unknown>)
+    } catch { /* ignore */ }
+  }
+  return charts.length > 0 ? charts : undefined
+}
+
 export default function AiChatView() {
   const { showToast, setView, navigateTo, navMenus, openProSign, pendingChatSkill, consumePendingChatSkill } = useStore()
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -189,6 +205,7 @@ export default function AiChatView() {
   /** 统一处理 Agent 响应（最终回答 / 需要澄清） */
   const applyAgentResponse = useCallback((base: ChatMessage[], data: Record<string, unknown>) => {
     const trace = parseAgentTrace(data)
+    const charts = extractCharts(trace.toolSteps)
     const status = String(data?.status || 'final')
     if (status === 'need_clarification' && data?.clarification) {
       const cl = data.clarification as Clarification
@@ -205,6 +222,7 @@ export default function AiChatView() {
             entity: cl.entity,
             payload: cl.payload,
           },
+          charts,
           ...trace,
         },
       ])
@@ -215,7 +233,7 @@ export default function AiChatView() {
     const actions = Array.isArray(data?.actions) ? (data.actions as HelpNavAction[]) : undefined
     setMessages([
       ...base,
-      { role: 'assistant', content: reply || '（无内容）', sources, actions, ...trace },
+      { role: 'assistant', content: reply || '（无内容）', sources, actions, charts, ...trace },
     ])
   }, [])
 
@@ -345,6 +363,7 @@ export default function AiChatView() {
         content: String(m.content || ''),
         skillUsed: m.skillUsed,
         toolSteps: Array.isArray(m.toolSteps) ? m.toolSteps : undefined,
+        charts: extractCharts(Array.isArray(m.toolSteps) ? m.toolSteps : undefined),
       }))
       setMessages(msgs)
       setConversationId(id)
@@ -594,6 +613,7 @@ export default function AiChatView() {
                 <ChatMarkdown
                   content={m.content}
                   onDocDownload={(url) => downloadDocument(url).catch(() => showToast('下载失败'))}
+                  charts={m.charts}
                 />
               ) : (
                 m.content
