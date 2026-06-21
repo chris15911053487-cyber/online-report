@@ -175,10 +175,10 @@ def _collect_tool_steps(messages):
                 content = m.content if isinstance(m.content, str) else str(m.content or "")
                 preview, is_err = _tool_result_preview(content)
                 steps[idx]["resultPreview"] = preview
-                # 保留完整结果供前端复制（限 4000 字符避免过大）
+                # 保留完整结果供前端复制
                 full = str(content or "").strip()
                 if full and full != preview:
-                    steps[idx]["resultFull"] = full[:4000]
+                    steps[idx]["resultFull"] = full
                 if is_err:
                     steps[idx]["status"] = "error"
     return steps
