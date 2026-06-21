@@ -55,6 +55,9 @@ interface AppState {
   // Pro-sign order detail context
   proSignOrderDetailOrderNo: string | null
 
+  /** 从 Skill 管理点击"对话"跳转 AI 对话时携带的 skill 名，AiChatView 消费一次后清空 */
+  pendingChatSkill: string | null
+
   // Actions
   initialize: () => Promise<void>
   login: (username: string, password: string) => Promise<void>
@@ -75,6 +78,10 @@ interface AppState {
   openProSignReceive: (mergeItems: any[], lineResults: any[], buttonLabel: string) => void
   openProSignOrderDetail: (orderNo: string) => void
   clearProSignListRefreshFlag: () => void
+  /** 跳转 AI 对话并指定要调用的 Skill */
+  openAiChatWithSkill: (skillName: string) => void
+  /** AiChatView 消费 pendingChatSkill 后清空 */
+  consumePendingChatSkill: () => void
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -103,8 +110,19 @@ export const useStore = create<AppState>((set, get) => ({
   proSignMergeButtonLabel: '合并报工',
   shouldRefreshProSignListAfterReceive: false,
   proSignOrderDetailOrderNo: null,
+  pendingChatSkill: null,
 
   clearProSignListRefreshFlag: () => set({ shouldRefreshProSignListAfterReceive: false }),
+
+  openAiChatWithSkill: (skillName: string) => {
+    set((s) => ({
+      pendingChatSkill: skillName,
+      currentView: 'ai',
+      viewHistory: [...s.viewHistory, s.currentView],
+    }))
+  },
+
+  consumePendingChatSkill: () => set({ pendingChatSkill: null }),
 
   showToast: (msg: string, durationMs = 2200) => {
     if (toastHideTimer) clearTimeout(toastHideTimer)

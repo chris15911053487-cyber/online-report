@@ -36,7 +36,7 @@ function resourceCount(s: AgentSkill): number {
 }
 
 export default function AiSkillsView() {
-  const { showToast, goBack } = useStore()
+  const { showToast, goBack, openAiChatWithSkill } = useStore()
   const [skills, setSkills] = useState<AgentSkill[]>([])
   const [roles, setRoles] = useState<AppRole[]>([])
   const [editing, setEditing] = useState<AgentSkill | null>(null)
@@ -435,6 +435,7 @@ export default function AiSkillsView() {
                 )}
               </div>
               <div className="flex gap-3">
+                <button onClick={() => openAiChatWithSkill(s.name)} className="text-xs text-violet-600">对话</button>
                 <button onClick={() => startEdit(s)} className="text-xs text-sky-600">编辑</button>
                 <button onClick={() => void remove(s.name)} className="text-xs text-red-500">删除</button>
               </div>

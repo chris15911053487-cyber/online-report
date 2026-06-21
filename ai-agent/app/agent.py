@@ -142,10 +142,17 @@ def _summarize_args(tool, args):
 
 
 def _collect_tool_steps(messages):
-    """收集本轮工具调用明细（名称、参数摘要、结果预览），供前端展示执行过程。"""
+    """收集本轮工具调用明细（名称、参数摘要、结果预览），供前端展示执行过程。
+    只取最后一条 HumanMessage 之后的消息，避免累积历史。"""
+    # 找到最后一条 HumanMessage 的索引，只处理其之后的消息
+    last_human_idx = -1
+    for i, m in enumerate(messages or []):
+        if isinstance(m, HumanMessage):
+            last_human_idx = i
+    current_turn = (messages or [])[last_human_idx + 1:] if last_human_idx >= 0 else (messages or [])
     steps = []
     pending = {}
-    for m in messages or []:
+    for m in current_turn:
         if isinstance(m, AIMessage):
             for c in getattr(m, "tool_calls", None) or []:
                 name = c.get("name") if isinstance(c, dict) else getattr(c, "name", None)
