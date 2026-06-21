@@ -5,7 +5,43 @@ export interface AgentToolStep {
   label?: string
   args?: Record<string, unknown>
   resultPreview?: string
+  resultFull?: string
   status?: 'ok' | 'error'
+}
+
+function copyToClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).catch(() => fallbackCopy(text))
+  } else {
+    fallbackCopy(text)
+  }
+}
+function fallbackCopy(text: string) {
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.select()
+  document.execCommand('copy')
+  document.body.removeChild(ta)
+}
+
+/** 构建步骤的完整可复制文本 */
+function buildStepCopyText(step: AgentToolStep): string {
+  const parts: string[] = [`[${step.label || step.tool}]`]
+  const args = step.args || {}
+  for (const [k, v] of Object.entries(args)) {
+    if (v == null || v === '') continue
+    const val = typeof v === 'string' ? v : JSON.stringify(v, null, 2)
+    parts.push(`${k}：${val}`)
+  }
+  if (step.resultFull) {
+    parts.push(`\n结果：${step.resultFull}`)
+  } else if (step.resultPreview) {
+    parts.push(`\n结果：${step.resultPreview}`)
+  }
+  return parts.join('\n')
 }
 
 interface AgentTracePanelProps {
@@ -86,6 +122,24 @@ export function parseAgentTrace(data: Record<string, unknown>): {
   return { skillUsed, degraded, toolSteps: raw as AgentToolStep[] }
 }
 
+function CopyStepBtn({ step }: { step: AgentToolStep }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      type="button"
+      className="shrink-0 text-[10px] text-slate-400 hover:text-sky-600 px-1"
+      title="复制完整内容"
+      onClick={() => {
+        copyToClipboard(buildStepCopyText(step))
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1500)
+      }}
+    >
+      {copied ? '✓' : '📋'}
+    </button>
+  )
+}
+
 export default function AgentTracePanel({
   skillUsed,
   toolSteps,
@@ -151,13 +205,16 @@ export default function AgentTracePanel({
                   isErr ? 'bg-rose-50/80 border-rose-200' : 'bg-white border-slate-100'
                 }`}
               >
-                <p className={`text-[11px] font-medium ${isErr ? 'text-rose-900' : 'text-slate-800'}`}>
-                  {i + 1}. {step.label || step.tool}
-                  {isErr && (
-                    <span className="ml-1.5 text-[10px] font-normal text-rose-600">失败</span>
-                  )}
-                  <span className="ml-1.5 font-normal text-slate-400 font-mono text-[10px]">{step.tool}</span>
-                </p>
+                <div className="flex items-start justify-between gap-1">
+                  <p className={`text-[11px] font-medium ${isErr ? 'text-rose-900' : 'text-slate-800'}`}>
+                    {i + 1}. {step.label || step.tool}
+                    {isErr && (
+                      <span className="ml-1.5 text-[10px] font-normal text-rose-600">失败</span>
+                    )}
+                    <span className="ml-1.5 font-normal text-slate-400 font-mono text-[10px]">{step.tool}</span>
+                  </p>
+                  <CopyStepBtn step={step} />
+                </div>
                 {argLines.length > 0 && (
                   <ul className="mt-1 space-y-0.5 text-[10px] text-slate-600">
                     {argLines.map((line, j) => (
