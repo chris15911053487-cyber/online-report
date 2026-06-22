@@ -191,7 +191,7 @@ export default function AiChatView() {
     }
   }, [])
 
-  const navStore = { setView, navigateTo, navMenus, openProSign, showToast }
+  const navStoreBase = { setView, navigateTo, navMenus, openProSign, showToast }
 
   const refreshConversations = useCallback(async () => {
     try {
@@ -276,6 +276,8 @@ export default function AiChatView() {
     },
     [loading, messages, showToast, conversationId, applyAgentResponse, refreshConversations],
   )
+
+  const navStore = { ...navStoreBase, sendText }
 
   const invokeSkill = useCallback(
     (skill: AgentSkill) => {

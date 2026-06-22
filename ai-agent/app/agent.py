@@ -6,6 +6,7 @@
 """
 import json
 import os
+import re
 import sqlite3
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -26,6 +27,15 @@ BASE_INSTRUCTIONS = (
     "4. 用简洁中文作答；涉及知识问答时注明参考来源标题。\n"
     "5. 所有数据查询统一通过 run_sql 工具执行，不依赖菜单预配置的报表。\n"
     "6. 如果 run_sql 未返回数据，严禁编造数字，如实告知用户查无结果。\n"
+    "7. 回复末尾可附加快捷操作建议（JSON 块），帮助用户一键执行下一步。格式：\n"
+    '   ```suggested_actions\n'
+    '   [{"type":"navigate","view":"settings","label":"打开设置"},\n'
+    '    {"type":"openProSign","label":"进入生产报工"},\n'
+    '    {"type":"openCatalog","label":"打开菜单"},\n'
+    '    {"type":"followup","label":"如何暂停报工？"}]\n'
+    "   ```\n"
+    "   支持的 type：navigate（需 view 字段：settings/catalog）、openCatalog、openProSign、followup（追问建议）。\n"
+    "   只在有意义时附加，不要每次都加；最多 3 个。如果不需要就不要输出此块。\n"
 )
 
 
@@ -234,6 +244,34 @@ def _guess_skill(tool_names, steps):
     return None
 
 
+_ACTIONS_BLOCK_RE = re.compile(
+    r"```suggested_actions\s*\n([\s\S]*?)\n```", re.MULTILINE
+)
+
+_VALID_TYPES = {"navigate", "openCatalog", "openProSign", "followup"}
+
+
+def _extract_suggested_actions(text):
+    """从 AI 回复中提取 suggested_actions 代码块，返回 (cleaned_text, actions_list)。"""
+    m = _ACTIONS_BLOCK_RE.search(text)
+    if not m:
+        return text, []
+    raw = m.group(1).strip()
+    cleaned = text[: m.start()].rstrip() + text[m.end():]
+    cleaned = cleaned.rstrip()
+    try:
+        actions = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return cleaned, []
+    if not isinstance(actions, list):
+        return cleaned, []
+    valid = []
+    for a in actions[:3]:
+        if isinstance(a, dict) and a.get("type") in _VALID_TYPES and a.get("label"):
+            valid.append({k: v for k, v in a.items() if k in ("type", "label", "view")})
+    return cleaned, valid
+
+
 def run_turn(*, thread_id, scoped_token, input_obj, history, skills, user):
     graph = get_graph()
     config = {"configurable": {"thread_id": thread_id, "scoped_token": scoped_token}}
@@ -293,9 +331,11 @@ def run_turn(*, thread_id, scoped_token, input_obj, history, skills, user):
         if isinstance(m, AIMessage) and getattr(m, "content", ""):
             final = m.content if isinstance(m.content, str) else str(m.content)
             break
+    message_text, actions = _extract_suggested_actions(final or "（无回复）")
     return {
         "status": "final",
-        "message": final or "（无回复）",
+        "message": message_text,
+        "actions": actions,
         "skillUsed": skill_used,
         "toolCalls": tool_names,
         "toolSteps": tool_steps,

@@ -39,7 +39,7 @@ const {
   getConversationMessages,
   deleteConversation,
 } = require('../ai-conversations');
-const { retrieveRelevantChunks } = require('../help-knowledge');
+const { retrieveRelevantChunks, suggestNavActions } = require('../help-knowledge');
 const { aiService } = require('../ai');
 const fs = require('fs');
 const {
@@ -308,6 +308,10 @@ async function aiAgentRoutes(fastify) {
             } catch (err) {
               request.log.error({ err }, 'ai/agent/chat persist assistant msg');
             }
+            // Agent 若未返回 actions，用关键词规则兜底
+            if (!Array.isArray(data.actions) || data.actions.length === 0) {
+              data.actions = suggestNavActions(message);
+            }
             return { conversationId, ...data };
           }
           // Agent 返回错误（如 checkpoint 历史损坏）：直接告知用户，不降级编造数据
@@ -330,6 +334,9 @@ async function aiAgentRoutes(fastify) {
 
       // ---- 降级：本地知识问答（保证 AI tab 在 Agent 不可用时仍能用）----
       const fallback = await localKnowledgeChat(history, message, request.user);
+      if (!fallback.actions || fallback.actions.length === 0) {
+        fallback.actions = suggestNavActions(message);
+      }
       try {
         await addMessage(pool, { conversationId, role: 'assistant', content: fallback.message });
         await touchConversation(pool, conversationId);

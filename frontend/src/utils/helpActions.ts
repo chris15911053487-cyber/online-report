@@ -1,7 +1,7 @@
 import type { NavMenuItem, ViewName } from '../types'
 
 export interface HelpNavAction {
-  type: 'navigate' | 'openCatalog' | 'openProSign'
+  type: 'navigate' | 'openCatalog' | 'openProSign' | 'followup'
   label: string
   view?: string
 }
@@ -12,10 +12,16 @@ type StoreNav = {
   navMenus: NavMenuItem[]
   openProSign: (menu: NavMenuItem) => void
   showToast: (msg: string) => void
+  sendText?: (text: string) => void
 }
 
 /** 执行 AI 助手返回的界面跳转建议 */
 export function runHelpNavAction(action: HelpNavAction, store: StoreNav) {
+  if (action.type === 'followup') {
+    if (store.sendText) store.sendText(action.label)
+    return
+  }
+
   if (action.type === 'navigate' && action.view) {
     const view = action.view as ViewName
     store.navigateTo(view)
