@@ -29,7 +29,7 @@ const {
   verifyScopedToken,
   userFromScopedPayload,
 } = require('../ai-scoped-token');
-const { listSkillsForRoles, canUseSkill } = require('../agent-skills');
+const { listSkillsForRoles, canUseSkill, checkSqlTablesAllowed } = require('../agent-skills');
 const {
   isValidConversationId,
   ensureConversation,
@@ -259,6 +259,7 @@ async function aiAgentRoutes(fastify) {
           description: s.description,
           bodyMd: s.bodyMd,
           producesDocument: s.producesDocument,
+          allowedTables: s.allowedTables || [],
           // 资源只传清单（路径+大小），内容由 Agent 经 read_skill_resource 按需读取
           resources: Object.entries(s.resources || {}).map(([p, r]) => ({
             path: p,
@@ -469,23 +470,54 @@ async function aiAgentRoutes(fastify) {
     }
   });
 
-  /** 直接执行 Agent 生成的只读 SQL（SELECT only） */
+  /** 直接执行 Agent 生成的只读 SQL（SELECT only），并按 skill 做角色门禁 + 表白名单强制校验 */
   fastify.post('/ai/agent/internal/run-sql', async (request, reply) => {
     const auth = requireScopedToken(request, reply);
     if (!auth) return;
     const body = request.body || {};
     const rawSql = String(body.sql || '').trim();
+    const skillName = String(body.skillName || '').trim().toLowerCase();
     if (!rawSql) return reply.code(400).send({ error: '缺少 sql', code: 'AGENT_BAD_REQUEST' });
 
-    // 安全：仅允许 SELECT（禁止写操作）
+    // 安全第一层：仅允许 SELECT / WITH / DECLARE（禁止写操作）
     const normalized = rawSql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '').trim();
-    const firstWord = normalized.split(/\s+/)[0].toUpperCase();
+    const firstWord = (normalized.split(/\s+/)[0] || '').toUpperCase();
     const blocked = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'CREATE', 'TRUNCATE', 'EXEC', 'EXECUTE', 'MERGE', 'GRANT', 'REVOKE'];
     if (blocked.includes(firstWord)) {
       return reply.code(403).send({ error: '仅允许 SELECT 查询', code: 'AGENT_SQL_WRITE_BLOCKED' });
     }
 
     const pool = await getPool();
+
+    // 安全第二层：run_sql 必须挂在某个 skill 下；加载该 skill 做角色门禁，并按其白名单限定可引用的表。
+    if (skillName) {
+      let skill;
+      try {
+        skill = await getSkill(pool, skillName);
+      } catch (err) {
+        request.log.error({ err, skillName }, 'agent internal run-sql load skill');
+        return reply.code(503).send({ error: '无法读取 skill 配置', code: 'AGENT_SKILL_LOAD_ERROR' });
+      }
+      if (!skill || !skill.enabled) {
+        return reply.code(404).send({ error: 'skill 不存在或未启用', code: 'AGENT_SKILL_NOT_FOUND' });
+      }
+      if (!canUseSkill(auth.user.roles, skill.roles)) {
+        return reply.code(403).send({ error: '无权使用该 skill', code: 'AGENT_FORBIDDEN' });
+      }
+      // 表白名单：skill 配置了 allowedTables 时强制校验 SQL 只能引用这些表（空=不限制）
+      const check = checkSqlTablesAllowed(rawSql, skill.allowedTables);
+      if (!check.ok) {
+        return reply.code(403).send({
+          error:
+            `本 skill 仅允许查询这些表：${(skill.allowedTables || []).join(', ')}。` +
+            `你的 SQL 引用了不被允许的表：${check.bad.join(', ')}。请改用允许的表，不要引入白名单外的表。`,
+          code: 'AGENT_SQL_TABLE_NOT_ALLOWED',
+          allowedTables: skill.allowedTables || [],
+          blockedTables: check.bad,
+        });
+      }
+    }
+
     try {
       const req = pool.request();
       req.timeout = 30000;

@@ -55,6 +55,12 @@ const SQL_AWT_KIND_PATH = path.join(
   'sql',
   'migrate-agent-write-target-kind.sql'
 );
+const SQL_SKILL_ALLOWED_TABLES_PATH = path.join(
+  __dirname,
+  '..',
+  'sql',
+  'migrate-agent-skill-allowed-tables.sql'
+);
 const SQL_MESSAGE_ALERTS_PATH = path.join(
   __dirname,
   '..',
@@ -120,6 +126,10 @@ async function ensureNavMenuSchema(getPool, log) {
     // AI Agent：写入目标 target_kind 列（table | action）
     const sqlAwtKind = fs.readFileSync(SQL_AWT_KIND_PATH, 'utf8');
     await pool.request().query(sqlAwtKind);
+
+    // AI Agent：skill 的 run_sql 表白名单列 allowed_tables_json
+    const sqlSkillAllowedTables = fs.readFileSync(SQL_SKILL_ALLOWED_TABLES_PATH, 'utf8');
+    await pool.request().query(sqlSkillAllowedTables);
 
     const sqlMessageAlerts = fs.readFileSync(SQL_MESSAGE_ALERTS_PATH, 'utf8');
     await pool.request().query(sqlMessageAlerts);

@@ -17,7 +17,8 @@ from langgraph.types import Command
 from .config import settings
 from .tools import ALL_TOOLS
 
-BASE_INSTRUCTIONS = (
+# 全局约束规则的内置默认值（兜底）：当 agent_rules.md 缺失或为空时使用。
+_DEFAULT_BASE_INSTRUCTIONS = (
     "你是工厂在线报表系统的 AI 助手。遵循以下原则：\n"
     "1. 你可以通过 run_sql 工具直接编写并执行 SELECT 查询来获取数据（仅允许 SELECT，禁止写操作）。\n"
     "2. **重要**：run_sql 只能在某个 skill 的工作流中使用。每次执行 SQL 查询时，你必须明确是在执行哪个 skill。\n"
@@ -37,6 +38,31 @@ BASE_INSTRUCTIONS = (
     "   支持的 type：navigate（需 view 字段：settings/catalog）、openCatalog、openProSign、followup（追问建议）。\n"
     "   只在有意义时附加，不要每次都加；最多 3 个。如果不需要就不要输出此块。\n"
 )
+
+# 全局约束规则 md 文件路径（可通过环境变量 AGENT_RULES_FILE 覆盖）。
+AGENT_RULES_FILE = os.getenv(
+    "AGENT_RULES_FILE",
+    os.path.join(os.path.dirname(__file__), "agent_rules.md"),
+)
+
+
+def _strip_html_comments(text: str) -> str:
+    """移除 md 中的 HTML 注释块（<!-- ... -->），这些仅为维护说明，不应进入 prompt。"""
+    return re.sub(r"<!--[\s\S]*?-->", "", text)
+
+
+def load_base_instructions() -> str:
+    """读取全局约束规则 md。文件缺失/为空/读取失败时回退到内置默认值。"""
+    try:
+        with open(AGENT_RULES_FILE, encoding="utf-8") as f:
+            content = _strip_html_comments(f.read()).strip()
+        if content:
+            return content
+    except FileNotFoundError:
+        pass
+    except OSError:
+        pass
+    return _DEFAULT_BASE_INSTRUCTIONS
 
 
 def _build_model():
@@ -69,11 +95,22 @@ def get_graph():
 
 
 def build_system_prompt(skills, user) -> str:
-    lines = [BASE_INSTRUCTIONS, "", "## 可用 skill（按你的权限过滤后）"]
+    lines = [load_base_instructions(), "", "## 可用 skill（按你的权限过滤后）"]
     if not skills:
         lines.append("（当前无可用 skill，仅可做一般性回答）")
     for s in skills or []:
         lines.append(f"\n### {s.get('name')}\n{s.get('description','')}\n{s.get('bodyMd','')}")
+        allowed_tables = s.get("allowedTables") or []
+        if allowed_tables:
+            lines.append(
+                "\n**本 skill 的 run_sql 表白名单（硬约束）**：只能引用以下表，"
+                + "、".join(str(t) for t in allowed_tables)
+                + "。禁止 JOIN 或查询白名单以外的任何表；"
+                "需要新增维度/字段时，只能在这些表已有的列上扩展（加入 SELECT 并同步加入 GROUP BY），"
+                "不可引入新表。调用 run_sql 时必须传 skill_name=\""
+                + str(s.get("name"))
+                + "\"。"
+            )
         resources = s.get("resources") or []
         if resources:
             lines.append("\n本 skill 附带以下资源文件（仅列清单，内容未加载）：")

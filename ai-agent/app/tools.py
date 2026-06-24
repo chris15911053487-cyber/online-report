@@ -129,7 +129,7 @@ def run_sql(sql_query: str, skill_name: str, config: RunnableConfig) -> str:
     sql_query：完整的 SELECT 语句；skill_name：当前正在执行的 skill 名称（如 customer-master-data-query）。
     返回列名与数据行（最多 200 行）。"""
     try:
-        data = _client(config).run_sql(sql_query)
+        data = _client(config).run_sql(sql_query, skill_name)
     except RuntimeError as e:
         return _tool_error("run_sql", e)
     return json.dumps(

@@ -15,6 +15,7 @@ interface AgentSkill {
   bodyMd: string
   resources?: Record<string, SkillResource>
   roles: string[]
+  allowedTables: string[]
   producesDocument: boolean
   enabled: boolean
   sortOrder: number
@@ -26,6 +27,7 @@ const EMPTY_SKILL: AgentSkill = {
   bodyMd: '',
   resources: {},
   roles: [],
+  allowedTables: [],
   producesDocument: false,
   enabled: true,
   sortOrder: 100,
@@ -40,6 +42,7 @@ export default function AiSkillsView() {
   const [skills, setSkills] = useState<AgentSkill[]>([])
   const [roles, setRoles] = useState<AppRole[]>([])
   const [editing, setEditing] = useState<AgentSkill | null>(null)
+  const [allowedTablesInput, setAllowedTablesInput] = useState('')
   const [isNew, setIsNew] = useState(false)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -72,6 +75,7 @@ export default function AiSkillsView() {
 
   const startEdit = (s: AgentSkill) => {
     setEditing({ ...s, roles: [...s.roles] })
+    setAllowedTablesInput((s.allowedTables || []).join(', '))
     setIsNew(false)
     setPreviewPath(null)
   }
@@ -100,6 +104,7 @@ export default function AiSkillsView() {
   }
   const startNew = () => {
     setEditing({ ...EMPTY_SKILL })
+    setAllowedTablesInput('')
     setIsNew(true)
   }
 
@@ -120,6 +125,7 @@ export default function AiSkillsView() {
           description: data.skill.description,
           bodyMd: data.skill.bodyMd,
         })
+        setAllowedTablesInput('')
         setIsNew(true)
         showToast('✅ AI 生成成功！请检查内容后保存。')
       } else {
@@ -151,9 +157,13 @@ export default function AiSkillsView() {
     }
     setSaving(true)
     try {
+      const allowedTables = allowedTablesInput
+        .split(/[\s,;]+/)
+        .map((t) => t.trim())
+        .filter(Boolean)
       await apiFetch('/ai/agent/skills-admin', {
         method: 'POST',
-        body: JSON.stringify(editing),
+        body: JSON.stringify({ ...editing, allowedTables }),
       })
       showToast('已保存')
       setEditing(null)
@@ -220,6 +230,22 @@ export default function AiSkillsView() {
               rows={12}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
             />
+          </div>
+          <div>
+            <label className="block text-sm text-slate-600 mb-1">
+              允许的表（run_sql 表白名单，硬约束）
+            </label>
+            <input
+              value={allowedTablesInput}
+              onChange={(e) => setAllowedTablesInput(e.target.value)}
+              placeholder="OJDT, JDT1, OACT"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
+            />
+            <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+              用逗号或空格分隔多个表名。<b>留空 = 不限制表</b>（仅限 SELECT）；填写后，本 Skill 通过
+              run_sql 执行的 SQL 只能引用这些表，引用白名单外的表会被后端拒绝。配合正文里的「骨架 +
+              字段词典 + 组装规则」，即可实现"标准模板 + 受控扩展"。
+            </p>
           </div>
           {resourceCount(editing) > 0 && (
             <div>
@@ -431,6 +457,11 @@ export default function AiSkillsView() {
                 {resourceCount(s) > 0 && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600">
                     {resourceCount(s)} 资源
+                  </span>
+                )}
+                {(s.allowedTables?.length ?? 0) > 0 && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600">
+                    {s.allowedTables.length} 表白名单
                   </span>
                 )}
               </div>
