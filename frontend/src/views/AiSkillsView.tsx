@@ -258,11 +258,9 @@ export default function AiSkillsView() {
                 }
                 // Render: SKILL.md + rootFiles + dirs (each with children)
                 const topEntries = [...rootFiles.map(f => ({ type: 'file' as const, name: f })), ...[...dirs.keys()].map(d => ({ type: 'dir' as const, name: d }))]
-                const lines: JSX.Element[] = []
+                const lines: React.ReactElement[] = []
                 const allTop = [{ type: 'file' as const, name: 'SKILL.md' }, ...topEntries]
                 allTop.forEach((entry, i) => {
-                  const isLast = i === allTop.length - 1 && (entry.type === 'file' || !dirs.get(entry.name)?.length)
-                  const conn = (i === allTop.length - 1 && entry.type === 'file') ? '└── ' : '├── '
                   if (entry.type === 'file') {
                     lines.push(<div key={`f-${entry.name}`} className="pl-4">{i === allTop.length - 1 ? '└── ' : '├── '}{entry.name}</div>)
                   } else {
