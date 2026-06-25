@@ -74,6 +74,9 @@ def read_skill_resource(skill_name: str, path: str, config: RunnableConfig) -> s
     try:
         data = _client(config).skill_resource(skill_name, path)
     except RuntimeError as e:
+        err_str = str(e)
+        if "AGENT_RESOURCE_NOT_FOUND" in err_str or "404" in err_str:
+            return f"该 skill 无此资源文件（{path}），无需读取，请直接根据 skill 正文中的信息继续执行。"
         return f"（读取资源失败：{e}）"
     return str(data.get("content", ""))
 

@@ -232,6 +232,56 @@ export default function AiSkillsView() {
             />
           </div>
           <div>
+            <label className="block text-sm text-slate-600 mb-1">Skill 包文件结构</label>
+            <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-600 leading-relaxed">
+              <div>{editing.name || 'skill-name'}/</div>
+              {(() => {
+                const paths = Object.keys(editing.resources || {}).sort()
+                if (!paths.length) return (
+                  <>
+                    <div className="pl-4">├── SKILL.md</div>
+                    <div className="pl-4 text-slate-400">└── (无资源文件)</div>
+                  </>
+                )
+                // Group files by directory
+                const dirs = new Map<string, string[]>()
+                const rootFiles: string[] = []
+                for (const p of paths) {
+                  const slash = p.indexOf('/')
+                  if (slash > 0) {
+                    const dir = p.slice(0, slash)
+                    if (!dirs.has(dir)) dirs.set(dir, [])
+                    dirs.get(dir)!.push(p.slice(slash + 1))
+                  } else {
+                    rootFiles.push(p)
+                  }
+                }
+                // Render: SKILL.md + rootFiles + dirs (each with children)
+                const topEntries = [...rootFiles.map(f => ({ type: 'file' as const, name: f })), ...[...dirs.keys()].map(d => ({ type: 'dir' as const, name: d }))]
+                const lines: JSX.Element[] = []
+                const allTop = [{ type: 'file' as const, name: 'SKILL.md' }, ...topEntries]
+                allTop.forEach((entry, i) => {
+                  const isLast = i === allTop.length - 1 && (entry.type === 'file' || !dirs.get(entry.name)?.length)
+                  const conn = (i === allTop.length - 1 && entry.type === 'file') ? '└── ' : '├── '
+                  if (entry.type === 'file') {
+                    lines.push(<div key={`f-${entry.name}`} className="pl-4">{i === allTop.length - 1 ? '└── ' : '├── '}{entry.name}</div>)
+                  } else {
+                    const files = dirs.get(entry.name) || []
+                    const dirIsLast = i === allTop.length - 1
+                    lines.push(<div key={`d-${entry.name}`} className="pl-4">{dirIsLast ? '└── ' : '├── '}{entry.name}/</div>)
+                    files.forEach((f, fi) => {
+                      const fileIsLast = fi === files.length - 1
+                      const prefix = dirIsLast ? '    ' : '│   '
+                      lines.push(<div key={`d-${entry.name}-${f}`} className="pl-4">{prefix}{fileIsLast ? '└── ' : '├── '}{f}</div>)
+                    })
+                  }
+                })
+                return lines
+              })()}
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1">资源文件通过「导入 Skill 包 (.zip)」添加或更新，编辑页无法手动增删。</p>
+          </div>
+          <div>
             <label className="block text-sm text-slate-600 mb-1">
               允许的表（run_sql 表白名单，硬约束）
             </label>
