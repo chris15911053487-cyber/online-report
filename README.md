@@ -401,37 +401,31 @@ addCmd(['打开消息', '未读消息'], function () {
 | `VOICE_ENABLED` | `false` 关闭语音（默认开启） |
 | `BAIDU_*` | 百度 ASR 密钥，见 `server/.env.example` |
 
-## 钉钉机器人对接
+## IM 机器人对接（钉钉 / 企业微信 / 飞书）
 
-系统支持将 AI Agent 对话能力对接到钉钉企业内部机器人，员工在钉钉单聊中即可直接与 AI 交互（查数据、操作说明等）。
+系统支持将 AI Agent 对话能力对接到多个 IM 平台的企业机器人，员工在 IM 单聊中即可直接与 AI 交互（查数据、操作说明等）。
 
 ### 架构
 
 ```
-钉钉用户发消息 → 钉钉服务器 POST /bot/dingtalk
-    → 验签 → 用户绑定映射 → agentChatCore()（复用 Web 端完整 Agent 能力）
-    → 钉钉 oToMessages API 回复 Markdown
+IM 平台推送消息 → POST /bot/{dingtalk|wecom|feishu}
+    → 验签/解密 → 用户绑定映射 → agentChatCore()（复用 Web 端完整 Agent 能力）
+    → 平台消息 API 回复
 ```
 
-核心模块：`server/src/routes/bot-dingtalk.js`、`server/src/agent-chat-core.js`。
+核心模块：`server/src/agent-chat-core.js`（共享对话逻辑）、各平台路由见下表。
 
-### 钉钉开放平台配置
+| 平台 | 路由文件 | Webhook 地址 |
+|------|----------|-------------|
+| 钉钉 | `server/src/routes/bot-dingtalk.js` | `/bot/dingtalk` |
+| 企业微信 | `server/src/routes/bot-wecom.js` | `/bot/wecom` |
+| 飞书 | `server/src/routes/bot-feishu.js` | `/bot/feishu` |
 
-1. 登录 [钉钉开放平台](https://open-dev.dingtalk.com) → 应用开发 → 企业内部开发 → 创建应用（机器人）
-2. 获取 `AppKey` 和 `AppSecret`，填入 `server/.env`：
-   ```
-   DINGTALK_APP_KEY=dingXXXXXXXX
-   DINGTALK_APP_SECRET=your-secret
-   ```
-3. 开发管理 → 消息接收地址：`https://你的域名/bot/dingtalk`
-4. 配置服务器出口 IP 白名单
-5. 发布应用，在钉钉工作台可见该机器人
-
-### 使用流程
+### 使用流程（通用）
 
 | 步骤 | 用户操作 | 说明 |
 |------|----------|------|
-| 绑定 | 发送 `绑定 U001` | 将钉钉账号与系统工号关联（一次性） |
+| 绑定 | 发送 `绑定 U001` | 将 IM 账号与系统工号关联（一次性） |
 | 对话 | 直接发消息 | 与 Web 端 AI 对话能力完全一致 |
 
 ### 用户绑定表
@@ -441,14 +435,44 @@ addCmd(['打开消息', '未读消息'], function () {
 bot_user_bindings (platform, platform_uid, user_code)
 ```
 
-支持多平台扩展（`platform`: `dingtalk` / `feishu` / `wechat`）。
+`platform`: `dingtalk` / `wecom` / `feishu`。
+
+### 钉钉配置
+
+1. 登录 [钉钉开放平台](https://open-dev.dingtalk.com) → 创建企业内部应用（机器人）
+2. 获取 `AppKey` / `AppSecret`，填入 `server/.env`
+3. 消息接收地址：`https://你的域名/bot/dingtalk`
+4. 配置出口 IP 白名单并发布
+
+### 企业微信配置
+
+1. 企业微信管理后台 → 应用管理 → 自建应用 → 接收消息设置
+2. 填写 URL（`https://你的域名/bot/wecom`）、Token、EncodingAESKey
+3. 获取 CorpID、AgentID、Secret，填入 `server/.env`
+
+### 飞书配置
+
+1. 登录 [飞书开放平台](https://open.feishu.cn) → 创建应用 → 添加机器人能力
+2. 事件订阅 → Webhook 模式 → 请求地址：`https://你的域名/bot/feishu`
+3. 订阅事件 `im.message.receive_v1`
+4. 权限：`im:message`、`im:message:send_as_bot`
+5. 获取 App ID / App Secret / Verification Token / Encrypt Key，填入 `server/.env`
 
 ### 环境变量
 
 | 变量 | 说明 |
 |------|------|
 | `DINGTALK_APP_KEY` | 钉钉应用 AppKey（即 robotCode） |
-| `DINGTALK_APP_SECRET` | 钉钉应用 AppSecret（用于验签和获取 access_token） |
+| `DINGTALK_APP_SECRET` | 钉钉应用 AppSecret |
+| `WECOM_CORP_ID` | 企业微信企业 ID |
+| `WECOM_TOKEN` | 企业微信回调 Token |
+| `WECOM_ENCODING_AES_KEY` | 企业微信 EncodingAESKey（43 位） |
+| `WECOM_AGENT_ID` | 企业微信应用 AgentID |
+| `WECOM_SECRET` | 企业微信应用 Secret |
+| `FEISHU_APP_ID` | 飞书应用 App ID |
+| `FEISHU_APP_SECRET` | 飞书应用 App Secret |
+| `FEISHU_VERIFICATION_TOKEN` | 飞书事件验证 Token |
+| `FEISHU_ENCRYPT_KEY` | 飞书事件加密 Key |
 
 ## Docker 部署
 

@@ -27,6 +27,8 @@ const filesRoutes = require('./routes/files');
 const speechRoutes = require('./routes/speech');
 const messagesRoutes = require('./routes/messages');
 const botDingtalkRoutes = require('./routes/bot-dingtalk');
+const botWecomRoutes = require('./routes/bot-wecom');
+const botFeishuRoutes = require('./routes/bot-feishu');
 const { getPool } = require('./db');
 const ensureNavMenuSchema = require('./ensure-nav-menu-schema');
 
@@ -79,6 +81,10 @@ async function build() {
     limits: { fileSize: 5 * 1024 * 1024, files: 1 },
   });
 
+  // 企业微信回调发送 text/xml，需要解析为字符串
+  fastify.addContentTypeParser('text/xml', { parseAs: 'string' }, (_req, body, done) => done(null, body));
+  fastify.addContentTypeParser('application/xml', { parseAs: 'string' }, (_req, body, done) => done(null, body));
+
   fastify.decorate('authenticate', async function authenticate(request, reply) {
     try {
       await request.jwtVerify();
@@ -109,6 +115,8 @@ async function build() {
   await fastify.register(aiAgentRoutes);
   await fastify.register(messagesRoutes);
   await fastify.register(botDingtalkRoutes);
+  await fastify.register(botWecomRoutes);
+  await fastify.register(botFeishuRoutes);
   await fastify.register(filesRoutes);
 
   // 语音功能开关（默认启用，设 VOICE_ENABLED=false 关闭）
