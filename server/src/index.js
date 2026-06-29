@@ -26,6 +26,7 @@ const aiAgentRoutes = require('./routes/ai-agent');
 const filesRoutes = require('./routes/files');
 const speechRoutes = require('./routes/speech');
 const messagesRoutes = require('./routes/messages');
+const botDingtalkRoutes = require('./routes/bot-dingtalk');
 const { getPool } = require('./db');
 const ensureNavMenuSchema = require('./ensure-nav-menu-schema');
 
@@ -107,6 +108,7 @@ async function build() {
   await fastify.register(aiRoutes);
   await fastify.register(aiAgentRoutes);
   await fastify.register(messagesRoutes);
+  await fastify.register(botDingtalkRoutes);
   await fastify.register(filesRoutes);
 
   // 语音功能开关（默认启用，设 VOICE_ENABLED=false 关闭）

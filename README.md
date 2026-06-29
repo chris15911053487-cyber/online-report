@@ -401,6 +401,55 @@ addCmd(['打开消息', '未读消息'], function () {
 | `VOICE_ENABLED` | `false` 关闭语音（默认开启） |
 | `BAIDU_*` | 百度 ASR 密钥，见 `server/.env.example` |
 
+## 钉钉机器人对接
+
+系统支持将 AI Agent 对话能力对接到钉钉企业内部机器人，员工在钉钉单聊中即可直接与 AI 交互（查数据、操作说明等）。
+
+### 架构
+
+```
+钉钉用户发消息 → 钉钉服务器 POST /bot/dingtalk
+    → 验签 → 用户绑定映射 → agentChatCore()（复用 Web 端完整 Agent 能力）
+    → 钉钉 oToMessages API 回复 Markdown
+```
+
+核心模块：`server/src/routes/bot-dingtalk.js`、`server/src/agent-chat-core.js`。
+
+### 钉钉开放平台配置
+
+1. 登录 [钉钉开放平台](https://open-dev.dingtalk.com) → 应用开发 → 企业内部开发 → 创建应用（机器人）
+2. 获取 `AppKey` 和 `AppSecret`，填入 `server/.env`：
+   ```
+   DINGTALK_APP_KEY=dingXXXXXXXX
+   DINGTALK_APP_SECRET=your-secret
+   ```
+3. 开发管理 → 消息接收地址：`https://你的域名/bot/dingtalk`
+4. 配置服务器出口 IP 白名单
+5. 发布应用，在钉钉工作台可见该机器人
+
+### 使用流程
+
+| 步骤 | 用户操作 | 说明 |
+|------|----------|------|
+| 绑定 | 发送 `绑定 U001` | 将钉钉账号与系统工号关联（一次性） |
+| 对话 | 直接发消息 | 与 Web 端 AI 对话能力完全一致 |
+
+### 用户绑定表
+
+```sql
+-- server/sql/migrate-bot-user-bindings.sql（服务启动自动执行）
+bot_user_bindings (platform, platform_uid, user_code)
+```
+
+支持多平台扩展（`platform`: `dingtalk` / `feishu` / `wechat`）。
+
+### 环境变量
+
+| 变量 | 说明 |
+|------|------|
+| `DINGTALK_APP_KEY` | 钉钉应用 AppKey（即 robotCode） |
+| `DINGTALK_APP_SECRET` | 钉钉应用 AppSecret（用于验签和获取 access_token） |
+
 ## Docker 部署
 
 ```bash
