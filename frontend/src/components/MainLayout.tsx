@@ -16,6 +16,7 @@ import AiChatView from '../views/AiChatView'
 import AiSkillsView from '../views/AiSkillsView'
 import MessagesView from '../views/MessagesView'
 import MessageAlertSettingsView from '../views/MessageAlertSettingsView'
+import ScheduledReportsView from '../views/ScheduledReportsView'
 import type { ViewName } from '../types'
 import { isReturnProRoute } from '../views/ReturnProPickDetail'
 
@@ -30,6 +31,7 @@ const viewComponents: Record<string, React.ComponentType> = {
   'menu-settings': MenuSettingsView,
   'ai-skills': AiSkillsView,
   'message-alert-settings': MessageAlertSettingsView,
+  'scheduled-reports': ScheduledReportsView,
   owor: OworView,
   orders: OrdersView,
   detail: DetailView,
@@ -55,6 +57,7 @@ function getPageTitle(
     'menu-settings': '菜单设置',
     'ai-skills': 'AI Skill 管理',
     'message-alert-settings': '消息提醒设置',
+    'scheduled-reports': '定时报告',
     detail: '订单报工',
     'report-row-detail': '行详情',
     'work-registration': '报工登记',

@@ -126,3 +126,4 @@ export type ViewName =
   | 'pro-sign-receive'
   | 'pro-sign-order-detail'
   | 'work-registration'
+  | 'scheduled-reports'

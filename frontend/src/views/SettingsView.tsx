@@ -81,6 +81,12 @@ export default function SettingsView() {
           >
             消息提醒设置
           </button>
+          <button
+            onClick={() => navigateTo('scheduled-reports')}
+            className="w-full py-3 bg-teal-500 text-white rounded-lg font-medium hover:bg-teal-600 transition-colors mb-4"
+          >
+            定时报告管理
+          </button>
         </>
       )}
 
