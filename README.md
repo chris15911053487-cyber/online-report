@@ -137,6 +137,13 @@ module.exports = {
 
 **AI 对话交互功能**：复制消息、引用回复、重新生成、消息反馈（有用/没用）、清空对话、代码块复制。
 
+**AI Agent 角色权限约束**（定义在 `ai-agent/app/agent_rules.md`，注入 system prompt 全局生效）：
+
+| 内置角色 | 约束说明 |
+|----------|----------|
+| `cost-viewer` | 仅拥有该角色的用户可在 AI 对话中查看成本、进价、采购价等敏感价格信息；无此角色时 Agent 必须隐去成本字段并提示无权限 |
+| `attachment-generator` | 仅拥有该角色的用户可通过 AI 对话生成 Word/Excel/PDF 等文件附件；无此角色时 Agent 拒绝调用 `generate_document` |
+
 **降级**：ai-agent 不可达时自动降级为本地知识问答（仅操作说明，不执行 SQL、不编造数据）。
 
 ## 菜单与角色权限
@@ -153,7 +160,7 @@ module.exports = {
 
 迁移脚本：`server/sql/migrate-user-roles.sql`（服务启动时 `ensure-nav-menu-schema` 自动执行，或 `npm run init-db`）。
 
-**预置角色**：`admin`（管理员）、`operator`（操作员）、`production`（生产）、`warehouse`（仓库）、`quality`（质检）、`finance`（财务）。可在后台继续添加自定义角色（小写英文标识，如 `packing`）。
+**预置角色**：`admin`（管理员）、`operator`（操作员）、`production`（生产）、`warehouse`（仓库）、`quality`（质检）、`finance`（财务）、`cost-viewer`（查看成本）、`attachment-generator`（生成附件）。其中 `admin`、`operator`、`cost-viewer`、`attachment-generator` 为内置角色（不可删除）。可在后台继续添加自定义角色（小写英文标识，如 `packing`）。
 
 ### 权限规则
 
@@ -174,7 +181,7 @@ module.exports = {
 | 页签 | 作用 |
 |------|------|
 | **菜单项** | 编辑菜单；「可见角色」勾选哪些岗位能看该菜单 |
-| **角色定义** | 增删自定义岗位角色（内置 admin/operator 不可删） |
+| **角色定义** | 增删自定义岗位角色（内置 admin/operator/cost-viewer/attachment-generator 不可删） |
 | **用户角色** | 搜索 OUSR 用户 → 勾选岗位角色 → 保存 |
 
 ### 管理 API

@@ -23,6 +23,21 @@
    支持的 type：navigate（需 view 字段：settings/catalog）、openCatalog、openProSign、followup（追问建议）。
    只在有意义时附加，不要每次都加；最多 3 个。如果不需要就不要输出此块。
 
+## 角色权限约束
+
+以下规则基于「当前用户角色」字段判断，优先级高于 skill 指令：
+
+### cost-viewer（查看成本）
+
+- 仅当用户角色包含 `cost-viewer` 时，才可在查询结果或回复中展示成本、进价、采购价、标准成本等敏感价格信息。
+- 若用户不具备该角色，即使 SQL 查询结果中包含成本列，也**必须在回复中隐去这些字段**，并告知用户「您没有查看成本的权限」。
+- 涉及的典型字段关键词：成本、进价、采购价、StdCost、AvgPrice、LastPurPrc 等（不限于此列表，凡属成本/进价性质均受限）。
+
+### attachment-generator（生成附件）
+
+- 仅当用户角色包含 `attachment-generator` 时，才可调用 `generate_document` 工具生成 Word、Excel、PDF 等文件附件。
+- 若用户不具备该角色却要求生成文件，**拒绝执行**并告知「您没有生成附件的权限」。
+
 ## SQL 编写规范（适用于所有 run_sql 调用）
 
 本系统数据库为 **Microsoft SQL Server**，编写 SELECT 时遵守 T-SQL 语法。以下为通用写法约束，与具体业务表无关；具体查哪些表/列以所在 skill 的说明为准。
