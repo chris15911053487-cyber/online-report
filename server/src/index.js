@@ -29,6 +29,8 @@ const messagesRoutes = require('./routes/messages');
 const botDingtalkRoutes = require('./routes/bot-dingtalk');
 const botWecomRoutes = require('./routes/bot-wecom');
 const botFeishuRoutes = require('./routes/bot-feishu');
+const scheduledReportsAdminRoutes = require('./routes/scheduled-reports-admin');
+const { loadAndSchedule: startScheduledReports } = require('./scheduled-reports');
 const { getPool } = require('./db');
 const ensureNavMenuSchema = require('./ensure-nav-menu-schema');
 
@@ -117,6 +119,7 @@ async function build() {
   await fastify.register(botDingtalkRoutes);
   await fastify.register(botWecomRoutes);
   await fastify.register(botFeishuRoutes);
+  await fastify.register(scheduledReportsAdminRoutes);
   await fastify.register(filesRoutes);
 
   // 语音功能开关（默认启用，设 VOICE_ENABLED=false 关闭）
@@ -243,6 +246,8 @@ build()
     await ensureNavMenuSchema(getPool, app.log);
     await app.listen({ port: PORT, host: '0.0.0.0' });
     app.log.info(`listening on ${PORT}`);
+    // 启动定时报告调度
+    startScheduledReports(app.log).catch((e) => app.log.warn(e, 'scheduled reports init'));
   })
   .catch((err) => {
     console.error(err);

@@ -146,6 +146,71 @@ module.exports = {
 
 **降级**：ai-agent 不可达时自动降级为本地知识问答（仅操作说明，不执行 SQL、不编造数据）。
 
+## 定时 AI 报告推送
+
+支持通过 cron 定时触发 AI Agent 生成报告，并通过 IM 机器人主动推送给指定用户。
+
+### 架构
+
+```
+node-cron 定时触发 → 加载 scheduled_reports 配置
+  → agentChatCore() 生成报告（复用完整 Agent 能力）
+  → 通过 bot_user_bindings 查找用户 IM 绑定
+  → 钉钉 / 企微 / 飞书主动发消息
+```
+
+### 数据表
+
+| 表 | 说明 |
+|---|---|
+| `scheduled_reports` | 推送任务配置（名称、cron、prompt、目标用户/角色、渠道） |
+| `scheduled_report_logs` | 执行日志（状态、推送数、AI 响应） |
+
+迁移脚本：`server/sql/migrate-scheduled-reports.sql`（服务启动自动执行）。
+
+### 配置字段
+
+| 字段 | 说明 |
+|------|------|
+| `name` | 任务名称，如「每日生产日报」 |
+| `cron_expr` | cron 表达式，如 `0 8 * * *`（每天 8 点） |
+| `skill_name` | 可选，关联的 AI Skill |
+| `prompt_template` | 给 Agent 的指令，如「请统计今日生产完工情况并生成日报」 |
+| `target_roles_json` | 按角色推送，如 `["production","warehouse"]` |
+| `target_users_json` | 按用户推送，如 `["U001","U002"]`（优先于角色） |
+| `channels_json` | 推送渠道，如 `["dingtalk","wecom","feishu"]` |
+| `enabled` | 启用/禁用 |
+
+### 管理 API
+
+| 接口 | 说明 |
+|------|------|
+| `GET /admin/scheduled-reports` | 列表 |
+| `POST /admin/scheduled-reports` | 新增 |
+| `PATCH /admin/scheduled-reports/:id` | 修改 |
+| `DELETE /admin/scheduled-reports/:id` | 删除 |
+| `POST /admin/scheduled-reports/:id/trigger` | 手动触发一次 |
+| `GET /admin/scheduled-reports/:id/logs` | 查看执行日志 |
+
+### 环境变量
+
+| 变量 | 说明 |
+|------|------|
+| `SCHEDULED_REPORT_USER` | Agent 执行报告时使用的系统账号（默认 `SYSTEM`） |
+
+### 使用示例
+
+```json
+{
+  "name": "每日生产日报",
+  "cron_expr": "0 8 * * 1-5",
+  "prompt_template": "请统计昨天的生产完工数量、良品率，按工序汇总，生成简洁的日报",
+  "target_roles_json": ["production"],
+  "channels_json": ["dingtalk"],
+  "enabled": true
+}
+```
+
 ## 菜单与角色权限
 
 系统采用 **方案 A：扩展角色体系**——按岗位角色批量授权，同一角色多人共享菜单权限；不修改 SAP `OUSR` 表。
