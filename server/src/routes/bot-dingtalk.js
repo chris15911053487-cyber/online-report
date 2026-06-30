@@ -93,6 +93,11 @@ function truncateForDing(text) {
 // ---------- 路由注册 ----------
 
 async function botDingtalkRoutes(fastify) {
+  // 钉钉开放平台验证回调地址时发送 GET 请求，返回 200 即可
+  fastify.get('/bot/dingtalk', async (request, reply) => {
+    return reply.code(200).send({ success: true });
+  });
+
   fastify.post('/bot/dingtalk', async (request, reply) => {
     // 1. 验签
     const timestamp = request.headers['timestamp'] || '';
