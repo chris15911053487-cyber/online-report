@@ -15,6 +15,7 @@
     "@fastify/static": "^7.0.4",
     "adm-zip": "^0.5.17",
     "dotenv": "^16.4.5",
+    "exceljs": "4.4.0",
     "fastify": "^4.28.1",
     "js-yaml": "^4.2.0",
     "mssql": "^11.0.1",

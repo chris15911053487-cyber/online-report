@@ -44,9 +44,9 @@ function getReportMaxPageSize() {
  * @returns {{ page: number, pageSize: number }}
  * 省略 page / pageSize 时：page=1、pageSize=REPORT_MAX_ROWS（兼容旧客户端一次取满页上限）。
  */
-function normalizeReportPaging(pageRaw, pageSizeRaw) {
+function normalizeReportPaging(pageRaw, pageSizeRaw, opts) {
   const maxRows = getReportMaxRows();
-  const maxPageSize = getReportMaxPageSize();
+  const maxPageSize = (opts && opts.maxPageSizeOverride) || getReportMaxPageSize();
   const pageMissing = pageRaw === undefined || pageRaw === null || pageRaw === '';
   const pageSizeMissing =
     pageSizeRaw === undefined || pageSizeRaw === null || pageSizeRaw === '';
@@ -1053,10 +1053,11 @@ async function executeReportQuery(pool, opts) {
     maxRows = getReportMaxRows(),
     page: pageOpt,
     pageSize: pageSizeOpt,
+    maxPageSizeOverride,
   } = opts;
 
   const body = params && typeof params === 'object' ? params : {};
-  const { page, pageSize } = normalizeReportPaging(pageOpt, pageSizeOpt);
+  const { page, pageSize } = normalizeReportPaging(pageOpt, pageSizeOpt, { maxPageSizeOverride });
   const dynamicOptsCache = new Map();
 
   try {

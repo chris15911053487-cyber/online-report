@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from 'react'
 import { useStore } from '../store'
 import { apiFetch, apiFetchReport } from '../utils/api'
+import { apiUrl, authHeaders } from '../utils/api'
 import {
   isImageColumn,
   buildImageSrc,
@@ -300,6 +301,7 @@ function shouldShowAllOption(
 
 export default function DynamicReportView() {
   const {
+    user,
     activeMenu,
     proSignMode,
     showToast,
@@ -352,6 +354,13 @@ export default function DynamicReportView() {
 
   // Jump-to-page input
   const [jumpInput, setJumpInput] = useState('')
+  const [exporting, setExporting] = useState(false)
+
+  // 是否有导出 Excel 权限
+  const canExportExcel = useMemo(() => {
+    const roles = user?.roles ?? []
+    return roles.includes('admin') || roles.includes('export-excel')
+  }, [user])
 
   const hasQueried = useRef(false)
   const initDone = useRef(false)
@@ -772,6 +781,41 @@ export default function DynamicReportView() {
       })
     } finally {
       setAiLoading(false)
+    }
+  }
+
+  // --- Excel 导出 ---
+  const handleExportExcel = async () => {
+    if (exporting) return
+    setExporting(true)
+    try {
+      const params = collectFilterParams(schema, formValues)
+      const res = await fetch(apiUrl('/reports/export-excel'), {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ routeKey, params }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || `导出失败 (${res.status})`)
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      // 从 Content-Disposition 提取文件名
+      const cd = res.headers.get('Content-Disposition') || ''
+      const fnMatch = cd.match(/filename\*=UTF-8''(.+)/)
+      a.download = fnMatch ? decodeURIComponent(fnMatch[1]) : '报表.xlsx'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      showToast('导出成功')
+    } catch (e: any) {
+      showToast(e.message || '导出失败')
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -1204,6 +1248,15 @@ export default function DynamicReportView() {
                   前往
                 </button>
               </label>
+            )}
+            {canExportExcel && !proSignMode && (
+              <button
+                className="ml-auto rounded-lg border border-green-600 px-3 py-1.5 text-xs font-medium text-green-700 active:bg-green-50 disabled:opacity-50"
+                onClick={handleExportExcel}
+                disabled={exporting}
+              >
+                {exporting ? '导出中…' : '导出 Excel'}
+              </button>
             )}
           </div>
         </div>

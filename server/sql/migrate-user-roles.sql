@@ -41,6 +41,7 @@ USING (
   UNION ALL SELECT N'finance', N'财务', 60, CAST(0 AS BIT)
   UNION ALL SELECT N'cost-viewer', N'查看成本', 70, CAST(1 AS BIT)
   UNION ALL SELECT N'attachment-generator', N'生成附件', 80, CAST(1 AS BIT)
+  UNION ALL SELECT N'export-excel', N'导出Excel', 90, CAST(1 AS BIT)
 ) AS s ON t.role_key = s.role_key
 WHEN NOT MATCHED BY TARGET THEN
   INSERT (role_key, label, sort_order, is_builtin)

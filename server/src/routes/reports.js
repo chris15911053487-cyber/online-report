@@ -1,3 +1,4 @@
+const ExcelJS = require('exceljs');
 const { getPool, sql } = require('../db');
 const {
   detectTemplateKind,
@@ -369,6 +370,171 @@ async function reportsRoutes(fastify) {
           error: '查询执行失败',
           code: 'REPORT_EXEC_ERROR',
           detail: errorDetail,
+        });
+      }
+    }
+  );
+
+  // ── Excel 导出接口 ──────────────────────────────────────────────────────────
+  fastify.post(
+    '/reports/export-excel',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const body = request.body || {};
+      const routeKey = String(body.routeKey || '')
+        .trim()
+        .toLowerCase();
+      const params = body.params && typeof body.params === 'object' ? body.params : {};
+
+      if (!routeKey) {
+        return reply.code(400).send({ error: '请提供 routeKey', code: 'REPORT_BAD_REQUEST' });
+      }
+
+      // 检查用户是否拥有 export-excel 角色
+      const userRoles = getUserRolesFromRequest(request.user);
+      if (!userRoles.includes('admin') && !userRoles.includes('export-excel')) {
+        return reply.code(403).send({ error: '您没有导出 Excel 的权限', code: 'EXPORT_FORBIDDEN' });
+      }
+
+      const pool = await getPool();
+
+      let row;
+      try {
+        const rs = await pool
+          .request()
+          .input('rk', sql.NVarChar(64), routeKey)
+          .query(`SELECT id, label, route_key, enabled, roles_json, menu_kind, query_template, filter_schema_json,
+                  COALESCE(column_name_mapping_json, N'{}') AS column_name_mapping_json
+                  FROM dbo.nav_menu_items
+                  WHERE route_key = @rk`);
+        row = rs.recordset && rs.recordset[0];
+      } catch (err) {
+        request.log.error({ err }, 'reports/export-excel load menu');
+        return reply.code(503).send({
+          error: '无法读取菜单配置',
+          code: 'NAV_CONFIG_ERROR',
+        });
+      }
+
+      if (!row || !row.enabled) {
+        return reply.code(404).send({ error: '菜单不存在或未启用', code: 'REPORT_MENU_NOT_FOUND' });
+      }
+
+      const roles = parseMenuRolesJson(row.roles_json);
+      if (!canAccessMenu(userRoles, roles)) {
+        return reply.code(403).send({ error: '无权访问该报表', code: 'REPORT_FORBIDDEN' });
+      }
+
+      const menuKind = String(row.menu_kind || 'builtin').toLowerCase();
+      if (menuKind !== 'report') {
+        return reply
+          .code(400)
+          .send({ error: '该菜单不是可配置报表', code: 'REPORT_NOT_REPORT_MENU' });
+      }
+
+      const template = normalizeTemplate(row.query_template || '');
+      if (!template) {
+        return reply.code(503).send({ error: '报表未配置 SQL 模板', code: 'REPORT_TEMPLATE_EMPTY' });
+      }
+
+      const fs = parseFilterSchemaJson(row.filter_schema_json || '[]');
+      if (!fs.ok) {
+        return reply.code(503).send({ error: fs.error, code: 'REPORT_SCHEMA_INVALID' });
+      }
+
+      const templateKind = detectTemplateKind(template);
+      if (!templateKind) {
+        return reply.code(503).send({ error: 'SQL 模板无效', code: 'REPORT_TEMPLATE_INVALID' });
+      }
+
+      const mapParse = parseColumnNameMappingJson(
+        row.column_name_mapping_json != null && String(row.column_name_mapping_json).trim() !== ''
+          ? row.column_name_mapping_json
+          : '{}'
+      );
+      const colMap = mapParse.ok ? mapParse.mapping : {};
+
+      // 导出最多 50000 行（不分页）
+      const EXPORT_MAX_ROWS = 50000;
+      try {
+        const rawResult = await executeReportQuery(pool, {
+          templateKind,
+          sqlTemplate: template,
+          schemaFields: fs.fields,
+          params,
+          sessionInject: buildReportSessionInject(request.user),
+          page: 1,
+          pageSize: EXPORT_MAX_ROWS,
+          maxRows: EXPORT_MAX_ROWS,
+          maxPageSizeOverride: EXPORT_MAX_ROWS,
+        });
+        const result = applyColumnNameMapping(rawResult, colMap);
+
+        // 生成 Excel
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = 'Online Report';
+        workbook.created = new Date();
+        const sheet = workbook.addWorksheet(row.label || '报表');
+
+        const columns = result.columns || [];
+        if (columns.length === 0) {
+          return reply.code(200).send({ error: '无数据可导出' });
+        }
+
+        // 设置列头
+        sheet.columns = columns.map((col) => ({
+          header: col,
+          key: col,
+          width: Math.max(col.length * 2, 12),
+        }));
+
+        // 表头行加粗
+        const headerRow = sheet.getRow(1);
+        headerRow.font = { bold: true };
+        headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+
+        // 填充数据
+        for (const row of result.rows) {
+          const rowData = {};
+          for (const col of columns) {
+            let val = row[col];
+            // 处理 Date 对象
+            if (val instanceof Date) {
+              val = val.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+            }
+            rowData[col] = val != null ? val : '';
+          }
+          sheet.addRow(rowData);
+        }
+
+        // 生成 buffer 并返回
+        const buffer = await workbook.xlsx.writeBuffer();
+        const filename = encodeURIComponent(`${row.label || '报表'}.xlsx`);
+
+        reply
+          .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+          .header('Content-Disposition', `attachment; filename*=UTF-8''${filename}`)
+          .header('Content-Length', buffer.length);
+        return reply.send(Buffer.from(buffer));
+      } catch (err) {
+        const code = err.code || 'REPORT_EXEC_ERROR';
+        if (code === 'REPORT_BAD_PAGING') {
+          return reply.code(400).send({ error: err.message, code });
+        }
+        if (
+          code === 'REPORT_PARAM_REQUIRED' ||
+          code === 'REPORT_PARAM_INVALID'
+        ) {
+          return reply.code(400).send({ error: err.message, code });
+        }
+        if (code === 'REPORT_QUERY_TIMEOUT') {
+          return reply.code(504).send({ error: err.message, code });
+        }
+        request.log.error({ err }, 'reports/export-excel execute');
+        return reply.code(500).send({
+          error: '导出失败',
+          code: 'REPORT_EXPORT_ERROR',
+          detail: err.message || String(err),
         });
       }
     }
