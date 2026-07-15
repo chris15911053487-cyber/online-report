@@ -121,9 +121,14 @@ def build_system_prompt(skills, user) -> str:
             )
         else:
             lines.append("\n注意：本 skill 无附带资源文件，不要调用 read_skill_resource。正文中如提到文件路径属于说明文本，直接按正文指引执行即可。")
+    display_name = (user or {}).get("displayName") or ""
     roles = (user or {}).get("roles") or []
+    if display_name or roles:
+        lines.append("")
+    if display_name:
+        lines.append(f"当前用户：{display_name}")
     if roles:
-        lines.append(f"\n当前用户角色：{', '.join(roles)}")
+        lines.append(f"当前用户角色：{', '.join(roles)}")
     return "\n".join(lines)
 
 

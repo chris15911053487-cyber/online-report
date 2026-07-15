@@ -128,8 +128,8 @@ def run_report(route_key: str, params_json: str, config: RunnableConfig) -> str:
 
 @tool
 def run_sql(sql_query: str, skill_name: str, config: RunnableConfig) -> str:
-    """直接执行只读 SQL 查询（仅允许 SELECT）。必须在某个 skill 工作流中使用。
-    sql_query：完整的 SELECT 语句；skill_name：当前正在执行的 skill 名称（如 customer-master-data-query）。
+    """直接执行只读 SQL 查询（允许 SELECT 和 EXEC 只读存储过程，存储过程须在 skill 表白名单中）。必须在某个 skill 工作流中使用。
+    sql_query：完整的 SELECT 语句或 EXEC 存储过程调用；skill_name：当前正在执行的 skill 名称（如 customer-master-data-query）。
     返回列名与数据行（最多 200 行）。"""
     try:
         data = _client(config).run_sql(sql_query, skill_name)
