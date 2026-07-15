@@ -271,6 +271,7 @@ async function deleteSkill(pool, name) {
 
 /**
  * 从 SQL 中启发式提取 FROM / JOIN / APPLY 引用的基础表名（小写、去 schema/方括号）。
+ * 同时提取 EXEC / EXECUTE 后的存储过程名称（用于白名单校验）。
  * 用于 run_sql 表白名单校验——这是护栏式解析，不是完整 SQL 解析器：
  * - 先剥注释与字符串字面量，避免误匹配；
  * - 派生表（FROM (SELECT ...)）后紧跟 '(' 不会被捕获，天然跳过；
@@ -304,6 +305,18 @@ function extractSqlTables(sqlText) {
     const name = (parts[parts.length - 1] || '').toLowerCase();
     if (name && !cteNames.has(name)) tables.add(name);
   }
+
+  // EXEC / EXECUTE 后的存储过程名（可带 schema 限定，如 dbo.SpName）
+  const execRe = /\b(?:EXEC|EXECUTE)\s+(\[?[A-Za-z_#][\w#$]*\]?(?:\s*\.\s*\[?[A-Za-z_#][\w#$]*\]?){0,2})/gi;
+  let em;
+  while ((em = execRe.exec(s)) !== null) {
+    const parts = String(em[1])
+      .split('.')
+      .map((p) => stripIdentifier(p));
+    const name = (parts[parts.length - 1] || '').toLowerCase();
+    if (name) tables.add(name);
+  }
+
   return Array.from(tables);
 }
 

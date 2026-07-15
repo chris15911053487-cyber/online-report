@@ -479,12 +479,17 @@ async function aiAgentRoutes(fastify) {
     const skillName = String(body.skillName || '').trim().toLowerCase();
     if (!rawSql) return reply.code(400).send({ error: '缺少 sql', code: 'AGENT_BAD_REQUEST' });
 
-    // 安全第一层：仅允许 SELECT / WITH / DECLARE（禁止写操作）
+    // 安全第一层：仅允许 SELECT / WITH / DECLARE / EXEC（EXEC 需 skill 白名单放行）
     const normalized = rawSql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '').trim();
     const firstWord = (normalized.split(/\s+/)[0] || '').toUpperCase();
-    const blocked = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'CREATE', 'TRUNCATE', 'EXEC', 'EXECUTE', 'MERGE', 'GRANT', 'REVOKE'];
+    const isExec = firstWord === 'EXEC' || firstWord === 'EXECUTE';
+    const blocked = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'ALTER', 'CREATE', 'TRUNCATE', 'MERGE', 'GRANT', 'REVOKE'];
     if (blocked.includes(firstWord)) {
       return reply.code(403).send({ error: '仅允许 SELECT 查询', code: 'AGENT_SQL_WRITE_BLOCKED' });
+    }
+    // EXEC/EXECUTE 必须关联 skill（由 skill 白名单控制可执行的存储过程）
+    if (isExec && !skillName) {
+      return reply.code(403).send({ error: '执行存储过程必须关联 skill，且存储过程须在 skill 表白名单中', code: 'AGENT_SQL_WRITE_BLOCKED' });
     }
 
     const pool = await getPool();
