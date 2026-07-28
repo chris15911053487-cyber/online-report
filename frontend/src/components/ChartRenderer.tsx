@@ -38,16 +38,10 @@ export default function ChartRenderer({ option }: ChartRendererProps) {
   const chartRef = useRef<echarts.ECharts | null>(null)
   const [fullscreen, setFullscreen] = useState(false)
 
-  // Initialize / re-initialize chart whenever the container mounts or option changes
+  // Initialize chart once
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
-
-    // Dispose previous instance if any
-    if (chartRef.current) {
-      chartRef.current.dispose()
-      chartRef.current = null
-    }
 
     const chart = echarts.init(el)
     chartRef.current = chart
@@ -60,16 +54,29 @@ export default function ChartRenderer({ option }: ChartRendererProps) {
       chart.dispose()
       chartRef.current = null
     }
-  }, [option, fullscreen]) // re-run when fullscreen toggles (container DOM changes)
+  }, [option])
+
+  // Resize chart when toggling fullscreen (container dimensions change)
+  useEffect(() => {
+    // Small delay to let CSS transition / layout complete
+    const timer = setTimeout(() => {
+      chartRef.current?.resize()
+    }, 60)
+    return () => clearTimeout(timer)
+  }, [fullscreen])
 
   // Close fullscreen on Escape key
   useEffect(() => {
     if (!fullscreen) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setFullscreen(false)
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
+        setFullscreen(false)
+      }
     }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
   }, [fullscreen])
 
   // Prevent body scroll when fullscreen
@@ -86,42 +93,51 @@ export default function ChartRenderer({ option }: ChartRendererProps) {
     setFullscreen((v) => !v)
   }, [])
 
-  if (fullscreen) {
-    return (
-      <div className="fixed inset-0 z-[9999] bg-white flex flex-col">
-        {/* Header bar */}
-        <div className="flex-none flex items-center justify-end px-4 py-2 border-b border-slate-200 bg-slate-50">
+  return (
+    <div
+      className={
+        fullscreen
+          ? 'fixed inset-0 z-[9999] bg-white flex flex-col'
+          : 'relative w-full h-64 my-2 rounded-lg border border-slate-200 bg-white group'
+      }
+    >
+      {/* Fullscreen header */}
+      {fullscreen && (
+        <div className="flex-none flex items-center justify-between px-4 py-2.5 border-b border-slate-200 bg-slate-50">
           <button
             onClick={toggleFullscreen}
-            className="flex items-center gap-1 px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900 hover:bg-slate-200 rounded-md transition-colors"
-            aria-label="退出全屏"
+            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 active:bg-blue-100 rounded-lg transition-colors"
+            aria-label="返回"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
             </svg>
-            退出全屏
+            返回
           </button>
+          <span className="text-sm text-slate-500">图表全屏</span>
+          <div className="w-16" />
         </div>
-        {/* Chart container fills remaining space */}
-        <div ref={containerRef} className="flex-1 min-h-0 w-full" />
-      </div>
-    )
-  }
+      )}
 
-  return (
-    <div className="relative w-full h-64 my-2 rounded-lg border border-slate-200 bg-white group">
-      <div ref={containerRef} className="w-full h-full" />
-      {/* Fullscreen button - visible on hover / tap */}
-      <button
-        onClick={toggleFullscreen}
-        className="absolute top-2 right-2 p-1.5 rounded-md bg-white/80 border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-white shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
-        aria-label="全屏查看"
-        title="全屏查看"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-5h-4m4 0v4m0 0l-5-5m-7 14H4m0 0v-4m0 4l5-5m11 5h-4m4 0v-4m0 4l-5-5" />
-        </svg>
-      </button>
+      {/* Chart container - always the same element */}
+      <div
+        ref={containerRef}
+        className={fullscreen ? 'flex-1 min-h-0 w-full' : 'w-full h-full'}
+      />
+
+      {/* Fullscreen toggle button (normal mode) */}
+      {!fullscreen && (
+        <button
+          onClick={toggleFullscreen}
+          className="absolute top-2 right-2 p-1.5 rounded-md bg-white/80 border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-white shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+          aria-label="全屏查看"
+          title="全屏查看"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-5h-4m4 0v4m0 0l-5-5m-7 14H4m0 0v-4m0 4l5-5m11 5h-4m4 0v-4m0 4l-5-5" />
+          </svg>
+        </button>
+      )}
     </div>
   )
 }
