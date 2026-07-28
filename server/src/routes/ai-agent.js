@@ -526,6 +526,7 @@ async function aiAgentRoutes(fastify) {
     try {
       const req = pool.request();
       req.timeout = 30000;
+
       const result = await req.query(rawSql);
       const rows = result.recordset || [];
       const columns = rows.length > 0 ? Object.keys(rows[0]) : [];

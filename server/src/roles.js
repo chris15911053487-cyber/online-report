@@ -1,7 +1,7 @@
 const { getPool, sql } = require('./db');
 
 const ROLE_KEY_RE = /^[a-z][a-z0-9_-]{0,31}$/;
-const BUILTIN_ROLE_KEYS = new Set(['admin', 'operator', 'cost-viewer', 'attachment-generator', 'export-excel']);
+const BUILTIN_ROLE_KEYS = new Set(['admin', 'operator', 'cost-viewer', 'attachment-generator', 'export-excel', 'data-scope']);
 
 function sqlErrorNumber(err) {
   return err?.number ?? err?.originalError?.info?.number ?? err?.originalError?.number;
