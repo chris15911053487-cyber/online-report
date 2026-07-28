@@ -38,11 +38,21 @@ export default function ChartRenderer({ option }: ChartRendererProps) {
   const chartRef = useRef<echarts.ECharts | null>(null)
   const [fullscreen, setFullscreen] = useState(false)
 
+  // Initialize / re-initialize chart whenever the container mounts or option changes
   useEffect(() => {
-    if (!containerRef.current) return
-    const chart = echarts.init(containerRef.current)
+    const el = containerRef.current
+    if (!el) return
+
+    // Dispose previous instance if any
+    if (chartRef.current) {
+      chartRef.current.dispose()
+      chartRef.current = null
+    }
+
+    const chart = echarts.init(el)
     chartRef.current = chart
     chart.setOption(reviveFunctions(option) as echarts.EChartsCoreOption)
+
     const onResize = () => chart.resize()
     window.addEventListener('resize', onResize)
     return () => {
@@ -50,14 +60,7 @@ export default function ChartRenderer({ option }: ChartRendererProps) {
       chart.dispose()
       chartRef.current = null
     }
-  }, [option])
-
-  // Resize chart when toggling fullscreen
-  useEffect(() => {
-    setTimeout(() => {
-      chartRef.current?.resize()
-    }, 50)
-  }, [fullscreen])
+  }, [option, fullscreen]) // re-run when fullscreen toggles (container DOM changes)
 
   // Close fullscreen on Escape key
   useEffect(() => {
@@ -69,6 +72,16 @@ export default function ChartRenderer({ option }: ChartRendererProps) {
     return () => document.removeEventListener('keydown', onKey)
   }, [fullscreen])
 
+  // Prevent body scroll when fullscreen
+  useEffect(() => {
+    if (fullscreen) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => { document.body.style.overflow = '' }
+  }, [fullscreen])
+
   const toggleFullscreen = useCallback(() => {
     setFullscreen((v) => !v)
   }, [])
@@ -77,7 +90,7 @@ export default function ChartRenderer({ option }: ChartRendererProps) {
     return (
       <div className="fixed inset-0 z-[9999] bg-white flex flex-col">
         {/* Header bar */}
-        <div className="flex items-center justify-end px-4 py-2 border-b border-slate-200 bg-slate-50">
+        <div className="flex-none flex items-center justify-end px-4 py-2 border-b border-slate-200 bg-slate-50">
           <button
             onClick={toggleFullscreen}
             className="flex items-center gap-1 px-3 py-1.5 text-sm text-slate-600 hover:text-slate-900 hover:bg-slate-200 rounded-md transition-colors"
@@ -90,7 +103,7 @@ export default function ChartRenderer({ option }: ChartRendererProps) {
           </button>
         </div>
         {/* Chart container fills remaining space */}
-        <div ref={containerRef} className="flex-1 w-full" />
+        <div ref={containerRef} className="flex-1 min-h-0 w-full" />
       </div>
     )
   }
