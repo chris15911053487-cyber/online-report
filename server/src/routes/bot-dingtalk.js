@@ -114,22 +114,23 @@ async function botDingtalkRoutes(fastify) {
     return payload;
   });
 
-  // 钉钉开放平台验证回调地址时发送 GET 请求，需原样返回 echostr 明文
+  // 钉钉开放平台验证回调地址时发送 GET 请求
   fastify.get('/bot/dingtalk', async (request, reply) => {
     const { echostr } = request.query;
     if (echostr) {
       return reply.type('text/plain').send(echostr);
     }
-    return reply.code(200).type('text/plain').send('ok');
+    return reply.code(200).type('text/plain').send('success');
   });
 
   fastify.post('/bot/dingtalk', async (request, reply) => {
-    // 兼容钉钉验证时可能发送空 body 的情况
-    if (!request.body || Object.keys(request.body).length === 0) {
-      return reply.code(200).send({ msgtype: 'empty' });
+    // 钉钉校验请求：无业务字段（无 msgtype/senderStaffId），返回纯文本 success
+    const body = request.body || {};
+    if (!body.msgtype && !body.senderStaffId && !body.conversationId) {
+      return reply.code(200).type('text/plain').send('success');
     }
     // 记录钉钉请求便于调试
-    request.log.info({ headers: request.headers, body: request.body }, 'dingtalk POST received');
+    request.log.info({ headers: request.headers, body }, 'dingtalk POST received');
 
     // 1. 验签（调试期间仅警告，不拦截）
     const timestamp = request.headers['timestamp'] || '';
@@ -140,7 +141,6 @@ async function botDingtalkRoutes(fastify) {
       // return reply.code(403).send({ error: 'sign verification failed' });
     }
 
-    const body = request.body || {};
     const msgtype = body.msgtype;
     const content = (msgtype === 'text' ? (body.text?.content || '') : '').trim();
     const senderStaffId = body.senderStaffId || '';
