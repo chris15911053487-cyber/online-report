@@ -93,11 +93,15 @@ function truncateForDing(text) {
 // ---------- 路由注册 ----------
 
 async function botDingtalkRoutes(fastify) {
-  // 钉钉验证地址时可能发送空 body + Content-Type: application/json
-  // Fastify 默认会返回 400，这里用 preParsing 钩子补一个空 JSON
+  // 钉钉验证地址时可能发送空 body 或不带 Content-Type
+  // Fastify 默认会返回 400/415，这里用 preParsing 钩子统一补一个空 JSON
   fastify.addHook('preParsing', async (request, _reply, payload) => {
     if (request.method === 'POST' && request.url.startsWith('/bot/dingtalk')) {
       const contentLength = Number(request.headers['content-length'] || 0);
+      // 没有 content-type 或 body 为空时，补上 application/json + {}
+      if (!request.headers['content-type']) {
+        request.headers['content-type'] = 'application/json';
+      }
       if (contentLength === 0) {
         const { Readable } = require('stream');
         const mock = new Readable();
