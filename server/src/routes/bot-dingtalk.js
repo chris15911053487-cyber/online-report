@@ -18,26 +18,20 @@ function getDingAppSecret() {
   return process.env.DINGTALK_APP_SECRET || '';
 }
 
-// ---------- 用户绑定 ----------
+// ---------- 用户绑定（基于 OUSR.U_DDUserId） ----------
 
 async function getBinding(pool, platformUid) {
   const rs = await pool.request()
-    .input('p', sql.VarChar(20), 'dingtalk')
-    .input('uid', sql.NVarChar(128), platformUid)
-    .query('SELECT user_code FROM dbo.bot_user_bindings WHERE platform = @p AND platform_uid = @uid');
-  return rs.recordset?.[0]?.user_code || null;
+    .input('dduid', sql.NVarChar(128), platformUid)
+    .query('SELECT TOP (1) [USER_CODE] FROM dbo.OUSR WHERE [U_DDUserId] = @dduid');
+  return rs.recordset?.[0]?.USER_CODE || null;
 }
 
 async function bindUser(pool, platformUid, userCode) {
   await pool.request()
-    .input('p', sql.VarChar(20), 'dingtalk')
-    .input('uid', sql.NVarChar(128), platformUid)
+    .input('dduid', sql.NVarChar(128), platformUid)
     .input('uc', sql.NVarChar(64), userCode)
-    .query(`MERGE dbo.bot_user_bindings AS t
-            USING (SELECT @p AS platform, @uid AS platform_uid) AS s
-            ON t.platform = s.platform AND t.platform_uid = s.platform_uid
-            WHEN MATCHED THEN UPDATE SET user_code = @uc
-            WHEN NOT MATCHED THEN INSERT (platform, platform_uid, user_code) VALUES (@p, @uid, @uc);`);
+    .query(`UPDATE dbo.OUSR SET [U_DDUserId] = @dduid WHERE [USER_CODE] = @uc`);
 }
 
 // ---------- 钉钉 API：获取 access_token ----------

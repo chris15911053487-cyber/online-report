@@ -62,36 +62,6 @@ async function getUserInfoByCode(accessToken, code) {
   return data.result; // { userid, name, ... }
 }
 
-// ---------- 查询 OUSR 用户信息 ----------
-
-async function fetchOusrByCode(pool, userCode) {
-  try {
-    const result = await pool
-      .request()
-      .input('code', sql.NVarChar(255), userCode)
-      .query(
-        `SELECT TOP (1) [USER_CODE] AS user_code, [U_NAME] AS u_name
-         FROM [OUSR] WHERE [USER_CODE] = @code`,
-      );
-    return result.recordset[0];
-  } catch (e) {
-    // 兼容无 U_NAME 列的情况
-    if (e?.number === 207 || (e?.message && e.message.includes('Invalid column name'))) {
-      const result = await pool
-        .request()
-        .input('code', sql.NVarChar(255), userCode)
-        .query(
-          `SELECT TOP (1) [USER_CODE] AS user_code
-           FROM [OUSR] WHERE [USER_CODE] = @code`,
-        );
-      const row = result.recordset[0];
-      if (row) row.u_name = undefined;
-      return row;
-    }
-    throw e;
-  }
-}
-
 // ---------- Fastify 路由 ----------
 
 async function authDingtalkRoutes(fastify) {
@@ -132,34 +102,26 @@ async function authDingtalkRoutes(fastify) {
 
       request.log.info({ dingUserId, name: userInfo.name }, 'dingtalk sso: got user');
 
-      // 3. 通过 bot_user_bindings 查找系统用户
+      // 3. 通过 OUSR.U_DDUserId 查找系统用户
       const pool = await getPool();
       const bindResult = await pool
         .request()
-        .input('p', sql.VarChar(20), 'dingtalk')
-        .input('uid', sql.NVarChar(128), dingUserId)
+        .input('dduid', sql.NVarChar(128), dingUserId)
         .query(
-          'SELECT user_code FROM dbo.bot_user_bindings WHERE platform = @p AND platform_uid = @uid',
+          `SELECT TOP (1) [USER_CODE] AS user_code, [U_NAME] AS u_name
+           FROM [OUSR] WHERE [U_DDUserId] = @dduid`,
         );
-      const userCode = bindResult.recordset?.[0]?.user_code;
+      const ousrRow = bindResult.recordset?.[0];
 
-      if (!userCode) {
+      if (!ousrRow) {
         return reply.code(403).send({
-          error: '该钉钉账号未绑定系统用户，请先在钉钉机器人中发送"绑定 工号"完成绑定',
+          error: '该钉钉账号未关联系统用户，请联系管理员在OUSR表中配置U_DDUserId字段',
           dingUserId,
           dingUserName: userInfo.name || '',
         });
       }
 
-      // 4. 验证 OUSR 用户存在
-      const ousrRow = await fetchOusrByCode(pool, userCode);
-      if (!ousrRow) {
-        return reply.code(403).send({
-          error: `绑定的用户 ${userCode} 在系统中不存在`,
-        });
-      }
-
-      // 5. 签发 JWT
+      // 4. 签发 JWT
       const displayName =
         ousrRow.u_name != null && String(ousrRow.u_name).trim() !== ''
           ? String(ousrRow.u_name).trim()
