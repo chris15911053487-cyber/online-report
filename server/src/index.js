@@ -13,6 +13,7 @@ const jwt = require('@fastify/jwt');
 const fastifyStatic = require('@fastify/static');
 const fastifyMultipart = require('@fastify/multipart');
 const authRoutes = require('./routes/auth');
+const authDingtalkRoutes = require('./routes/auth-dingtalk');
 const rolesAdminRoutes = require('./routes/roles-admin');
 const ordersRoutes = require('./routes/orders');
 const menusRoutes = require('./routes/menus');
@@ -108,6 +109,7 @@ async function build() {
   });
 
   await fastify.register(authRoutes);
+  await fastify.register(authDingtalkRoutes);
   await fastify.register(rolesAdminRoutes);
   await fastify.register(ordersRoutes);
   await fastify.register(menusRoutes);

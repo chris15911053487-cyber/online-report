@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { apiFetch, getToken, setToken } from './utils/api'
+import { isDingTalkEnv, dingtalkLogin } from './utils/dingtalk'
 import type { User, NavMenuItem, ViewName, MessageSummary } from './types'
 
 let toastHideTimer: ReturnType<typeof setTimeout> | undefined
@@ -82,6 +83,8 @@ interface AppState {
   openAiChatWithSkill: (skillName: string) => void
   /** AiChatView 消费 pendingChatSkill 后清空 */
   consumePendingChatSkill: () => void
+  /** 钉钉环境自动免登 */
+  dingtalkAutoLogin: () => Promise<void>
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -124,6 +127,33 @@ export const useStore = create<AppState>((set, get) => ({
 
   consumePendingChatSkill: () => set({ pendingChatSkill: null }),
 
+  dingtalkAutoLogin: async () => {
+    set({ isLoading: true })
+    try {
+      const result = await dingtalkLogin()
+      if (result.success && result.user) {
+        set({
+          isAuthenticated: true,
+          user: {
+            username: result.user.username || '',
+            displayName: result.user.displayName || result.user.username || '',
+            role: result.user.role || 'operator',
+            roles: Array.isArray(result.user.roles) ? result.user.roles : [result.user.role || 'operator'],
+          },
+        })
+        await get().fetchMenus()
+        void get().fetchMessageSummary()
+      } else if (result.error) {
+        // 免登失败（如未绑定），不阻塞——回退到手动登录页面
+        console.warn('[dingtalk-sso]', result.error)
+      }
+    } catch (err) {
+      console.warn('[dingtalk-sso] auto login failed:', err)
+    } finally {
+      set({ isLoading: false })
+    }
+  },
+
   showToast: (msg: string, durationMs = 2200) => {
     if (toastHideTimer) clearTimeout(toastHideTimer)
     set({ toastMessage: msg, toastDuration: durationMs })
@@ -159,7 +189,16 @@ export const useStore = create<AppState>((set, get) => ({
       } catch {
         setToken(null)
         set({ isAuthenticated: false })
+        // token 失效后，若在钉钉环境则尝试重新免登
+        if (isDingTalkEnv()) {
+          await get().dingtalkAutoLogin()
+        }
       }
+      return
+    }
+    // 无 token 时，检测钉钉环境自动免登
+    if (isDingTalkEnv()) {
+      await get().dingtalkAutoLogin()
     }
   },
 
