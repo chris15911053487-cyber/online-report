@@ -8,6 +8,10 @@ import { apiFetch, setToken } from './api'
 declare global {
   interface Window {
     dd?: {
+      ios: boolean
+      android: boolean
+      pc: boolean
+      other: boolean
       ready: (callback: () => void) => void
       error: (callback: (err: any) => void) => void
       runtime: {
@@ -33,9 +37,17 @@ declare global {
 
 /** 检测当前是否运行在钉钉客户端内 */
 export function isDingTalkEnv(): boolean {
+  const dd = window.dd
+  // dingtalk.open.js 在任何浏览器都会注入 window.dd，
+  // 但只有在真正的钉钉容器中 dd.ios/dd.android/dd.pc 才为 true
+  if (dd && (dd.ios || dd.android || dd.pc)) {
+    console.log('[dingtalk-sso] isDingTalkEnv = true (dd.pc/ios/android)')
+    return true
+  }
+  // 兜底检测 UA
   const ua = navigator.userAgent.toLowerCase()
   const result = ua.includes('dingtalk')
-  console.log('[dingtalk-sso] isDingTalkEnv =', result, '| UA =', ua.substring(0, 100))
+  console.log('[dingtalk-sso] isDingTalkEnv =', result, '| dd =', dd ? JSON.stringify({ ios: dd.ios, android: dd.android, pc: dd.pc, other: dd.other }) : 'null', '| UA =', ua.substring(0, 80))
   return result
 }
 
