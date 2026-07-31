@@ -93,6 +93,23 @@ function truncateForDing(text) {
 // ---------- 路由注册 ----------
 
 async function botDingtalkRoutes(fastify) {
+  // 钉钉验证地址时可能发送空 body + Content-Type: application/json
+  // Fastify 默认会返回 400，这里用 preParsing 钩子补一个空 JSON
+  fastify.addHook('preParsing', async (request, _reply, payload) => {
+    if (request.method === 'POST' && request.url.startsWith('/bot/dingtalk')) {
+      const contentLength = Number(request.headers['content-length'] || 0);
+      if (contentLength === 0) {
+        const { Readable } = require('stream');
+        const mock = new Readable();
+        mock.push('{}');
+        mock.push(null);
+        request.headers['content-length'] = '2';
+        return mock;
+      }
+    }
+    return payload;
+  });
+
   // 钉钉开放平台验证回调地址时发送 GET 请求，需原样返回 echostr 明文
   fastify.get('/bot/dingtalk', async (request, reply) => {
     const { echostr } = request.query;
@@ -103,6 +120,10 @@ async function botDingtalkRoutes(fastify) {
   });
 
   fastify.post('/bot/dingtalk', async (request, reply) => {
+    // 兼容钉钉验证时可能发送空 body 的情况
+    if (!request.body || Object.keys(request.body).length === 0) {
+      return reply.code(200).send({ msgtype: 'empty' });
+    }
     // 记录钉钉请求便于调试
     request.log.info({ headers: request.headers, body: request.body }, 'dingtalk POST received');
 
