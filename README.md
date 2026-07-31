@@ -473,6 +473,63 @@ addCmd(['打开消息', '未读消息'], function () {
 | `VOICE_ENABLED` | `false` 关闭语音（默认开启） |
 | `BAIDU_*` | 百度 ASR 密钥，见 `server/.env.example` |
 
+## 钉钉 H5 微应用 SSO 免登
+
+支持将系统作为钉钉企业内部 H5 微应用发布，员工在钉钉客户端（手机/PC 桌面端）工作台点击应用即可自动登录，无需输入账号密码。
+
+### 免登流程
+
+```
+员工在钉钉工作台点击应用 → 打开系统页面
+  → 前端检测钉钉环境（dd.pc/ios/android）
+  → 调 GET /auth/dingtalk/config 获取 corpId
+  → dd.runtime.permission.requestAuthCode({corpId}) 获取 authCode
+  → POST /auth/dingtalk/login { authCode }
+  → 后端：appKey+appSecret 换 accessToken
+  → accessToken+authCode 调钉钉 API 获取 userid
+  → 查 OUSR.U_DDUserId 匹配系统用户 → 签发 JWT
+  → 前端自动登录进入主界面
+```
+
+### 用户映射
+
+免登通过 OUSR 表的 `U_DDUserId` 字段关联钉钉用户：
+
+| 字段 | 说明 |
+|------|------|
+| `OUSR.U_DDUserId` | 员工的钉钉 userid（管理员在 SAP B1 中维护，或员工通过钉钉机器人发送 `绑定 工号` 自动写入） |
+
+未配置 `U_DDUserId` 的用户免登失败时会回退到手动登录页面。
+
+### 钉钉开放平台配置
+
+1. 登录 [钉钉开放平台](https://open-dev.dingtalk.com) → 已有企业内部应用（或新建）
+2. 添加「网页应用」能力（应用功能 → H5 微应用）
+3. 配置应用首页地址：`https://你的域名/`
+4. 权限管理：申请「成员信息读权限」（`topapi/v2/user/getuserinfo` 需要）
+5. 发布应用
+
+### 环境变量
+
+| 变量 | 说明 |
+|------|------|
+| `DINGTALK_APP_KEY` | 钉钉应用 AppKey（与机器人共用） |
+| `DINGTALK_APP_SECRET` | 钉钉应用 AppSecret（与机器人共用） |
+| `DINGTALK_CORP_ID` | 企业 corpId（管理后台首页查看） |
+
+### 接口
+
+| 接口 | 说明 |
+|------|------|
+| `GET /auth/dingtalk/config` | 返回 corpId 配置（前端调用） |
+| `POST /auth/dingtalk/login` | 接收 authCode 完成免登，返回 JWT |
+
+### 注意事项
+
+- 仅在钉钉客户端（手机 App / PC 桌面客户端）内有效，网页版钉钉不支持 JSAPI 免登
+- 前端通过 `dingtalk.open.js` CDN 引入钉钉 JSAPI
+- 免登失败（未绑定、配置缺失等）不影响正常使用，自动回退到手动登录
+
 ## IM 机器人对接（钉钉 / 企业微信 / 飞书）
 
 系统支持将 AI Agent 对话能力对接到多个 IM 平台的企业机器人，员工在 IM 单聊中即可直接与 AI 交互（查数据、操作说明等）。
@@ -500,14 +557,18 @@ IM 平台推送消息 → POST /bot/{dingtalk|wecom|feishu}
 | 绑定 | 发送 `绑定 U001` | 将 IM 账号与系统工号关联（一次性） |
 | 对话 | 直接发消息 | 与 Web 端 AI 对话能力完全一致 |
 
-### 用户绑定表
+### 用户绑定
+
+**钉钉**：绑定命令会写入 `OUSR.U_DDUserId` 字段（管理员也可在 SAP B1 中直接维护）。
+
+**企业微信 / 飞书**：绑定记录存储在 `bot_user_bindings` 表。
 
 ```sql
 -- server/sql/migrate-bot-user-bindings.sql（服务启动自动执行）
 bot_user_bindings (platform, platform_uid, user_code)
 ```
 
-`platform`: `dingtalk` / `wecom` / `feishu`。
+`platform`: `wecom` / `feishu`。
 
 ### 钉钉配置
 
