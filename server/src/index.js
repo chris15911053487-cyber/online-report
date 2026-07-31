@@ -32,7 +32,9 @@ const { startDingtalkStream } = require('./routes/bot-dingtalk');
 const botWecomRoutes = require('./routes/bot-wecom');
 const botFeishuRoutes = require('./routes/bot-feishu');
 const scheduledReportsAdminRoutes = require('./routes/scheduled-reports-admin');
+const alertAdminRoutes = require('./routes/alert-admin');
 const { loadAndSchedule: startScheduledReports } = require('./scheduled-reports');
+const { loadAndScheduleAlerts: startAlertScheduler } = require('./alert-scheduler');
 const { getPool } = require('./db');
 const ensureNavMenuSchema = require('./ensure-nav-menu-schema');
 
@@ -123,6 +125,7 @@ async function build() {
   await fastify.register(botWecomRoutes);
   await fastify.register(botFeishuRoutes);
   await fastify.register(scheduledReportsAdminRoutes);
+  await fastify.register(alertAdminRoutes);
   await fastify.register(filesRoutes);
 
   // 语音功能开关（默认启用，设 VOICE_ENABLED=false 关闭）
@@ -251,6 +254,8 @@ build()
     app.log.info(`listening on ${PORT}`);
     // 启动定时报告调度
     startScheduledReports(app.log).catch((e) => app.log.warn(e, 'scheduled reports init'));
+    // 启动警报定时检查调度
+    startAlertScheduler(app.log).catch((e) => app.log.warn(e, 'alert scheduler init'));
     // 启动钉钉 Stream 长连接
     try { startDingtalkStream(); } catch (e) { app.log.warn(e, 'dingtalk stream init'); }
   })

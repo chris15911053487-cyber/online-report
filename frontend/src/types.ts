@@ -127,3 +127,4 @@ export type ViewName =
   | 'pro-sign-order-detail'
   | 'work-registration'
   | 'scheduled-reports'
+  | 'alert-push'

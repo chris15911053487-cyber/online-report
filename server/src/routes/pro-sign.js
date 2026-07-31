@@ -13,6 +13,7 @@ const {
   buildReportSessionInject,
   executeReportQuery,
 } = require('../report-query');
+const { emitAlertEvent } = require('../alert-trigger');
 const {
   parseMenuRolesJson,
   getUserRolesFromRequest,
@@ -1095,6 +1096,17 @@ async function proSignRoutes(fastify) {
             );
         }
         await transaction.commit();
+
+        // 触发警报事件（异步，不阻塞返回）
+        emitAlertEvent('pro-sign-save', {
+          DocEntry: de,
+          SignType: signType,
+          StepCode: stepCode,
+          StepName: stepName,
+          UserCode: userCode,
+          LineCount: lines.length,
+        }, { log: request.log });
+
         return { ok: true, docEntry: de, reporterUserCode: userCode };
       } catch (e) {
         try {

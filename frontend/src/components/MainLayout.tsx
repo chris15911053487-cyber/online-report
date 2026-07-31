@@ -17,6 +17,7 @@ import AiSkillsView from '../views/AiSkillsView'
 import MessagesView from '../views/MessagesView'
 import MessageAlertSettingsView from '../views/MessageAlertSettingsView'
 import ScheduledReportsView from '../views/ScheduledReportsView'
+import AlertPushView from '../views/AlertPushView'
 import type { ViewName } from '../types'
 import { isReturnProRoute } from '../views/ReturnProPickDetail'
 
@@ -32,6 +33,7 @@ const viewComponents: Record<string, React.ComponentType> = {
   'ai-skills': AiSkillsView,
   'message-alert-settings': MessageAlertSettingsView,
   'scheduled-reports': ScheduledReportsView,
+  'alert-push': AlertPushView,
   owor: OworView,
   orders: OrdersView,
   detail: DetailView,
@@ -58,6 +60,7 @@ function getPageTitle(
     'ai-skills': 'AI Skill 管理',
     'message-alert-settings': '消息提醒设置',
     'scheduled-reports': '定时报告',
+    'alert-push': '警报推送',
     detail: '订单报工',
     'report-row-detail': '行详情',
     'work-registration': '报工登记',

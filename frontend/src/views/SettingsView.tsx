@@ -87,6 +87,12 @@ export default function SettingsView() {
           >
             定时报告管理
           </button>
+          <button
+            onClick={() => navigateTo('alert-push')}
+            className="w-full py-3 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600 transition-colors mb-4"
+          >
+            警报推送管理
+          </button>
         </>
       )}
 
