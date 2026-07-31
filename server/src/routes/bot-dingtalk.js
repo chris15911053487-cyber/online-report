@@ -4,11 +4,12 @@
  * 流程：应用启动 → 主动连接钉钉 Stream → 接收消息 → 用户绑定 → agentChatCore → 回复。
  * 无需公网地址、无需 SSL 证书、无需白名单。
  */
-const { DWClient, TOPIC_ROBOT, EventAck } = require('dingtalk-stream');
+const { DWClient, TOPIC_ROBOT } = require('dingtalk-stream');
 const { getPool, sql } = require('../db');
 const { agentChatCore } = require('../agent-chat-core');
 
-const log = require('pino')({ name: 'dingtalk-stream' });
+const pino = require('pino');
+const log = pino({ name: 'dingtalk-stream' });
 
 function getDingAppKey() {
   return process.env.DINGTALK_APP_KEY || '';
@@ -43,7 +44,15 @@ async function bindUser(pool, platformUid, userCode) {
 
 let _tokenCache = { token: '', expiresAt: 0 };
 
-async function getDingAccessToken() {
+async function getDingAccessToken(client) {
+  // 优先使用 SDK 自带的 getAccessToken
+  if (client && client.getAccessToken) {
+    try {
+      return await client.getAccessToken();
+    } catch (e) {
+      log.warn({ err: e }, 'SDK getAccessToken failed, fallback to manual');
+    }
+  }
   if (_tokenCache.token && Date.now() < _tokenCache.expiresAt) return _tokenCache.token;
   const res = await fetch('https://api.dingtalk.com/v1.0/oauth2/accessToken', {
     method: 'POST',
@@ -56,13 +65,35 @@ async function getDingAccessToken() {
   return _tokenCache.token;
 }
 
-// ---------- 回复消息 ----------
+// ---------- 回复消息（通过 sessionWebhook） ----------
 
-async function replyText(senderStaffId, text) {
-  const token = await getDingAccessToken();
+async function replyViaWebhook(sessionWebhook, senderStaffId, text, accessToken) {
+  const body = {
+    at: { atUserIds: [senderStaffId], isAtAll: false },
+    msgtype: 'markdown',
+    markdown: { title: 'AI 助手', text: truncateForDing(text) },
+  };
+  const res = await fetch(sessionWebhook, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-acs-dingtalk-access-token': accessToken,
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    log.warn({ err, statusCode: res.status }, 'dingtalk webhook reply failed');
+  }
+  return res;
+}
+
+// ---------- 备用回复（oToMessages，单聊用） ----------
+
+async function replyDirect(senderStaffId, text, accessToken) {
   const res = await fetch('https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-acs-dingtalk-access-token': token },
+    headers: { 'Content-Type': 'application/json', 'x-acs-dingtalk-access-token': accessToken },
     body: JSON.stringify({
       robotCode: getDingAppKey(),
       userIds: [senderStaffId],
@@ -72,7 +103,7 @@ async function replyText(senderStaffId, text) {
   });
   if (!res.ok) {
     const err = await res.text();
-    log.warn({ err }, 'dingtalk reply failed');
+    log.warn({ err }, 'dingtalk direct reply failed');
   }
 }
 
@@ -83,24 +114,41 @@ function truncateForDing(text) {
 
 // ---------- 消息处理 ----------
 
-async function handleRobotMessage(msgData) {
-  const data = typeof msgData === 'string' ? JSON.parse(msgData) : msgData;
-  log.info({ senderStaffId: data.senderStaffId, content: data.text?.content }, 'dingtalk message received');
+async function handleRobotMessage(client, res) {
+  const msgData = JSON.parse(res.data);
+  const messageId = res.headers.messageId;
 
-  const msgtype = data.msgtype;
-  const content = (msgtype === 'text' ? (data.text?.content || '') : '').trim();
-  const senderStaffId = data.senderStaffId || '';
+  log.info({ senderStaffId: msgData.senderStaffId, content: msgData.text?.content, messageId }, 'dingtalk message received');
+
+  const content = (msgData.text?.content || '').trim();
+  const senderStaffId = msgData.senderStaffId || '';
+  const sessionWebhook = msgData.sessionWebhook || '';
 
   if (!senderStaffId || !content) {
-    log.warn({ data }, 'dingtalk message missing senderStaffId or content');
+    log.warn('missing senderStaffId or content');
+    // 仍需响应消息，避免重试
+    client.socketCallBackResponse(messageId, { status: 'OK' });
     return;
   }
 
   // 去掉群聊中 @机器人 的前缀
   const userMessage = content.replace(/^@\S+\s*/, '').trim();
-  if (!userMessage) return;
+  if (!userMessage) {
+    client.socketCallBackResponse(messageId, { status: 'OK' });
+    return;
+  }
 
   const pool = await getPool();
+  const accessToken = await getDingAccessToken(client);
+
+  // 辅助回复函数
+  async function reply(text) {
+    if (sessionWebhook) {
+      await replyViaWebhook(sessionWebhook, senderStaffId, text, accessToken);
+    } else {
+      await replyDirect(senderStaffId, text, accessToken);
+    }
+  }
 
   // 绑定指令处理：用户发 "绑定 U001"
   const bindMatch = userMessage.match(/^绑定\s+(\S+)$/);
@@ -110,20 +158,26 @@ async function handleRobotMessage(msgData) {
       .input('uc', sql.NVarChar(64), userCode)
       .query(`SELECT USER_CODE FROM dbo.OUSR WHERE USER_CODE = @uc`);
     if (!check.recordset?.length) {
-      await replyText(senderStaffId, `❌ 工号 "${userCode}" 不存在，请确认后重新发送`);
+      await reply(`❌ 工号 "${userCode}" 不存在，请确认后重新发送`);
+      client.socketCallBackResponse(messageId, { status: 'OK' });
       return;
     }
     await bindUser(pool, senderStaffId, userCode);
-    await replyText(senderStaffId, `✅ 已绑定工号 **${userCode}**，之后可直接向我提问`);
+    await reply(`✅ 已绑定工号 **${userCode}**，之后可直接向我提问`);
+    client.socketCallBackResponse(messageId, { status: 'OK' });
     return;
   }
 
   // 检查绑定
   const userCode = await getBinding(pool, senderStaffId);
   if (!userCode) {
-    await replyText(senderStaffId, '你还未绑定系统账号，请发送：**绑定 你的工号**\n\n例如：`绑定 U001`');
+    await reply('你还未绑定系统账号，请发送：**绑定 你的工号**\n\n例如：`绑定 U001`');
+    client.socketCallBackResponse(messageId, { status: 'OK' });
     return;
   }
+
+  // 先响应钉钉避免重试（60s超时），然后异步处理
+  client.socketCallBackResponse(messageId, { status: 'OK' });
 
   // 调用 Agent
   const conversationId = `ding_${senderStaffId}`;
@@ -138,10 +192,10 @@ async function handleRobotMessage(msgData) {
     const replyContent = result.status === 'need_clarification'
       ? (result.clarification?.question || '请补充信息') + formatOptions(result.clarification?.options)
       : (result.message || '处理完成');
-    await replyText(senderStaffId, replyContent);
+    await reply(replyContent);
   } catch (err) {
     log.error({ err }, 'dingtalk agentChatCore error');
-    await replyText(senderStaffId, '⚠️ AI 处理出错，请稍后重试');
+    await reply('⚠️ AI 处理出错，请稍后重试');
   }
 }
 
@@ -163,15 +217,16 @@ function startDingtalkStream() {
     return;
   }
 
-  _client = new DWClient({ clientId, clientSecret });
+  _client = new DWClient({ clientId, clientSecret, debug: false });
 
   _client.registerCallbackListener(TOPIC_ROBOT, async (res) => {
     try {
-      await handleRobotMessage(res.data);
+      await handleRobotMessage(_client, res);
     } catch (err) {
       log.error({ err }, 'dingtalk stream message handler error');
+      // 仍需响应避免重试
+      try { _client.socketCallBackResponse(res.headers.messageId, { status: 'FAILURE' }); } catch {}
     }
-    return EventAck.SUCCESS;
   });
 
   _client.connect();
@@ -181,13 +236,11 @@ function startDingtalkStream() {
 // ---------- Fastify 路由注册（保留 HTTP 兼容） ----------
 
 async function botDingtalkRoutes(fastify) {
-  // 保留 GET/POST 端点用于健康检查和兼容
   fastify.get('/bot/dingtalk', async (_request, reply) => {
     return reply.code(200).type('text/plain').send('success');
   });
 
-  fastify.post('/bot/dingtalk', async (request, reply) => {
-    // Stream 模式下 HTTP 端点仅作兼容，返回 success
+  fastify.post('/bot/dingtalk', async (_request, reply) => {
     return reply.code(200).type('text/plain').send('success');
   });
 }
