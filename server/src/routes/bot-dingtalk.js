@@ -124,13 +124,14 @@ async function botDingtalkRoutes(fastify) {
   });
 
   fastify.post('/bot/dingtalk', async (request, reply) => {
-    // 钉钉校验请求：无业务字段（无 msgtype/senderStaffId），返回纯文本 success
     const body = request.body || {};
-    if (!body.msgtype && !body.senderStaffId && !body.conversationId) {
+    // 先记录所有请求，便于调试
+    request.log.info({ headers: request.headers, body }, 'dingtalk POST received');
+
+    // 钉钉校验请求：完全空 body，返回纯文本 success
+    if (Object.keys(body).length === 0) {
       return reply.code(200).type('text/plain').send('success');
     }
-    // 记录钉钉请求便于调试
-    request.log.info({ headers: request.headers, body }, 'dingtalk POST received');
 
     // 1. 验签（调试期间仅警告，不拦截）
     const timestamp = request.headers['timestamp'] || '';
