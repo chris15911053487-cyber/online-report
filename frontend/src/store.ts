@@ -137,7 +137,7 @@ export const useStore = create<AppState>((set, get) => ({
           user: {
             username: result.user.username || '',
             displayName: result.user.displayName || result.user.username || '',
-            role: result.user.role || 'operator',
+            role: (result.user.role || 'operator') as 'admin' | 'operator',
             roles: Array.isArray(result.user.roles) ? result.user.roles : [result.user.role || 'operator'],
           },
         })
