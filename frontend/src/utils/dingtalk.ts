@@ -8,6 +8,8 @@ import { apiFetch, setToken } from './api'
 declare global {
   interface Window {
     dd?: {
+      ready: (callback: () => void) => void
+      error: (callback: (err: any) => void) => void
       runtime: {
         permission: {
           requestAuthCode: (params: {
@@ -17,6 +19,11 @@ declare global {
           }) => void
         }
       }
+      requestAuthCode: (params: {
+        corpId: string
+        onSuccess: (result: { code: string }) => void
+        onFail: (err: any) => void
+      }) => void
       env: {
         platform: string
       }
@@ -48,15 +55,35 @@ function requestAuthCode(corpId: string): Promise<string> {
       reject(new Error('钉钉 JSAPI 未加载'))
       return
     }
-    dd.runtime.permission.requestAuthCode({
-      corpId,
-      onSuccess: (result) => {
-        resolve(result.code)
-      },
-      onFail: (err) => {
-        reject(new Error(typeof err === 'string' ? err : JSON.stringify(err)))
-      },
-    })
+
+    const doRequest = () => {
+      // 兼容不同版本 API 路径
+      const fn = dd.runtime?.permission?.requestAuthCode || dd.requestAuthCode
+      if (!fn) {
+        reject(new Error('钉钉 requestAuthCode API 不可用'))
+        return
+      }
+      fn({
+        corpId,
+        onSuccess: (result: { code: string }) => {
+          resolve(result.code)
+        },
+        onFail: (err: any) => {
+          reject(new Error(typeof err === 'string' ? err : JSON.stringify(err)))
+        },
+      })
+    }
+
+    // 必须等待 dd.ready 后才能调用 JSAPI
+    if (dd.ready) {
+      dd.ready(doRequest)
+      dd.error?.((err: any) => {
+        reject(new Error('钉钉 JSAPI 初始化失败: ' + JSON.stringify(err)))
+      })
+    } else {
+      // 降级：直接尝试调用
+      doRequest()
+    }
   })
 }
 
