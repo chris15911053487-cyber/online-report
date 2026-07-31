@@ -27,6 +27,7 @@ const filesRoutes = require('./routes/files');
 const speechRoutes = require('./routes/speech');
 const messagesRoutes = require('./routes/messages');
 const botDingtalkRoutes = require('./routes/bot-dingtalk');
+const { startDingtalkStream } = require('./routes/bot-dingtalk');
 const botWecomRoutes = require('./routes/bot-wecom');
 const botFeishuRoutes = require('./routes/bot-feishu');
 const scheduledReportsAdminRoutes = require('./routes/scheduled-reports-admin');
@@ -248,6 +249,8 @@ build()
     app.log.info(`listening on ${PORT}`);
     // 启动定时报告调度
     startScheduledReports(app.log).catch((e) => app.log.warn(e, 'scheduled reports init'));
+    // 启动钉钉 Stream 长连接
+    try { startDingtalkStream(); } catch (e) { app.log.warn(e, 'dingtalk stream init'); }
   })
   .catch((err) => {
     console.error(err);
