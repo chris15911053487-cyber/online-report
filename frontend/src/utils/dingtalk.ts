@@ -34,7 +34,9 @@ declare global {
 /** 检测当前是否运行在钉钉客户端内 */
 export function isDingTalkEnv(): boolean {
   const ua = navigator.userAgent.toLowerCase()
-  return ua.includes('dingtalk')
+  const result = ua.includes('dingtalk')
+  console.log('[dingtalk-sso] isDingTalkEnv =', result, '| UA =', ua.substring(0, 100))
+  return result
 }
 
 /** 从后端获取钉钉 corpId 配置 */
@@ -110,16 +112,23 @@ export interface DingTalkLoginResult {
  */
 export async function dingtalkLogin(): Promise<DingTalkLoginResult> {
   try {
+    console.log('[dingtalk-sso] 开始免登流程...')
+    console.log('[dingtalk-sso] window.dd =', window.dd ? '已加载' : '未加载')
+
     // 1. 获取 corpId
     const corpId = await fetchCorpId()
+    console.log('[dingtalk-sso] corpId =', corpId)
     if (!corpId) {
       return { success: false, error: '钉钉 SSO 未配置' }
     }
 
     // 2. 获取免登码
+    console.log('[dingtalk-sso] 开始获取 authCode...')
     const authCode = await requestAuthCode(corpId)
+    console.log('[dingtalk-sso] authCode =', authCode ? '已获取' : '为空')
 
     // 3. 调后端完成登录
+    console.log('[dingtalk-sso] 调用后端登录...')
     const data = await apiFetch('/auth/dingtalk/login', {
       method: 'POST',
       body: JSON.stringify({ authCode }),
@@ -127,6 +136,7 @@ export async function dingtalkLogin(): Promise<DingTalkLoginResult> {
 
     // 4. 存储 token
     setToken(data.token)
+    console.log('[dingtalk-sso] 免登成功, user =', data.user?.username)
 
     return {
       success: true,
@@ -134,6 +144,7 @@ export async function dingtalkLogin(): Promise<DingTalkLoginResult> {
       user: data.user,
     }
   } catch (err: any) {
+    console.error('[dingtalk-sso] 免登失败:', err)
     const status = err?.status
     const needBind = status === 403
     return {
