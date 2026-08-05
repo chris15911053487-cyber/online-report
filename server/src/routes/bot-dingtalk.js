@@ -135,10 +135,14 @@ async function handleRobotMessage(client, res) {
   const pool = await getPool();
   const accessToken = await getDingAccessToken(client);
 
-  // 辅助回复函数
+  // 辅助回复函数（webhook 失败自动降级到直接发送）
   async function reply(text) {
     if (sessionWebhook) {
-      await replyViaWebhook(sessionWebhook, senderStaffId, text, accessToken);
+      const res = await replyViaWebhook(sessionWebhook, senderStaffId, text, accessToken);
+      if (!res || !res.ok) {
+        log.info('webhook reply failed, falling back to replyDirect');
+        await replyDirect(senderStaffId, text, accessToken);
+      }
     } else {
       await replyDirect(senderStaffId, text, accessToken);
     }
