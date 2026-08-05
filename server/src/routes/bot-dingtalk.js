@@ -108,6 +108,29 @@ function truncateForDing(text) {
   return text.length > 18000 ? text.slice(0, 18000) + '\n\n…（内容过长已截断）' : text;
 }
 
+// ---------- 日志写入 bot_message_logs ----------
+
+async function insertMessageLog(pool, entry) {
+  try {
+    await pool.request()
+      .input('platform', sql.NVarChar(20), entry.platform || 'dingtalk')
+      .input('message_id', sql.NVarChar(128), entry.messageId || null)
+      .input('sender_staff_id', sql.NVarChar(128), entry.senderStaffId || null)
+      .input('user_code', sql.NVarChar(64), entry.userCode || null)
+      .input('content', sql.NVarChar(2000), (entry.content || '').slice(0, 2000))
+      .input('reply_method', sql.NVarChar(20), entry.replyMethod || null)
+      .input('reply_status', sql.NVarChar(20), entry.replyStatus || null)
+      .input('reply_len', sql.Int, entry.replyLen || null)
+      .input('elapsed_ms', sql.Int, entry.elapsedMs || null)
+      .input('error_msg', sql.NVarChar(1000), (entry.errorMsg || '').slice(0, 1000) || null)
+      .query(`INSERT INTO dbo.bot_message_logs
+        (platform, message_id, sender_staff_id, user_code, content, reply_method, reply_status, reply_len, elapsed_ms, error_msg)
+        VALUES (@platform, @message_id, @sender_staff_id, @user_code, @content, @reply_method, @reply_status, @reply_len, @elapsed_ms, @error_msg)`);
+  } catch (err) {
+    log.warn({ err: err.message }, 'insertMessageLog failed');
+  }
+}
+
 // ---------- 消息处理 ----------
 
 async function handleRobotMessage(client, res) {
@@ -122,7 +145,6 @@ async function handleRobotMessage(client, res) {
 
   if (!senderStaffId || !content) {
     log.warn('missing senderStaffId or content');
-    // 仍需响应消息，避免重试
     client.socketCallBackResponse(messageId, { status: 'OK' });
     return;
   }
@@ -136,6 +158,11 @@ async function handleRobotMessage(client, res) {
 
   const pool = await getPool();
   const accessToken = await getDingAccessToken(client);
+  const startTime = Date.now();
+
+  // 跟踪回复方式和状态
+  let replyMethod = null;
+  let replyStatus = null;
 
   // 辅助回复函数（webhook 失败自动降级到直接发送）
   async function reply(text) {
@@ -143,9 +170,16 @@ async function handleRobotMessage(client, res) {
       const res = await replyViaWebhook(sessionWebhook, senderStaffId, text, accessToken);
       if (!res || !res.ok) {
         log.info('webhook reply failed, falling back to replyDirect');
+        replyMethod = 'direct';
+        replyStatus = 'fallback';
         await replyDirect(senderStaffId, text, accessToken);
+      } else {
+        replyMethod = 'webhook';
+        replyStatus = 'success';
       }
     } else {
+      replyMethod = 'direct';
+      replyStatus = 'success';
       await replyDirect(senderStaffId, text, accessToken);
     }
   }
@@ -160,11 +194,13 @@ async function handleRobotMessage(client, res) {
     if (!check.recordset?.length) {
       await reply(`❌ 工号 "${userCode}" 不存在，请确认后重新发送`);
       client.socketCallBackResponse(messageId, { status: 'OK' });
+      insertMessageLog(pool, { messageId, senderStaffId, content: userMessage, replyMethod, replyStatus, elapsedMs: Date.now() - startTime, errorMsg: 'invalid user code' });
       return;
     }
     await bindUser(pool, senderStaffId, userCode);
     await reply(`✅ 已绑定工号 **${userCode}**，之后可直接向我提问`);
     client.socketCallBackResponse(messageId, { status: 'OK' });
+    insertMessageLog(pool, { messageId, senderStaffId, userCode, content: userMessage, replyMethod, replyStatus, elapsedMs: Date.now() - startTime });
     return;
   }
 
@@ -173,6 +209,7 @@ async function handleRobotMessage(client, res) {
   if (!userCode) {
     await reply('你还未绑定系统账号，请发送：**绑定 你的工号**\n\n例如：`绑定 U001`');
     client.socketCallBackResponse(messageId, { status: 'OK' });
+    insertMessageLog(pool, { messageId, senderStaffId, content: userMessage, replyMethod, replyStatus, elapsedMs: Date.now() - startTime, errorMsg: 'not bound' });
     return;
   }
 
@@ -181,7 +218,6 @@ async function handleRobotMessage(client, res) {
 
   // 调用 Agent
   const conversationId = `ding_${senderStaffId}`;
-  const startTime = Date.now();
   log.info({ userCode, conversationId, messageId }, 'dingtalk agent processing start');
   try {
     const result = await agentChatCore({
@@ -198,10 +234,12 @@ async function handleRobotMessage(client, res) {
     log.info({ userCode, messageId, status: result.status, elapsed, replyLen: replyContent.length }, 'dingtalk agent done, sending reply');
     await reply(replyContent);
     log.info({ userCode, messageId, elapsed: Date.now() - startTime }, 'dingtalk reply sent');
+    insertMessageLog(pool, { messageId, senderStaffId, userCode, content: userMessage, replyMethod, replyStatus, replyLen: replyContent.length, elapsedMs: Date.now() - startTime });
   } catch (err) {
     const elapsed = Date.now() - startTime;
     log.error({ err, userCode, messageId, elapsed }, 'dingtalk agentChatCore error');
     await reply('⚠️ AI 处理出错，请稍后重试');
+    insertMessageLog(pool, { messageId, senderStaffId, userCode, content: userMessage, replyMethod: replyMethod || 'unknown', replyStatus: 'failed', elapsedMs: elapsed, errorMsg: err.message });
   }
 }
 
