@@ -97,7 +97,9 @@ async function replyDirect(senderStaffId, text, accessToken) {
   });
   if (!res.ok) {
     const err = await res.text();
-    log.warn({ err }, 'dingtalk direct reply failed');
+    log.warn({ err, statusCode: res.status, senderStaffId }, 'dingtalk direct reply failed');
+  } else {
+    log.info({ senderStaffId }, 'dingtalk direct reply success');
   }
 }
 
@@ -179,6 +181,8 @@ async function handleRobotMessage(client, res) {
 
   // 调用 Agent
   const conversationId = `ding_${senderStaffId}`;
+  const startTime = Date.now();
+  log.info({ userCode, conversationId, messageId }, 'dingtalk agent processing start');
   try {
     const result = await agentChatCore({
       userCode,
@@ -187,12 +191,16 @@ async function handleRobotMessage(client, res) {
       message: userMessage,
       log,
     });
+    const elapsed = Date.now() - startTime;
     const replyContent = result.status === 'need_clarification'
       ? (result.clarification?.question || '请补充信息') + formatOptions(result.clarification?.options)
       : (result.message || '处理完成');
+    log.info({ userCode, messageId, status: result.status, elapsed, replyLen: replyContent.length }, 'dingtalk agent done, sending reply');
     await reply(replyContent);
+    log.info({ userCode, messageId, elapsed: Date.now() - startTime }, 'dingtalk reply sent');
   } catch (err) {
-    log.error({ err }, 'dingtalk agentChatCore error');
+    const elapsed = Date.now() - startTime;
+    log.error({ err, userCode, messageId, elapsed }, 'dingtalk agentChatCore error');
     await reply('⚠️ AI 处理出错，请稍后重试');
   }
 }
