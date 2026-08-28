@@ -595,6 +595,7 @@ bot_user_bindings (platform, platform_uid, user_code)
 
 | 变量 | 说明 |
 |------|------|
+| `DINGTALK_STREAM_ENABLED` | 是否连接钉钉 Stream；开发环境设为 `false`，生产环境设为 `true`（未配置时默认启用） |
 | `DINGTALK_APP_KEY` | 钉钉应用 AppKey（即 robotCode） |
 | `DINGTALK_APP_SECRET` | 钉钉应用 AppSecret |
 | `WECOM_CORP_ID` | 企业微信企业 ID |

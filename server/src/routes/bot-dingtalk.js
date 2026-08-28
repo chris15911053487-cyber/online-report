@@ -253,6 +253,11 @@ function formatOptions(options) {
 let _client = null;
 
 function startDingtalkStream() {
+  if (process.env.DINGTALK_STREAM_ENABLED === 'false') {
+    log.info('DINGTALK_STREAM_ENABLED=false，跳过钉钉 Stream 连接');
+    return;
+  }
+
   const clientId = getDingAppKey();
   const clientSecret = getDingAppSecret();
 
