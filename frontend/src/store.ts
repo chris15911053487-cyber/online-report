@@ -59,6 +59,9 @@ interface AppState {
   /** 从 Skill 管理点击"对话"跳转 AI 对话时携带的 skill 名，AiChatView 消费一次后清空 */
   pendingChatSkill: string | null
 
+  /** 当前进入的 Agent（agent-run 页使用） */
+  currentAgentKey: string | null
+
   // Actions
   initialize: () => Promise<void>
   login: (username: string, password: string) => Promise<void>
@@ -83,6 +86,8 @@ interface AppState {
   openAiChatWithSkill: (skillName: string) => void
   /** AiChatView 消费 pendingChatSkill 后清空 */
   consumePendingChatSkill: () => void
+  /** 进入某个 Agent 的运行页 */
+  openAgent: (agentKey: string) => void
   /** 钉钉环境自动免登 */
   dingtalkAutoLogin: () => Promise<void>
 }
@@ -114,6 +119,7 @@ export const useStore = create<AppState>((set, get) => ({
   shouldRefreshProSignListAfterReceive: false,
   proSignOrderDetailOrderNo: null,
   pendingChatSkill: null,
+  currentAgentKey: null,
 
   clearProSignListRefreshFlag: () => set({ shouldRefreshProSignListAfterReceive: false }),
 
@@ -126,6 +132,14 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   consumePendingChatSkill: () => set({ pendingChatSkill: null }),
+
+  openAgent: (agentKey: string) => {
+    set((s) => ({
+      currentAgentKey: agentKey,
+      currentView: 'agent-run',
+      viewHistory: [...s.viewHistory, s.currentView],
+    }))
+  },
 
   dingtalkAutoLogin: async () => {
     set({ isLoading: true })
@@ -246,6 +260,7 @@ export const useStore = create<AppState>((set, get) => ({
       prefilledFilters: null,
       prefilledAutoQuery: false,
       messageSummary: null,
+      currentAgentKey: null,
     })
     try {
       ;(window as any).__voiceMenus = []
@@ -305,6 +320,15 @@ export const useStore = create<AppState>((set, get) => ({
     }
     if (currentView === 'dynamic-report' && proSignMode) {
       set({ currentView: 'catalog', proSignMode: false, activeMenu: null })
+      return
+    }
+
+    if (currentView === 'agent-run') {
+      set((s) => ({
+        currentView: s.viewHistory.length > 0 ? s.viewHistory[s.viewHistory.length - 1] : 'agent-hub',
+        viewHistory: s.viewHistory.slice(0, -1),
+        currentAgentKey: null,
+      }))
       return
     }
 

@@ -220,6 +220,7 @@ async function aiAgentRoutes(fastify) {
         return reply.code(400).send({ error: '请提供 message', code: 'AGENT_EMPTY_MESSAGE' });
       }
 
+      const agentKey = body.agentKey ? String(body.agentKey).trim().toLowerCase() : null;
       const userCode = String(request.user.username || '').trim();
       const displayName = String(request.user.displayName || userCode);
       const userRoles = getUserRolesFromRequest(request.user);
@@ -254,7 +255,23 @@ async function aiAgentRoutes(fastify) {
 
       let skills = [];
       try {
-        skills = (await listSkillsForRoles(pool, userRoles)).map((s) => ({
+        const { getAgent } = require('../agents');
+        const allSkills = await listSkillsForRoles(pool, userRoles);
+
+        // 若前端指定了 agentKey，只注入该 Agent 关联的 skill
+        if (agentKey) {
+          try {
+            const agent = await getAgent(pool, agentKey);
+            if (agent && agent.enabled && agent.skills && agent.skills.length > 0) {
+              const agentSkillSet = new Set(agent.skills);
+              skills = allSkills.filter((s) => agentSkillSet.has(s.name));
+            }
+          } catch { skills = allSkills; }
+        } else {
+          skills = allSkills;
+        }
+
+        skills = skills.map((s) => ({
           name: s.name,
           description: s.description,
           bodyMd: s.bodyMd,
@@ -267,6 +284,16 @@ async function aiAgentRoutes(fastify) {
           })),
         }));
       } catch {}
+
+      // 若 agent 有附加 system prompt，透传给 ai-agent
+      let agentPrompt = '';
+      if (agentKey) {
+        try {
+          const { getAgent } = require('../agents');
+          const agent = await getAgent(pool, agentKey);
+          if (agent && agent.systemPromptExtra) agentPrompt = agent.systemPromptExtra;
+        } catch { /* ignore */ }
+      }
 
       const scopedToken = signScopedToken({ userCode, displayName, roles: userRoles, conversationId });
 
@@ -283,7 +310,14 @@ async function aiAgentRoutes(fastify) {
             : { type: 'message', content: message };
           const { ok, data } = await postAgent(
             '/chat',
-            { threadId: conversationId, input, messages: history, skills, user: { displayName, roles: userRoles } },
+            {
+              threadId: conversationId,
+              input,
+              messages: history,
+              skills,
+              user: { displayName, roles: userRoles },
+              agentPrompt: agentPrompt || undefined,
+            },
             scopedToken,
             { signal: clientAbort.signal }
           );

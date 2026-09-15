@@ -953,6 +953,10 @@
     goToNavTab('AI');
   }, { label: 'AI 助手' });
 
+  addCmd(['Agent', 'agent', '智能体', '打开智能体', '智能体中心', '阿真特', '爱真特'], function () {
+    goToNavTab('Agent');
+  }, { label: 'Agent' });
+
   addCmd(['消息', '打开消息', '消息中心', '通知中心'], function () {
     goToNavTab('消息');
   }, { label: '消息' });

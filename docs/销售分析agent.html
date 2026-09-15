@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>销售分析 Agent · 双端适配</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f5f6f8;
+    color: #1a1a2e;
+  }
+
+  /* ==================== 移动端主页面 ==================== */
+  .page-content {
+    padding: 20px 16px 100px;
+    max-width: 100%;
+  }
+  .page-title { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+  .page-sub { font-size: 13px; color: #8b8fa3; margin-bottom: 20px; }
+
+  .page-card {
+    background: #fff;
+    border-radius: 14px;
+    padding: 18px;
+    margin-bottom: 14px;
+    border: 1px solid #eef0f4;
+  }
+  .page-card h3 { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+  .page-card p { font-size: 13px; color: #8b8fa3; line-height: 1.6; }
+
+  .mini-kpi { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .mini-kpi div { background: #fafbfc; border-radius: 10px; padding: 12px; }
+  .mini-kpi .l { font-size: 11.5px; color: #8b8fa3; }
+  .mini-kpi .v { font-size: 18px; font-weight: 700; margin-top: 4px; }
+
+  .ai-result-area {
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .ai-result-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    background: linear-gradient(135deg, #eef2ff, #f5f3ff);
+    border-radius: 12px;
+    font-size: 13px;
+    color: #4f6ef7;
+    font-weight: 500;
+    animation: fadeUp .3s ease both;
+  }
+  .ai-result-header .tag {
+    font-size: 10.5px; padding: 2px 8px; border-radius: 5px;
+    font-weight: 500; margin-left: auto;
+  }
+  .tag.report { background: #e0f2fe; color: #0369a1; }
+  .tag.explore { background: #fef3c7; color: #b45309; }
+  .tag.insight { background: #ede9fe; color: #6d28d9; }
+  .tag.default { background: #f0fdf4; color: #15803d; }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .mobile-chat-box {
+    background: #fff;
+    border-radius: 14px;
+    border: 1px solid #eef0f4;
+    padding: 16px;
+    animation: fadeUp .35s ease both;
+  }
+  .mobile-chat-box .q-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding-bottom: 12px;
+    margin-bottom: 12px;
+    border-bottom: 1px dashed #eef0f4;
+  }
+  .mobile-chat-box .q-avatar {
+    width: 26px; height: 26px; border-radius: 7px;
+    background: #1a1a2e; color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 600; flex-shrink: 0;
+  }
+  .mobile-chat-box .q-text {
+    font-size: 13.5px;
+    color: #1a1a2e;
+    line-height: 1.6;
+    padding-top: 3px;
+    font-weight: 500;
+  }
+  .mobile-chat-box .a-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .mobile-chat-box .a-avatar {
+    width: 26px; height: 26px; border-radius: 7px;
+    background: #eef2ff; color: #4f6ef7;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 600; flex-shrink: 0;
+  }
+  .mobile-chat-box .a-text {
+    font-size: 13px;
+    color: #4a4f63;
+    line-height: 1.6;
+    padding-top: 3px;
+    flex: 1;
+    min-width: 0;
+  }
+  .mobile-chat-box .a-text .tag {
+    display: inline-block;
+    font-size: 10.5px; padding: 2px 8px; border-radius: 5px;
+    font-weight: 500; margin-right: 4px;
+  }
+
+  .card {
+    background: #fff;
+    border-radius: 14px;
+    padding: 16px;
+    border: 1px solid #eef0f4;
+    box-shadow: 0 1px 3px rgba(0,0,0,.03);
+    animation: fadeUp .35s ease both;
+  }
+  .card-title {
+    font-size: 13px; font-weight: 600; margin-bottom: 12px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .badge { font-size: 10.5px; padding: 3px 8px; border-radius: 5px; font-weight: 500; }
+  .badge.report { background: #e0f2fe; color: #0369a1; }
+  .badge.explore { background: #fef3c7; color: #b45309; }
+  .badge.insight { background: #ede9fe; color: #6d28d9; }
+
+  .kpi-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .kpi-item {
+    background: #fafbfc; border-radius: 10px; padding: 12px 14px;
+    border: 1px solid #f0f1f3;
+  }
+  .kpi-item .label { font-size: 11.5px; color: #8b8fa3; margin-bottom: 5px; }
+  .kpi-item .value { font-size: 19px; font-weight: 700; color: #1a1a2e; letter-spacing: -0.3px; }
+  .kpi-item .change { font-size: 11.5px; margin-top: 3px; font-weight: 500; }
+  .change.up { color: #16a34a; }
+  .change.down { color: #dc2626; }
+
+  .chart-box { width: 100%; height: 220px; }
+  .chart-box.tall { height: 240px; }
+
+  .insight-text {
+    background: #f8f9ff; border-left: 3px solid #4f6ef7;
+    padding: 11px 14px; border-radius: 0 8px 8px 0;
+    font-size: 12.5px; line-height: 1.7; color: #3a3f55; margin-top: 12px;
+  }
+  .insight-text strong { color: #1a1a2e; }
+
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -16px; padding: 0 16px; }
+  .data-table { width: 100%; min-width: 480px; border-collapse: collapse; font-size: 12.5px; }
+  .data-table th {
+    text-align: left; padding: 9px 10px; font-weight: 500; color: #8b8fa3;
+    font-size: 11.5px; border-bottom: 1px solid #f0f1f3; white-space: nowrap;
+  }
+  .data-table td { padding: 10px; border-bottom: 1px solid #f5f6f8; color: #2d3142; white-space: nowrap; }
+  .data-table tr:last-child td { border-bottom: none; }
+  .data-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .badge-down {
+    display: inline-block; font-size: 10.5px; padding: 2px 6px;
+    border-radius: 5px; background: #fef2f2; color: #dc2626; font-weight: 500;
+  }
+
+  .suggestions {
+    display: flex; flex-direction: column; gap: 6px;
+    animation: fadeUp .4s ease both;
+  }
+  .suggestions .label {
+    font-size: 11.5px; color: #a0a4b8; padding-left: 2px; margin-bottom: 2px;
+    display: flex; align-items: center; gap: 4px;
+  }
+  .suggestions .label svg { width: 12px; height: 12px; }
+  .sug-chip {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 13px; padding: 11px 14px; border-radius: 10px;
+    border: 1px solid #e8eaf0; background: #fff; color: #3a3f55;
+    cursor: pointer; transition: all .15s; text-align: left; gap: 8px;
+  }
+  .sug-chip:active { border-color: #4f6ef7; background: #f8f9ff; color: #4f6ef7; }
+  .sug-chip:hover { border-color: #4f6ef7; color: #4f6ef7; background: #f8f9ff; }
+  .sug-chip .arrow { color: #c0c3d4; flex-shrink: 0; font-size: 14px; }
+  .sug-chip:active .arrow, .sug-chip:hover .arrow { color: #4f6ef7; }
+
+  .fab {
+    position: fixed; right: 18px; bottom: 24px;
+    width: 56px; height: 56px; border-radius: 50%;
+    background: linear-gradient(135deg, #4f6ef7, #6d5ef7);
+    color: #fff; border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 6px 20px rgba(79,110,247,.4), 0 2px 6px rgba(0,0,0,.1);
+    z-index: 1000; transition: transform .2s;
+    bottom: max(24px, env(safe-area-inset-bottom));
+  }
+  .fab:active { transform: scale(.92); }
+  .fab svg { width: 24px; height: 24px; }
+  .fab .pulse {
+    position: absolute; inset: 0; border-radius: 50%;
+    background: rgba(79,110,247,.4);
+    animation: pulse 2.5s ease-out infinite; z-index: -1;
+  }
+  @keyframes pulse {
+    0% { transform: scale(1); opacity: .6; }
+    100% { transform: scale(1.6); opacity: 0; }
+  }
+
+  .overlay {
+    position: fixed; inset: 0; background: rgba(26,26,46,.4);
+    backdrop-filter: blur(2px); opacity: 0; pointer-events: none;
+    transition: opacity .25s; z-index: 1001;
+  }
+  .overlay.show { opacity: 1; pointer-events: auto; }
+
+  .drawer {
+    position: fixed; right: 0; bottom: 0; left: 0;
+    background: #fff; border-radius: 20px 20px 0 0;
+    transform: translateY(100%);
+    transition: transform .3s cubic-bezier(.32,.72,0,1);
+    z-index: 1002;
+    box-shadow: 0 -4px 24px rgba(0,0,0,.12);
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
+  .drawer.show { transform: translateY(0); }
+
+  .drawer-handle { padding: 10px 0 4px; display: flex; justify-content: center; }
+  .drawer-handle .bar { width: 36px; height: 4px; border-radius: 2px; background: #dcdee8; }
+
+  .drawer-header {
+    padding: 6px 18px 14px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .drawer-header .title { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: 7px; }
+  .drawer-header .dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.15); }
+  .drawer-header .sub { font-size: 11px; color: #a0a4b8; margin-top: 2px; }
+  .close-btn {
+    width: 32px; height: 32px; border-radius: 50%; border: none;
+    background: #f5f6f8; color: #6b7089;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+  }
+  .close-btn svg { width: 16px; height: 16px; }
+
+  .drawer-body { padding: 0 16px; }
+
+  .quick-sugs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  .quick-sug {
+    font-size: 12.5px; padding: 8px 14px; border-radius: 20px;
+    border: 1px solid #e0e2e8; background: #fff; color: #4a4f63;
+    cursor: pointer; transition: all .15s; white-space: nowrap;
+  }
+  .quick-sug:active { border-color: #4f6ef7; color: #4f6ef7; background: #f8f9ff; }
+
+  .input-wrap {
+    display: flex; gap: 8px; align-items: center;
+    background: #f5f6f8; border-radius: 22px;
+    padding: 8px 8px 8px 16px; border: 1px solid transparent;
+    transition: border-color .2s; margin-bottom: 8px;
+  }
+  .input-wrap:focus-within { border-color: #4f6ef7; background: #fff; }
+  .input-wrap input {
+    flex: 1; border: none; background: transparent;
+    font-size: 14px; outline: none; color: #1a1a2e; min-width: 0;
+  }
+  .input-wrap input::placeholder { color: #a0a4b8; }
+  .send-btn {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: #4f6ef7; color: #fff; border: none; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .send-btn:active { background: #3b5bdb; }
+  .send-btn:disabled { opacity: .4; }
+  .send-btn svg { width: 16px; height: 16px; }
+  .drawer-hint { font-size: 11px; color: #a0a4b8; text-align: center; padding-top: 4px; }
+
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #d8dae5; border-radius: 3px; }
+
+  /* ==================== PC 端 ==================== */
+  .pc-left { display: none; }
+  .pc-output { display: none; }
+
+  @media (min-width: 900px) {
+    body { display: flex; height: 100vh; overflow: hidden; }
+
+    .page-content { display: none; }
+    .fab, .overlay, .drawer { display: none !important; }
+
+    .pc-left {
+      display: flex;
+      flex-direction: column;
+      width: 420px;
+      min-width: 420px;
+      height: 100vh;
+      background: #fff;
+      border-right: 1px solid #e8eaed;
+      transition: width .3s cubic-bezier(.4,0,.2,1), min-width .3s cubic-bezier(.4,0,.2,1);
+      overflow: hidden;
+    }
+
+    .pc-left.collapsed {
+      width: 0;
+      min-width: 0;
+      border-right: none;
+    }
+
+    .pc-left-header {
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid #f0f1f3;
+      flex-shrink: 0;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      min-width: 420px;
+    }
+    .pc-left-header .header-text { flex: 1; min-width: 0; }
+    .pc-left-header h1 {
+      font-size: 17px; font-weight: 600;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .pc-left-header .dot {
+      width: 8px; height: 8px; border-radius: 50%; background: #22c55e;
+      box-shadow: 0 0 0 3px rgba(34,197,94,.15);
+    }
+    .pc-left-header p { font-size: 12px; color: #8b8fa3; margin-top: 4px; }
+
+    .collapse-btn {
+      width: 30px; height: 30px;
+      border-radius: 8px;
+      border: 1px solid #e8eaed;
+      background: #fff;
+      color: #6b7089;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: all .15s;
+    }
+    .collapse-btn:hover { border-color: #4f6ef7; color: #4f6ef7; background: #f8f9ff; }
+    .collapse-btn svg { width: 15px; height: 15px; }
+
+    .pc-messages {
+      flex: 1; overflow-y: auto; padding: 20px 24px;
+      display: flex; flex-direction: column; gap: 16px;
+      min-width: 420px;
+    }
+
+    .pc-msg { display: flex; gap: 10px; max-width: 100%; }
+    .pc-msg.user { flex-direction: row-reverse; }
+    .pc-avatar {
+      width: 30px; height: 30px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 600; flex-shrink: 0;
+    }
+    .pc-msg.agent .pc-avatar { background: #eef2ff; color: #4f6ef7; }
+    .pc-msg.user .pc-avatar { background: #1a1a2e; color: #fff; }
+    .pc-msg-content { flex: 1; min-width: 0; }
+    .pc-msg.user .pc-msg-content { display: flex; justify-content: flex-end; }
+    .pc-bubble {
+      padding: 10px 14px; border-radius: 12px;
+      font-size: 13.5px; line-height: 1.6; max-width: 300px;
+      word-break: break-word;
+    }
+    .pc-msg.agent .pc-bubble {
+      background: #f5f6f8; color: #2d3142; border-top-left-radius: 4px;
+    }
+    .pc-msg.user .pc-bubble {
+      background: #1a1a2e; color: #fff; border-top-right-radius: 4px;
+    }
+    .pc-bubble .tag {
+      display: inline-block; font-size: 11px; padding: 2px 8px;
+      border-radius: 6px; margin-bottom: 6px; font-weight: 500;
+    }
+
+    .pc-quick-chips {
+      display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;
+    }
+    .pc-chip {
+      font-size: 12px; padding: 5px 12px; border-radius: 20px;
+      border: 1px solid #e0e2e8; background: #fff; color: #4a4f63;
+      cursor: pointer; transition: all .15s; white-space: nowrap;
+    }
+    .pc-chip:hover { border-color: #4f6ef7; color: #4f6ef7; background: #f8f9ff; }
+
+    .pc-suggestions {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      margin-top: 10px;
+      max-width: 300px;
+    }
+    .pc-suggestions .label {
+      font-size: 11px; color: #a0a4b8; padding-left: 2px; margin-bottom: 1px;
+      display: flex; align-items: center; gap: 4px;
+    }
+    .pc-suggestions .label svg { width: 11px; height: 11px; }
+    .pc-sug-chip {
+      display: flex; align-items: center; justify-content: space-between;
+      font-size: 12px; padding: 8px 12px; border-radius: 8px;
+      border: 1px solid #e8eaf0; background: #fff; color: #3a3f55;
+      cursor: pointer; transition: all .15s; text-align: left; gap: 6px;
+    }
+    .pc-sug-chip:hover { border-color: #4f6ef7; color: #4f6ef7; background: #f8f9ff; }
+    .pc-sug-chip .arrow { color: #c0c3d4; flex-shrink: 0; font-size: 12px; }
+    .pc-sug-chip:hover .arrow { color: #4f6ef7; }
+
+    .pc-input-area {
+      padding: 16px 24px 20px;
+      border-top: 1px solid #f0f1f3;
+      flex-shrink: 0;
+      min-width: 420px;
+    }
+    .pc-input-wrap {
+      display: flex; gap: 8px; align-items: center;
+      background: #f5f6f8; border-radius: 12px;
+      padding: 10px 14px; border: 1px solid transparent;
+      transition: border-color .2s;
+    }
+    .pc-input-wrap:focus-within { border-color: #4f6ef7; background: #fff; }
+    .pc-input-wrap input {
+      flex: 1; border: none; background: transparent;
+      font-size: 13.5px; outline: none; color: #1a1a2e;
+    }
+    .pc-input-wrap input::placeholder { color: #a0a4b8; }
+    .pc-send-btn {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: #4f6ef7; color: #fff; border: none; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .pc-send-btn:hover { background: #3b5bdb; }
+    .pc-send-btn svg { width: 16px; height: 16px; }
+
+    .pc-output-wrap {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      height: 100vh;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .expand-btn {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      z-index: 10;
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      border: 1px solid #e8eaed;
+      background: #fff;
+      color: #4a4f63;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,.06);
+      transition: all .15s;
+    }
+    .expand-btn:hover { border-color: #4f6ef7; color: #4f6ef7; background: #f8f9ff; }
+    .expand-btn svg { width: 18px; height: 18px; }
+    .pc-output-wrap.collapsed .expand-btn { display: flex; }
+
+    .pc-output {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px 28px;
+      gap: 20px;
+      background: #f5f6f8;
+    }
+    .pc-output .kpi-grid { grid-template-columns: repeat(4, 1fr); gap: 14px; }
+    .pc-output .kpi-item .value { font-size: 22px; }
+    .pc-output .chart-box { height: 260px; }
+    .pc-output .chart-box.tall { height: 300px; }
+    .pc-output .table-scroll { margin: 0; padding: 0; overflow-x: visible; }
+    .pc-output .data-table { min-width: auto; }
+
+    .default-report-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+    .default-report-header h2 {
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .default-report-header .meta {
+      font-size: 12px;
+      color: #8b8fa3;
+    }
+    .tag.default-tag {
+      background: #f0fdf4; color: #15803d;
+      font-size: 11px; padding: 3px 9px; border-radius: 6px;
+      font-weight: 500;
+    }
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== 移动端主页面 ==================== -->
+<div class="page-content">
+  <div class="page-title">销售概览</div>
+  <div class="page-sub">2026-09-14 · 数据每 5 分钟更新</div>
+
+  <div class="ai-result-area" id="aiResultArea"></div>
+
+  <div class="page-card">
+    <h3>待办提醒</h3>
+    <p>3 家门店连续下滑超过 3 天，建议今日跟进。</p>
+  </div>
+</div>
+
+<!-- ==================== PC 端左侧对话栏 ==================== -->
+<div class="pc-left" id="pcLeft">
+  <div class="pc-left-header">
+    <div class="header-text">
+      <h1><span class="dot"></span>销售分析 Agent</h1>
+      <p>自然语言交互 · 预置报表 · 智能探索</p>
+    </div>
+    <button class="collapse-btn" onclick="togglePcLeft()" title="收起对话栏">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="15 18 9 12 15 6"></polyline>
+      </svg>
+    </button>
+  </div>
+
+  <div class="pc-messages" id="pcMessages"></div>
+
+  <div class="pc-input-area">
+    <div class="pc-input-wrap">
+      <input type="text" id="pcInput" placeholder="问点什么…" onkeydown="if(event.key==='Enter')pcSendMsg()">
+      <button class="pc-send-btn" onclick="pcSendMsg()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== PC 端右侧输出区 ==================== -->
+<div class="pc-output-wrap" id="pcOutputWrap">
+  <button class="expand-btn" onclick="togglePcLeft()" title="展开对话栏">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </button>
+
+  <div class="pc-output" id="pcOutput"></div>
+</div>
+
+<!-- ==================== 移动端悬浮按钮 & 抽屉 ==================== -->
+<button class="fab" id="fab" onclick="toggleDrawer()">
+  <span class="pulse"></span>
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+  </svg>
+</button>
+
+<div class="overlay" id="overlay" onclick="toggleDrawer()"></div>
+
+<div class="drawer" id="drawer">
+  <div class="drawer-handle"><div class="bar"></div></div>
+  <div class="drawer-header">
+    <div>
+      <div class="title"><span class="dot"></span>销售分析 Agent</div>
+      <div class="sub">告诉我你想了解什么，结果会展示在页面上</div>
+    </div>
+    <button class="close-btn" onclick="toggleDrawer()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
+    </button>
+  </div>
+  <div class="drawer-body">
+    <div class="quick-sugs">
+      <span class="quick-sug" onclick="quickSend('昨日销售日报')">📊 昨日销售日报</span>
+      <span class="quick-sug" onclick="quickSend('华东区为什么下滑')">🔍 华东区为什么下滑</span>
+      <span class="quick-sug" onclick="quickSend('近30天销售趋势')">📈 近30天销售趋势</span>
+    </div>
+    <div class="input-wrap">
+      <input type="text" id="userInput" placeholder="问点什么…" onkeydown="if(event.key==='Enter')sendMsg()">
+      <button class="send-btn" id="sendBtn" onclick="sendMsg()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      </button>
+    </div>
+    <div class="drawer-hint">发送后抽屉会自动收起，结果展示在页面上</div>
+  </div>
+</div>
+
+<script>
+const aiResultArea = document.getElementById('aiResultArea');
+const pcOutput = document.getElementById('pcOutput');
+const pcMessages = document.getElementById('pcMessages');
+const pcLeft = document.getElementById('pcLeft');
+const pcOutputWrap = document.getElementById('pcOutputWrap');
+const drawer = document.getElementById('drawer');
+const overlay = document.getElementById('overlay');
+let chartInstances = [];
+
+function isPC() { return window.innerWidth >= 900; }
+
+/* ==================== PC 端对话栏收起/展开 ==================== */
+function togglePcLeft() {
+  const isCollapsed = pcLeft.classList.toggle('collapsed');
+  pcOutputWrap.classList.toggle('collapsed', isCollapsed);
+  setTimeout(() => chartInstances.forEach(c => c.resize()), 320);
+}
+
+/* ==================== 移动端逻辑 ==================== */
+function toggleDrawer() {
+  const isOpen = drawer.classList.contains('show');
+  if (isOpen) {
+    drawer.classList.remove('show');
+    overlay.classList.remove('show');
+  } else {
+    drawer.classList.add('show');
+    overlay.classList.add('show');
+    setTimeout(() => document.getElementById('userInput').focus(), 350);
+  }
+}
+
+function closeDrawer() {
+  drawer.classList.remove('show');
+  overlay.classList.remove('show');
+}
+
+function quickSend(text) {
+  document.getElementById('userInput').value = text;
+  sendMsg();
+}
+
+function sendMsg() {
+  const input = document.getElementById('userInput');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  document.getElementById('sendBtn').disabled = true;
+
+  closeDrawer();
+  showThinking(text);
+
+  setTimeout(() => {
+    document.getElementById('sendBtn').disabled = false;
+    renderMobileResult(text);
+  }, 600);
+}
+
+function showThinking(query) {
+  aiResultArea.innerHTML = `
+    <div class="ai-result-header">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;animation:spin 1s linear infinite">
+        <path d="M21 12a9 9 0 1 1-6.219-8.56"></path>
+      </svg>
+      正在分析「${query}」…
+    </div>
+  `;
+  aiResultArea.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderMobileResult(text) {
+  clearCharts();
+  aiResultArea.innerHTML = '';
+  if (text.includes('华东') || text.includes('下滑') || text.includes('为什么')) {
+    renderRegion(aiResultArea, text);
+  } else if (text.includes('趋势') || text.includes('30天') || text.includes('近一个月')) {
+    renderTrend(aiResultArea, text);
+  } else {
+    renderDaily(aiResultArea, text);
+  }
+}
+
+/* ==================== PC 端逻辑 ==================== */
+function pcAddUserMsg(text) {
+  const div = document.createElement('div');
+  div.className = 'pc-msg user';
+  div.innerHTML = `<div class="pc-avatar">我</div><div class="pc-msg-content"><div class="pc-bubble">${text}</div></div>`;
+  pcMessages.appendChild(div);
+  pcMessages.scrollTop = pcMessages.scrollHeight;
+}
+
+function pcAddAgentMsg(html) {
+  const div = document.createElement('div');
+  div.className = 'pc-msg agent';
+  div.innerHTML = `<div class="pc-avatar">AI</div><div class="pc-msg-content"><div class="pc-bubble">${html}</div></div>`;
+  pcMessages.appendChild(div);
+  pcMessages.scrollTop = pcMessages.scrollHeight;
+  return div.querySelector('.pc-msg-content');
+}
+
+function pcSendMsg() {
+  const input = document.getElementById('pcInput');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  pcAddUserMsg(text);
+  setTimeout(() => pcRenderResult(text), 400);
+}
+
+function pcRunCase(name) {
+  const map = {
+    daily: '昨日销售日报',
+    region: '华东区为什么下滑',
+    trend: '近30天销售趋势'
+  };
+  pcAddUserMsg(map[name]);
+  setTimeout(() => pcRenderResult(map[name]), 300);
+}
+
+function pcRenderResult(text) {
+  let agentEl;
+  if (text.includes('华东') || text.includes('下滑') || text.includes('为什么')) {
+    agentEl = pcAddAgentMsg(`<span class="tag explore">探索分析</span><br>这是一个归因问题，我切换到探索模式，帮你拆解华东区下滑的门店和原因。`);
+    pcAddPcSuggestions(agentEl, [
+      { icon: '📊', text: '查看昨日销售日报', case: 'daily' },
+      { icon: '📈', text: '看近30天趋势确认是否持续', case: 'trend' }
+    ]);
+    renderRegion(pcOutput);
+  } else if (text.includes('趋势') || text.includes('30天') || text.includes('近一个月')) {
+    agentEl = pcAddAgentMsg(`<span class="tag insight">趋势洞察</span><br>已生成近 30 天销售趋势，并自动标注了异常波动点。`);
+    pcAddPcSuggestions(agentEl, [
+      { icon: '🔍', text: '华东区为什么下滑', case: 'region' },
+      { icon: '📊', text: '查看昨日销售日报', case: 'daily' }
+    ]);
+    renderTrend(pcOutput);
+  } else {
+    agentEl = pcAddAgentMsg(`<span class="tag report">预置报表</span><br>已为你调取 <strong>昨日销售日报</strong>，按标准模板展示核心指标和区域分布。`);
+    pcAddPcSuggestions(agentEl, [
+      { icon: '🔍', text: '华东区为什么下滑', case: 'region' },
+      { icon: '📈', text: '近30天销售趋势', case: 'trend' }
+    ]);
+    renderDaily(pcOutput);
+  }
+}
+
+function pcAddPcSuggestions(parentEl, items) {
+  const wrap = document.createElement('div');
+  wrap.className = 'pc-suggestions';
+  wrap.innerHTML = `
+    <div class="label">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"></circle>
+        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+      </svg>
+      你可能还想问
+    </div>
+  `;
+  items.forEach(item => {
+    const chip = document.createElement('button');
+    chip.className = 'pc-sug-chip';
+    chip.innerHTML = `<span>${item.icon || ''} ${item.text}</span><span class="arrow">›</span>`;
+    chip.onclick = () => {
+      pcAddUserMsg(item.text);
+      setTimeout(() => pcRenderResult(item.text), 300);
+    };
+    wrap.appendChild(chip);
+  });
+  parentEl.appendChild(wrap);
+  pcMessages.scrollTop = pcMessages.scrollHeight;
+}
+
+/* ==================== 共用图表 ==================== */
+function clearCharts() {
+  chartInstances.forEach(c => c.dispose());
+  chartInstances = [];
+}
+
+function initDailyChart() {
+  const el = document.getElementById('chartDaily');
+  if (!el) return;
+  const chart = echarts.init(el);
+  chartInstances.push(chart);
+  chart.setOption({
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    grid: { left: 48, right: 16, top: 20, bottom: 28 },
+    xAxis: { type: 'category', data: ['华东','华南','华北','西南','华中','东北'],
+      axisLine: { lineStyle: { color: '#e8eaed' } }, axisLabel: { color: '#8b8fa3', fontSize: 11, interval: 0 } },
+    yAxis: { type: 'value', axisLabel: { color: '#8b8fa3', fontSize: 11 }, splitLine: { lineStyle: { color: '#f5f6f8' } } },
+    series: [{ type: 'bar', data: [{value:142,itemStyle:{color:'#ef4444'}},168,155,98,132,125.4],
+      barWidth: '50%', itemStyle: { borderRadius: [5,5,0,0] } }]
+  });
+}
+
+function initRegionChart() {
+  const el = document.getElementById('chartRegion');
+  if (!el) return;
+  const chart = echarts.init(el);
+  chartInstances.push(chart);
+  chart.setOption({
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    grid: { left: 90, right: 40, top: 10, bottom: 24 },
+    xAxis: { type: 'value', axisLabel: { color: '#8b8fa3', fontSize: 11, formatter: '{value}%' }, splitLine: { lineStyle: { color: '#f5f6f8' } } },
+    yAxis: { type: 'category', data: ['无锡中山路','苏州观前街','南京新街口','杭州西湖','上海静安'],
+      axisLine: { lineStyle: { color: '#e8eaed' } }, axisLabel: { color: '#4a4f63', fontSize: 11 } },
+    series: [{ type: 'bar', data: [-6.2,-9.5,-16.3,-19.8,-24.1], barWidth: '50%',
+      itemStyle: { borderRadius: [0,5,5,0], color: p => { const v = Math.abs(p.value); return v>20?'#ef4444':v>15?'#f97316':'#f59e0b'; } },
+      label: { show: true, position: 'right', fontSize: 10, color: '#8b8fa3', formatter: p => Math.abs(p.value)+'%' } }]
+  });
+}
+
+function initTrendChart() {
+  const el = document.getElementById('chartTrend');
+  if (!el) return;
+  const chart = echarts.init(el);
+  chartInstances.push(chart);
+
+  const dates = [], values = [];
+  let base = 920;
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(2026, 8, 1 + i);
+    dates.push(`${d.getMonth()+1}/${d.getDate()}`);
+    base = base - 3 + (Math.random() - 0.5) * 30;
+    let v = Math.round(base);
+    if (i === 9) v = 780;
+    if (i === 13) v = 745;
+    values.push(v);
+  }
+
+  chart.setOption({
+    tooltip: { trigger: 'axis' },
+    grid: { left: 44, right: 16, top: 24, bottom: 24 },
+    xAxis: { type: 'category', data: dates, axisLine: { lineStyle: { color: '#e8eaed' } }, axisLabel: { color: '#8b8fa3', fontSize: 10, interval: 6 } },
+    yAxis: { type: 'value', axisLabel: { color: '#8b8fa3', fontSize: 11 }, splitLine: { lineStyle: { color: '#f5f6f8' } }, min: 650 },
+    series: [{ type: 'line', data: values, smooth: true, symbol: 'circle', symbolSize: 4,
+      lineStyle: { width: 2, color: '#4f6ef7' },
+      itemStyle: { color: '#4f6ef7', borderWidth: 2, borderColor: '#fff' },
+      areaStyle: { color: new echarts.graphic.LinearGradient(0,0,0,1,[{offset:0,color:'rgba(79,110,247,.15)'},{offset:1,color:'rgba(79,110,247,.01)'}]) },
+      markPoint: { data: [
+        { coord: [9, 780], value: '异常', itemStyle: { color: '#ef4444' }, label: { fontSize: 9, color: '#fff' } },
+        { coord: [13, 745], value: '异常', itemStyle: { color: '#ef4444' }, label: { fontSize: 9, color: '#fff' } }
+      ], symbolSize: 36 } }]
+  });
+}
+
+/* ==================== 对话记录框 ==================== */
+function mobileChatBox(query, tagClass, tagText, answerText) {
+  return `
+    <div class="mobile-chat-box">
+      <div class="q-row">
+        <div class="q-avatar">我</div>
+        <div class="q-text">${query}</div>
+      </div>
+      <div class="a-row">
+        <div class="a-avatar">AI</div>
+        <div class="a-text">
+          <span class="tag ${tagClass}">${tagText}</span>
+          ${answerText}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/* ==================== 三个场景 ==================== */
+// 移动端：带对话记录框
+function renderDaily(container, query) {
+  if (container === pcOutput) {
+    // PC 端：不渲染对话记录框，只渲染数据内容
+    pcOutput.innerHTML = '';
+    renderDailyContent(pcOutput);
+    return;
+  }
+  container.innerHTML += mobileChatBox(
+    query || '昨日销售日报',
+    'report', '预置报表',
+    '已为你调取昨日销售日报，按标准模板展示核心指标和区域分布。'
+  );
+  renderDailyContent(container);
+}
+
+function renderDailyContent(container) {
+  container.innerHTML += `
+    <div class="card">
+      <div class="card-title">昨日销售日报 · 2026-09-14</div>
+      <div class="kpi-grid">
+        <div class="kpi-item"><div class="label">总销售额</div><div class="value">¥820.4万</div><div class="change down">↓ 8.2% 环比</div></div>
+        <div class="kpi-item"><div class="label">订单数</div><div class="value">12,847</div><div class="change down">↓ 5.1% 环比</div></div>
+        <div class="kpi-item"><div class="label">客单价</div><div class="value">¥638</div><div class="change down">↓ 3.3% 环比</div></div>
+        <div class="kpi-item"><div class="label">新客转化率</div><div class="value">12.3%</div><div class="change down">↓ 2.1pp</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">各区域销售额分布</div>
+      <div class="chart-box" id="chartDaily"></div>
+      <div class="insight-text"><strong>AI 洞察：</strong>华东区销售额 142 万，环比下降 12%，贡献了全国 70% 的降幅。</div>
+    </div>
+  `;
+  initDailyChart();
+  // 移动端才加建议选项
+  if (container === aiResultArea) {
+    addSuggestions(container, [
+      { icon: '🔍', text: '华东区为什么下滑', case: 'region' },
+      { icon: '📈', text: '近30天销售趋势', case: 'trend' }
+    ]);
+  }
+}
+
+function renderRegion(container, query) {
+  if (container === pcOutput) {
+    pcOutput.innerHTML = '';
+    renderRegionContent(pcOutput);
+    return;
+  }
+  container.innerHTML += mobileChatBox(
+    query || '华东区为什么下滑',
+    'explore', '探索分析',
+    '这是一个归因问题，我切换到探索模式，帮你拆解华东区下滑的门店和原因。'
+  );
+  renderRegionContent(container);
+}
+
+function renderRegionContent(container) {
+  container.innerHTML += `
+    <div class="card">
+      <div class="card-title">门店销售额降幅排行</div>
+      <div class="chart-box" id="chartRegion"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">关键发现</div>
+      <div class="insight-text" style="margin-top:0;">
+        <strong>1.</strong> 降幅最大的三家门店合计贡献华东区 <strong>62%</strong> 的降幅。<br>
+        <strong>2.</strong> 这三家门店客单价均低于区域均值，促销力度低于上月同期。<br>
+        <strong>3.</strong> 上海静安店已连续 5 天下滑，建议优先排查。
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">门店明细</div>
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead><tr><th>门店</th><th class="num">销售额</th><th class="num">环比</th><th class="num">客单价</th><th>连续下滑</th></tr></thead>
+          <tbody>
+            <tr><td>上海静安店</td><td class="num">¥18.2万</td><td class="num"><span class="badge-down">-24.1%</span></td><td class="num">¥512</td><td>5 天</td></tr>
+            <tr><td>杭州西湖店</td><td class="num">¥15.6万</td><td class="num"><span class="badge-down">-19.8%</span></td><td class="num">¥548</td><td>3 天</td></tr>
+            <tr><td>南京新街口店</td><td class="num">¥14.1万</td><td class="num"><span class="badge-down">-16.3%</span></td><td class="num">¥576</td><td>3 天</td></tr>
+            <tr><td>苏州观前街店</td><td class="num">¥12.8万</td><td class="num"><span class="badge-down">-9.5%</span></td><td class="num">¥603</td><td>1 天</td></tr>
+            <tr><td>无锡中山路店</td><td class="num">¥11.4万</td><td class="num"><span class="badge-down">-6.2%</span></td><td class="num">¥621</td><td>1 天</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+  initRegionChart();
+  if (container === aiResultArea) {
+    addSuggestions(container, [
+      { icon: '📊', text: '查看昨日销售日报', case: 'daily' },
+      { icon: '📈', text: '看近30天趋势确认是否持续', case: 'trend' }
+    ]);
+  }
+}
+
+function renderTrend(container, query) {
+  if (container === pcOutput) {
+    pcOutput.innerHTML = '';
+    renderTrendContent(pcOutput);
+    return;
+  }
+  container.innerHTML += mobileChatBox(
+    query || '近30天销售趋势',
+    'insight', '趋势洞察',
+    '已生成近 30 天销售趋势，并自动标注了异常波动点。'
+  );
+  renderTrendContent(container);
+}
+
+function renderTrendContent(container) {
+  container.innerHTML += `
+    <div class="card">
+      <div class="card-title">近 30 天销售趋势</div>
+      <div class="chart-box tall" id="chartTrend"></div>
+      <div class="insight-text"><strong>AI 洞察：</strong>整体呈缓慢下行趋势，日均销售额从月初 920 万降至月末 820 万，降幅约 <strong>10.9%</strong>。9 月 10 日和 14 日两次异常下滑均与华东区相关。</div>
+    </div>
+    <div class="card">
+      <div class="card-title">周度对比</div>
+      <div class="kpi-grid">
+        <div class="kpi-item"><div class="label">本周日均</div><div class="value">¥836万</div><div class="change down">↓ 6.8%</div></div>
+        <div class="kpi-item"><div class="label">上周日均</div><div class="value">¥897万</div><div class="change down">↓ 4.2%</div></div>
+        <div class="kpi-item"><div class="label">本月累计</div><div class="value">¥2.31亿</div><div class="change down">↓ 8.5%</div></div>
+        <div class="kpi-item"><div class="label">异常天数</div><div class="value">2 天</div><div class="change down">需关注</div></div>
+      </div>
+    </div>
+  `;
+  initTrendChart();
+  if (container === aiResultArea) {
+    addSuggestions(container, [
+      { icon: '🔍', text: '华东区为什么下滑', case: 'region' },
+      { icon: '📊', text: '查看昨日销售日报', case: 'daily' }
+    ]);
+  }
+}
+
+/* ==================== 移动端建议选项 ==================== */
+function addSuggestions(container, items) {
+  const wrap = document.createElement('div');
+  wrap.className = 'suggestions';
+  wrap.innerHTML = `
+    <div class="label">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"></circle>
+        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path>
+        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+      </svg>
+      你可能还想问
+    </div>
+  `;
+  items.forEach(item => {
+    const chip = document.createElement('button');
+    chip.className = 'sug-chip';
+    chip.innerHTML = `<span>${item.icon || ''} ${item.text}</span><span class="arrow">›</span>`;
+    chip.onclick = () => {
+      showThinking(item.text);
+      setTimeout(() => {
+        clearCharts();
+        aiResultArea.innerHTML = '';
+        if (item.case === 'daily') renderDaily(aiResultArea, item.text);
+        if (item.case === 'region') renderRegion(aiResultArea, item.text);
+        if (item.case === 'trend') renderTrend(aiResultArea, item.text);
+      }, 600);
+    };
+    wrap.appendChild(chip);
+  });
+  container.appendChild(wrap);
+  if (container === aiResultArea) {
+    setTimeout(() => wrap.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100);
+  }
+}
+
+/* ==================== 默认预置内容 ==================== */
+function initDefaultContent() {
+  // 移动端：默认展示完整日报（带对话记录框）
+  renderDaily(aiResultArea, '今日销售日报');
+
+  // PC 端：左侧对话栏预置 Agent 欢迎 + 快捷入口
+  const welcome = pcAddAgentMsg(
+    `早上好，我是销售分析 Agent。已为你准备好 <strong>今日销售日报</strong>，右侧是完整内容。你可以直接问我，或点击下方快捷入口。`
+  );
+  const chips = document.createElement('div');
+  chips.className = 'pc-quick-chips';
+  chips.innerHTML = `
+    <span class="pc-chip" onclick="pcRunCase('region')">🔍 华东区为什么下滑</span>
+    <span class="pc-chip" onclick="pcRunCase('trend')">📈 近30天销售趋势</span>
+    <span class="pc-chip" onclick="pcRunCase('daily')">📊 昨日销售日报</span>
+  `;
+  welcome.appendChild(chips);
+
+  // PC 端右侧默认日报（无建议选项）
+  renderDefaultReport();
+}
+
+function renderDefaultReport() {
+  pcOutput.innerHTML = `
+    <div class="default-report-header">
+      <div>
+        <h2>今日销售日报</h2>
+        <div class="meta">2026-09-14 · 数据每 5 分钟更新</div>
+      </div>
+      <span class="tag default-tag">已配置</span>
+    </div>
+  `;
+  renderDailyContent(pcOutput);
+}
+
+/* ==================== 启动 ==================== */
+window.addEventListener('load', () => {
+  initDefaultContent();
+});
+
+window.addEventListener('resize', () => {
+  clearTimeout(window._rt);
+  window._rt = setTimeout(() => {
+    chartInstances.forEach(c => c.resize());
+    if (isPC() && pcMessages.children.length === 0) initDefaultContent();
+  }, 150);
+});
+</script>
+</body>
+</html>

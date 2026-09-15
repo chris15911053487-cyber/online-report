@@ -70,6 +70,12 @@ export default function SettingsView() {
       {isAdmin && !showChangePwd && (
         <>
           <button
+            onClick={() => navigateTo('agents-admin')}
+            className="w-full py-3 bg-indigo-500 text-white rounded-lg font-medium hover:bg-indigo-600 transition-colors mb-4"
+          >
+            Agent 配置管理
+          </button>
+          <button
             onClick={() => navigateTo('ai-skills')}
             className="w-full py-3 bg-violet-500 text-white rounded-lg font-medium hover:bg-violet-600 transition-colors mb-4"
           >

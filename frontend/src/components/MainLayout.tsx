@@ -14,6 +14,9 @@ import ProSignOrderDetailView from '../views/ProSignOrderDetailView'
 import WorkRegistrationView from '../views/WorkRegistrationView'
 import AiChatView from '../views/AiChatView'
 import AiSkillsView from '../views/AiSkillsView'
+import AgentHubView from '../views/AgentHubView'
+import AgentsAdminView from '../views/AgentsAdminView'
+import AgentRunView from '../views/AgentRunView'
 import MessagesView from '../views/MessagesView'
 import MessageAlertSettingsView from '../views/MessageAlertSettingsView'
 import ScheduledReportsView from '../views/ScheduledReportsView'
@@ -21,11 +24,14 @@ import AlertPushView from '../views/AlertPushView'
 import type { ViewName } from '../types'
 import { isReturnProRoute } from '../views/ReturnProPickDetail'
 
-const rootTabs: ViewName[] = ['catalog', 'ai', 'messages', 'settings']
+const rootTabs: ViewName[] = ['catalog', 'ai', 'agent-hub', 'messages', 'settings']
 
 const viewComponents: Record<string, React.ComponentType> = {
   catalog: CatalogView,
   ai: AiChatView,
+  'agent-hub': AgentHubView,
+  'agent-run': AgentRunView,
+  'agents-admin': AgentsAdminView,
   messages: MessagesView,
   settings: SettingsView,
   'dynamic-report': DynamicReportView,
@@ -52,6 +58,9 @@ function getPageTitle(
   const titles: Record<string, string> = {
     catalog: '菜单',
     ai: 'AI 助手',
+    'agent-hub': 'Agent',
+    'agent-run': 'Agent',
+    'agents-admin': 'Agent 配置',
     messages: '消息',
     settings: '设置',
     owor: '生产订单',
@@ -130,8 +139,9 @@ export default function MainLayout() {
 
   return (
     <div className="min-h-screen bg-slate-50">
+      {/* header：移动端 max-w-2xl 居中，PC 端全宽 */}
       <header className="bg-slate-900 text-white sticky top-0 z-50">
-        <div className="flex items-center px-4 py-3 max-w-2xl mx-auto">
+        <div className="flex items-center px-4 py-3 max-w-2xl mx-auto md:max-w-none">
           {showBackButton && (
             <button
               onClick={goBack}
@@ -150,7 +160,8 @@ export default function MainLayout() {
         </div>
       </header>
 
-      <main className={`max-w-2xl mx-auto ${showBottomNav ? 'pb-16' : 'pb-4'}`}>
+      {/* main：移动端 max-w-2xl 居中，PC 端全宽 */}
+      <main className={`max-w-2xl mx-auto md:max-w-none ${showBottomNav ? 'pb-16' : 'pb-4'}`}>
         {(dynamicReportVisible || dynamicReportShellHidden) && (
           <div
             className={dynamicReportShellHidden ? 'hidden' : undefined}

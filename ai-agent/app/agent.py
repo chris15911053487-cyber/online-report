@@ -94,7 +94,7 @@ def get_graph():
     return _graph
 
 
-def build_system_prompt(skills, user) -> str:
+def build_system_prompt(skills, user, agent_prompt: str = "") -> str:
     lines = [load_base_instructions(), "", "## 可用 skill（按你的权限过滤后）"]
     if not skills:
         lines.append("（当前无可用 skill，仅可做一般性回答）")
@@ -129,6 +129,11 @@ def build_system_prompt(skills, user) -> str:
         lines.append(f"当前用户：{display_name}")
     if roles:
         lines.append(f"当前用户角色：{', '.join(roles)}")
+    # 附加该 Agent 专属指令（来自 dbo.agents.system_prompt_extra）
+    if agent_prompt and agent_prompt.strip():
+        lines.append("")
+        lines.append("## Agent 专属指令")
+        lines.append(agent_prompt.strip())
     return "\n".join(lines)
 
 
@@ -314,7 +319,7 @@ def _extract_suggested_actions(text):
     return cleaned, valid
 
 
-def run_turn(*, thread_id, scoped_token, input_obj, history, skills, user):
+def run_turn(*, thread_id, scoped_token, input_obj, history, skills, user, agent_prompt: str = ""):
     graph = get_graph()
     config = {"configurable": {"thread_id": thread_id, "scoped_token": scoped_token}}
 
@@ -333,7 +338,7 @@ def run_turn(*, thread_id, scoped_token, input_obj, history, skills, user):
             messages = [HumanMessage(content=content)]
         else:
             hist = history or [{"role": "user", "content": content}]
-            seeded = [SystemMessage(content=build_system_prompt(skills, user))]
+            seeded = [SystemMessage(content=build_system_prompt(skills, user, agent_prompt))]
             for m in hist:
                 if m.get("role") == "user":
                     seeded.append(HumanMessage(content=m.get("content", "")))

@@ -459,7 +459,7 @@ export default function AiChatView() {
   )
 
   return (
-    <div className="flex flex-col bg-slate-50 min-h-[calc(100dvh-7.5rem)] max-w-2xl mx-auto relative">
+    <div className="flex flex-col bg-slate-50 min-h-[calc(100dvh-7.5rem)] max-w-2xl mx-auto md:max-w-none relative">
       <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 bg-white/80">
         <button
           type="button"
@@ -764,7 +764,7 @@ export default function AiChatView() {
         className="fixed left-0 right-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur"
         style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom, 0px))' }}
       >
-        <div className="max-w-2xl mx-auto px-3 py-2">
+        <div className="max-w-2xl mx-auto md:max-w-none px-3 py-2">
           {quotedMsg && (
             <div className="mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100 border-l-2 border-sky-400 text-[11px] text-slate-600">
               <span className="flex-1 line-clamp-1">引用：{quotedMsg.text}</span>

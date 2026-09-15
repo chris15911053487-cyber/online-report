@@ -5,7 +5,8 @@
 const { getPool, sql } = require('./db');
 const { resolveUserRoles } = require('./roles');
 const { signScopedToken } = require('./ai-scoped-token');
-const { listSkillsForRoles } = require('./agent-skills');
+const { listSkillsForRoles, canUseSkill } = require('./agent-skills');
+const { getAgent } = require('./agents');
 const {
   isValidConversationId,
   ensureConversation,
@@ -52,13 +53,14 @@ async function postAgent(pathname, payload, scopedToken) {
  * @param {string} opts.userCode       - OUSR USER_CODE
  * @param {string} opts.displayName    - 显示名
  * @param {string} opts.conversationId - 会话 ID
+ * @param {string} [opts.agentKey]     - 可选：指定 Agent（过滤关联 skill，注入附加指令）
  * @param {string} [opts.message]      - 用户消息（非 resume 时必填）
  * @param {object} [opts.resume]       - 恢复中断 {field, value}
  * @param {object} [opts.log]          - fastify logger（可选）
  * @returns {Promise<object>}          - { conversationId, status, message, ... }
  */
 async function agentChatCore(opts) {
-  const { userCode, displayName, conversationId, message, resume, log } = opts;
+  const { userCode, displayName, conversationId, agentKey, message, resume, log } = opts;
   if (!isValidConversationId(conversationId)) {
     return { error: 'conversationId 不合法', code: 'AGENT_BAD_CONV_ID' };
   }
@@ -95,7 +97,26 @@ async function agentChatCore(opts) {
 
   let skills = [];
   try {
-    skills = (await listSkillsForRoles(pool, userRoles)).map((s) => ({
+    const allSkills = await listSkillsForRoles(pool, userRoles);
+
+    // 若指定了 agentKey，只注入该 Agent 关联的 skill（并取交集保证角色权限）
+    if (agentKey) {
+      try {
+        const agent = await getAgent(pool, agentKey);
+        if (agent && agent.enabled && agent.skills && agent.skills.length > 0) {
+          const agentSkillSet = new Set(agent.skills);
+          skills = allSkills.filter((s) => agentSkillSet.has(s.name));
+        }
+        // agent.skills 为空 = 未关联任何 skill → skills 保持 []，Agent 只做一般问答
+      } catch (agentErr) {
+        log?.warn?.({ err: agentErr?.message }, 'agentChatCore: getAgent failed, using all skills');
+        skills = allSkills;
+      }
+    } else {
+      skills = allSkills;
+    }
+
+    skills = skills.map((s) => ({
       name: s.name,
       description: s.description,
       bodyMd: s.bodyMd,
@@ -108,6 +129,15 @@ async function agentChatCore(opts) {
     }));
   } catch {}
 
+  // 若 agent 有附加指令，作为额外 system 信息透传给 ai-agent
+  let agentPrompt = '';
+  if (agentKey) {
+    try {
+      const agent = await getAgent(pool, agentKey);
+      if (agent && agent.systemPromptExtra) agentPrompt = agent.systemPromptExtra;
+    } catch { /* ignore */ }
+  }
+
   const scopedToken = signScopedToken({ userCode, displayName, roles: userRoles, conversationId });
 
   // 调 Agent
@@ -118,7 +148,14 @@ async function agentChatCore(opts) {
         : { type: 'message', content: message };
       const { ok, data } = await postAgent(
         '/chat',
-        { threadId: conversationId, input, messages: history, skills, user: { displayName, roles: userRoles } },
+        {
+          threadId: conversationId,
+          input,
+          messages: history,
+          skills,
+          user: { displayName, roles: userRoles },
+          agentPrompt: agentPrompt || undefined,
+        },
         scopedToken,
       );
       if (ok && data && data.status) {

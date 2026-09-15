@@ -1,5 +1,8 @@
 export { default as LoginView } from './LoginView'
 export { default as AiChatView } from './AiChatView'
+export { default as AgentHubView } from './AgentHubView'
+export { default as AgentsAdminView } from './AgentsAdminView'
+export { default as AgentRunView } from './AgentRunView'
 export { default as CatalogView } from './CatalogView'
 export { default as DynamicReportView } from './DynamicReportView'
 export { default as SettingsView } from './SettingsView'

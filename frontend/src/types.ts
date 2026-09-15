@@ -113,6 +113,9 @@ export type ViewName =
   | 'login'
   | 'catalog'
   | 'ai'
+  | 'agent-hub'
+  | 'agent-run'
+  | 'agents-admin'
   | 'messages'
   | 'settings'
   | 'owor'
@@ -128,3 +131,44 @@ export type ViewName =
   | 'work-registration'
   | 'scheduled-reports'
   | 'alert-push'
+
+/** Agent 快捷提问 */
+export interface AgentQuickPrompt {
+  icon?: string
+  label: string
+  prompt: string
+}
+
+/** Agent 展示/交互配置（GET /agents 下发的公开字段） */
+export interface Agent {
+  agentKey: string
+  label: string
+  subtitle?: string
+  description?: string
+  icon?: string
+  themeColor?: string
+  welcomeMd?: string
+  layoutMode: 'canvas' | 'chat'
+  quickPrompts: AgentQuickPrompt[]
+  defaultPrompt?: string
+  defaultEnabled?: boolean
+  defaultCacheSecs?: number
+}
+
+/** Agent 完整配置（管理后台用，含内部字段） */
+export interface AgentAdmin extends Agent {
+  id?: number
+  skills: string[]
+  systemPromptExtra?: string
+  roles: string[]
+  enabled: boolean
+  sortOrder: number
+}
+
+/** 后台配置界面用的 skill 候选项 */
+export interface AgentSkillOption {
+  name: string
+  description: string
+  enabled: boolean
+  roles: string[]
+}

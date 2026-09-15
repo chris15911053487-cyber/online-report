@@ -28,6 +28,7 @@ class ChatRequest(BaseModel):
     messages: list[dict] = []
     skills: list[dict] = []
     user: dict = {}
+    agentPrompt: str = ""   # Agent 专属附加 system prompt（来自 dbo.agents.system_prompt_extra）
 
 
 @app.get("/health")
@@ -58,6 +59,7 @@ async def chat(req: ChatRequest, request: Request, x_scoped_token: str | None = 
                 history=req.messages,
                 skills=req.skills,
                 user=req.user,
+                agent_prompt=req.agentPrompt or "",
             )
         )
         # 等待任务完成或客户端断开
