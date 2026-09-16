@@ -122,11 +122,14 @@ def build_system_prompt(skills, user, agent_prompt: str = "") -> str:
         else:
             lines.append("\n注意：本 skill 无附带资源文件，不要调用 read_skill_resource。正文中如提到文件路径属于说明文本，直接按正文指引执行即可。")
     display_name = (user or {}).get("displayName") or ""
+    user_code = (user or {}).get("userCode") or ""
     roles = (user or {}).get("roles") or []
-    if display_name or roles:
+    if display_name or user_code or roles:
         lines.append("")
     if display_name:
         lines.append(f"当前用户：{display_name}")
+    if user_code:
+        lines.append(f"当前用户编码：{user_code}（对应数据库 OUSR.USER_CODE，可用于按用户过滤查询）")
     if roles:
         lines.append(f"当前用户角色：{', '.join(roles)}")
     # 附加该 Agent 专属指令（来自 dbo.agents.system_prompt_extra）

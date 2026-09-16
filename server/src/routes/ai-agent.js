@@ -315,7 +315,7 @@ async function aiAgentRoutes(fastify) {
               input,
               messages: history,
               skills,
-              user: { displayName, roles: userRoles },
+              user: { userCode, displayName, roles: userRoles },
               agentPrompt: agentPrompt || undefined,
             },
             scopedToken,
