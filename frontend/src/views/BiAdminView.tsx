@@ -362,7 +362,7 @@ function QueryEditor({
         </div>
       </Section>
 
-      <div className="fixed bottom-0 left-0 right-0 bg-surface border-t border-line p-3 flex gap-2 z-10">
+      <div className="fixed bottom-0 left-0 right-0 lg:left-56 bg-surface border-t border-line p-3 flex gap-2 z-10">
         <button onClick={() => onDone(false)} className="flex-1 py-2.5 border border-line-strong rounded-lg text-sm text-fg-2">取消</button>
         <button onClick={() => void save()} disabled={saving} className="flex-1 py-2.5 bg-primary text-primary-fg rounded-lg text-sm font-medium disabled:opacity-60">
           {saving ? '保存中…' : '保存'}
@@ -482,7 +482,7 @@ function DashboardEditor({
         )}
       </Section>
 
-      <div className="fixed bottom-0 left-0 right-0 bg-surface border-t border-line p-3 flex gap-2 z-10">
+      <div className="fixed bottom-0 left-0 right-0 lg:left-56 bg-surface border-t border-line p-3 flex gap-2 z-10">
         <button onClick={() => onDone(false)} className="flex-1 py-2.5 border border-line-strong rounded-lg text-sm text-fg-2">取消</button>
         <button onClick={() => void save()} disabled={saving} className="flex-1 py-2.5 bg-primary text-primary-fg rounded-lg text-sm font-medium disabled:opacity-60">
           {saving ? '保存中…' : '保存'}

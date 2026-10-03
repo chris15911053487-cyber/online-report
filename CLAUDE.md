@@ -116,6 +116,7 @@ cd frontend && npm run lint
 - Agent 流式：`utils/agentStream.ts`；图表统一用 ECharts（`components/ChartRenderer.tsx`）
 - 外壳：`MainLayout` —— PC（≥1024px，`hooks/useMediaQuery.ts` 的 `useIsPc`）左侧 `Sidebar` + 面包屑顶栏；手机顶栏 + `BottomNav`。管理入口集中在「管理后台」`AdminHubView`（入口清单 `components/adminEntries.ts`）
 - 页面需兼顾 PC 与手机宽度（AgentRunView：PC 左对话右看板，移动端顶部页签）；PC 布局用 Tailwind `lg:` 断点或 `useIsPc`，不要读 `window.innerWidth`
+- 页面里 `position: fixed` 的底栏（输入框、操作按钮条）在 PC 上要加 `lg:left-56` 让出侧边栏（宽 14rem），并去掉为手机底部 Tab 预留的高度（`lg:bottom-0`）
 
 ### 界面主题（六套，可切换）
 

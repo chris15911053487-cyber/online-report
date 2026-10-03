@@ -790,8 +790,8 @@ export default function AiChatView() {
       </div>
 
       <div
-        className="fixed left-0 right-0 z-40 border-t border-line bg-surface/95 backdrop-blur"
-        style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom, 0px))' }}
+        // 手机：停在底部 Tab 之上；PC：没有底部 Tab，贴底并让出左侧导航
+        className="fixed left-0 right-0 lg:left-56 bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] lg:bottom-0 z-40 border-t border-line bg-surface/95 backdrop-blur"
       >
         <div className="max-w-2xl mx-auto md:max-w-none px-3 py-2">
           {quotedMsg && (
