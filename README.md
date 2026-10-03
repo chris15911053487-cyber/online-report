@@ -100,12 +100,47 @@ npm run init-db
 | 组件 | 说明 |
 |------|------|
 | `ai-agent/app/agent.py` | LangGraph ReAct Agent，system prompt + skill 注入 |
-| `ai-agent/app/tools.py` | 白名单工具：`run_sql`、`knowledge_search`、`save_record`、`generate_document` 等 |
+| `ai-agent/app/tools.py` | 白名单工具：`run_sql`、`load_skill`、`knowledge_search`、`save_record`、`generate_document` 等 |
 | `ai-agent/app/backend_client.py` | 回调主后端 internal 端点取数据 |
 
 **SQL 查询机制**：Agent 通过 `run_sql` 工具执行只读 SELECT 查询，但**必须在 Skill 上下文中使用**——只能执行 Skill `body_md` 中明确描述的 SQL 模式和表，不可自行发挥。主后端 `/ai/agent/internal/run-sql` 接口仅允许 SELECT，禁止写操作。
 
 **Skill 管理**：管理员在前台「AI Skill 管理」中配置 Skill（描述 + 工作流 + 约束），支持 AI 辅助生成。Skill 按角色过滤注入 Agent system prompt。
+
+**Skill 注入方式（按需加载）**：Skill 正文总字数 ≤ `AI_SKILL_INLINE_MAX_CHARS`（ai-agent，默认 12000）时，全文写入 system prompt；超过后 prompt 只列「名称 + 描述」索引，Agent 命中某个 skill 后先调用 `load_skill(skill_name)` 取完整工作流、表白名单与资源清单再执行（新增 Skill 不会再无限撑大 prompt）。`0` 表示始终按需加载，`-1` 表示始终全量内联。
+
+**流式对话与步骤耗时**：前端 AI 对话（`AiChatView`）与 Agent 运行页（`AgentRunView`）通过 SSE 调用 `POST /ai/agent/chat/stream`，实时显示每一步——每次模型调用、每个工具调用一行，运行中转圈并显示已用时，完成后显示耗时（并行工具同时转圈）；最终回答逐字流出。结束后「执行过程」面板保留各步耗时与整轮拆解（共 X · 模型 Y（N 次调用）· 工具/其它 Z）。
+
+| 事件 | 说明 |
+|------|------|
+| `start` | 连接建立 |
+| `llm_start` / `llm_end` | 一次模型调用的开始/结束（`durationMs`、`toolCalls`，开启 `AI_STREAM_USAGE` 后带 token 用量） |
+| `delta` | 模型输出的文本增量（以工具调用收尾的那次输出只是旁白，前端会丢弃） |
+| `tool_call` / `tool_result` | 工具开始/结束（`durationMs`、`ok`、`waiting`=等待用户确认） |
+| `final` | 最终结果，与 `POST /ai/agent/chat` 返回体一致，另含 `timings` |
+| `error` | 失败原因 |
+
+- 链路：前端 → 主后端 `/ai/agent/chat/stream` → ai-agent `/chat/stream`（均为 SSE）。原 `POST /ai/agent/chat` 保持不变，机器人、定时报告仍走它；前端在后端尚无流式接口（404）时自动退回。
+- 客户端断开（点「停止」或关页面）会一路中止：ai-agent 在**下一次模型调用之前**停止，已经开始的工具会执行完（避免会话里留下没有结果的 tool_calls）。
+- 部署在 nginx 等反向代理后面时，SSE 响应已带 `X-Accel-Buffering: no`，主后端每 15 秒发一次心跳；仍需保证 `proxy_read_timeout` 不小于单轮最长耗时。
+
+**提速相关**：
+
+- `agent_rules.md` 的「执行效率规范」要求模型：相互独立的查询在**同一轮**发出多个 `run_sql`（LangGraph 的 ToolNode 会并行执行）；优先写一条带 CTE / `GROUPING SETS` / 条件聚合的汇总 SQL，不要拆成多条；需要总览请在 SQL 里聚合。
+- `run_sql` 只把前 50 行交给模型（`truncated` / `totalRowCount` / `note` 告知还有更多），行数越少每轮模型越快。
+- system prompt 的顺序为：全局规则 → skill → Agent 专属指令 → **用户信息（最后）**。前面的内容对同角色的所有用户逐字相同，OpenAI 兼容服务（如 DeepSeek）按相同前缀自动缓存，命中越多首字越快。不要在前面的段落里加入随时间、随用户变化的内容。
+
+**性能相关配置**：
+
+| 变量 | 服务 | 默认 | 说明 |
+|------|------|------|------|
+| `AI_SKILL_CACHE_TTL_MS` | server | `30000` | Skill 列表进程内缓存；在后台增删改 Skill 时立即失效，`0` 关闭缓存 |
+| `AI_SQL_MAX_ROWS` | server | `200` | `run_sql` 接口单次返回的行数上限（安全上限）；结果集流式读取，超出部分只计数不占内存 |
+| `AI_SQL_COUNT_CAP` | server | `50000` | 统计总行数的上限，超过即取消查询，返回 `totalCapped: true` |
+| `AI_AGENT_STREAM_TIMEOUT_MS` | server | `180000` | 流式对话整轮总超时（非流式仍用 `AI_AGENT_TIMEOUT_MS`） |
+| `AI_SQL_LLM_MAX_ROWS` | ai-agent | `50` | 交给模型的最大行数（建议 30~50） |
+| `AI_STREAM_USAGE` | ai-agent | `false` | 流式响应附带 token 用量（在执行过程里显示每次模型调用的输入 tokens，可用来判断 prompt 是否过大）。个别 OpenAI 兼容服务不支持，确认后再开 |
+| `AI_SKILL_INLINE_MAX_CHARS` | ai-agent | `12000` | 见上文「Skill 注入方式」 |
 
 **写入目标**：AI 写入数据须经白名单控制（`agent_write_targets` 表），支持两种类型：
 - `table`：参数化 INSERT（前台配置字段白名单）

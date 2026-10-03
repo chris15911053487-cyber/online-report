@@ -1,12 +1,20 @@
 import { useState } from 'react'
+import { describeTimings, formatDuration, parseTimings, type AgentTimings } from '../utils/agentStream'
+import { formatStepArgs } from '../utils/agentTraceFormat'
+
+export type { AgentTimings }
 
 export interface AgentToolStep {
+  /** tool_call_id */
+  id?: string | null
   tool: string
   label?: string
   args?: Record<string, unknown>
   resultPreview?: string
   resultFull?: string
   status?: 'ok' | 'error'
+  /** 工具执行耗时（毫秒） */
+  durationMs?: number
 }
 
 function copyToClipboard(text: string) {
@@ -47,82 +55,34 @@ function buildStepCopyText(step: AgentToolStep): string {
 interface AgentTracePanelProps {
   skillUsed?: string
   toolSteps?: AgentToolStep[]
+  timings?: AgentTimings
   degraded?: boolean
   /** 是否为当前轮最新助手消息（默认展开） */
   defaultOpen?: boolean
 }
 
-function formatArgValue(v: unknown): string {
-  if (v == null) return ''
-  if (typeof v === 'string') return v.length > 120 ? `${v.slice(0, 118)}…` : v
-  if (typeof v === 'number' || typeof v === 'boolean') return String(v)
-  try {
-    const s = JSON.stringify(v)
-    return s.length > 160 ? `${s.slice(0, 158)}…` : s
-  } catch {
-    return String(v)
-  }
-}
-
-function formatStepArgs(step: AgentToolStep): string[] {
-  const args = step.args || {}
-  const lines: string[] = []
-  const tool = step.tool
-
-  if (tool === 'knowledge_search' && args.query) {
-    lines.push(`问题：${formatArgValue(args.query)}`)
-  } else if (tool === 'read_skill_resource') {
-    if (args.skill_name) lines.push(`Skill：${formatArgValue(args.skill_name)}`)
-    if (args.path) lines.push(`资源：${formatArgValue(args.path)}`)
-  } else if (tool === 'lookup_options') {
-    if (args.route_key) lines.push(`报表：${formatArgValue(args.route_key)}`)
-    if (args.field_name) lines.push(`字段：${formatArgValue(args.field_name)}`)
-    if (args.keyword) lines.push(`关键词：${formatArgValue(args.keyword)}`)
-  } else if (tool === 'run_report') {
-    if (args.route_key) lines.push(`报表：${formatArgValue(args.route_key)}`)
-    if (args.params) lines.push(`参数：${formatArgValue(args.params)}`)
-  } else if (tool === 'run_sql') {
-    if (args.skill_name) lines.push(`Skill：${formatArgValue(args.skill_name)}`)
-    if (args.sql_query) lines.push(`sql_query：${formatArgValue(args.sql_query)}`)
-  } else if (tool === 'ask_user_to_choose') {
-    if (args.field) lines.push(`字段：${formatArgValue(args.field)}`)
-    if (args.question) lines.push(`问题：${formatArgValue(args.question)}`)
-  } else if (tool === 'save_record') {
-    if (args.entity) lines.push(`实体：${formatArgValue(args.entity)}`)
-    if (args.payload) lines.push(`内容：${formatArgValue(args.payload)}`)
-  } else if (tool === 'generate_document') {
-    if (args.title) lines.push(`标题：${formatArgValue(args.title)}`)
-    if (args.fmt) lines.push(`格式：${formatArgValue(args.fmt)}`)
-  } else if (tool === 'generate_chart') {
-    if (args.title) lines.push(`标题：${formatArgValue(args.title)}`)
-    if (args.chart_type) lines.push(`类型：${formatArgValue(args.chart_type)}`)
-  } else {
-    for (const [k, v] of Object.entries(args)) {
-      if (v != null && v !== '') lines.push(`${k}：${formatArgValue(v)}`)
-    }
-  }
-  return lines
-}
-
 export function parseAgentTrace(data: Record<string, unknown>): {
   skillUsed?: string
   toolSteps?: AgentToolStep[]
+  timings?: AgentTimings
   degraded?: boolean
 } {
   const skillUsed = data.skillUsed ? String(data.skillUsed) : undefined
   const degraded = !!data.degraded
+  const timings = parseTimings(data.timings)
   const raw = data.toolSteps ?? data.toolCalls
   if (!Array.isArray(raw) || raw.length === 0) {
-    return { skillUsed, degraded }
+    return { skillUsed, degraded, timings }
   }
   if (typeof raw[0] === 'string') {
     return {
       skillUsed,
       degraded,
+      timings,
       toolSteps: raw.map((name) => ({ tool: String(name), label: String(name) })),
     }
   }
-  return { skillUsed, degraded, toolSteps: raw as AgentToolStep[] }
+  return { skillUsed, degraded, timings, toolSteps: raw as AgentToolStep[] }
 }
 
 function CopyStepBtn({ step }: { step: AgentToolStep }) {
@@ -146,6 +106,7 @@ function CopyStepBtn({ step }: { step: AgentToolStep }) {
 export default function AgentTracePanel({
   skillUsed,
   toolSteps,
+  timings,
   degraded,
   defaultOpen = false,
 }: AgentTracePanelProps) {
@@ -162,12 +123,13 @@ export default function AgentTracePanel({
     )
   }
 
-  if (!hasSteps && !skillUsed) return null
+  if (!hasSteps && !skillUsed && !timings) return null
 
   const summary = [
     skillUsed ? `Skill: ${skillUsed}` : null,
     hasSteps ? `${steps.length} 步工具调用` : null,
     errorCount > 0 ? `${errorCount} 步失败` : null,
+    timings ? `耗时 ${formatDuration(timings.totalMs)}` : null,
   ]
     .filter(Boolean)
     .join(' · ')
@@ -188,6 +150,11 @@ export default function AgentTracePanel({
       </button>
       {open && (
         <div className="px-3 pb-3 space-y-2 border-t border-slate-200/80">
+          {timings && (
+            <p className="text-[10px] text-slate-600 pt-2" title="模型耗时为各次调用之和；工具/其它为整轮墙钟减去模型耗时">
+              ⏱ {describeTimings(timings)}
+            </p>
+          )}
           {skillUsed && (
             <p className="text-[10px] text-violet-700 pt-2">
               使用 Skill：<span className="font-mono font-medium">{skillUsed}</span>
@@ -215,6 +182,9 @@ export default function AgentTracePanel({
                       <span className="ml-1.5 text-[10px] font-normal text-rose-600">失败</span>
                     )}
                     <span className="ml-1.5 font-normal text-slate-400 font-mono text-[10px]">{step.tool}</span>
+                    {step.durationMs != null && (
+                      <span className="ml-1.5 font-normal text-slate-500 text-[10px]">⏱ {formatDuration(step.durationMs)}</span>
+                    )}
                   </p>
                   <CopyStepBtn step={step} />
                 </div>

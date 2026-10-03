@@ -18,8 +18,10 @@ import {
 } from 'lucide-react'
 import { useStore } from '../store'
 import { apiFetch } from '../utils/api'
+import { createLiveFeed, streamAgentChat, type LiveState } from '../utils/agentStream'
 import ChartRenderer from '../components/ChartRenderer'
-import AgentTracePanel, { parseAgentTrace, type AgentToolStep } from '../components/AgentTracePanel'
+import AgentLiveTrace, { AgentLiveStatus } from '../components/AgentLiveTrace'
+import AgentTracePanel, { parseAgentTrace, type AgentTimings, type AgentToolStep } from '../components/AgentTracePanel'
 import ChatMarkdown from '../components/ChatMarkdown'
 import type { Agent, AgentQuickPrompt } from '../types'
 
@@ -54,6 +56,7 @@ interface CanvasTurn {
   charts: Record<string, unknown>[]
   message: string
   toolSteps?: AgentToolStep[]
+  timings?: AgentTimings
   timestamp: number
 }
 
@@ -309,11 +312,14 @@ function CanvasPanel({
   loading,
   query,
   pcMode,
+  live,
 }: {
   turn: CanvasTurn | null
   loading: boolean
   query?: string
   pcMode?: boolean
+  /** 流式进行中的实时步骤（有则替代骨架屏） */
+  live?: LiveState | null
 }) {
   if (loading) {
     return (
@@ -339,21 +345,25 @@ function CanvasPanel({
             正在分析「{query || '…'}」…
           </div>
         </FadeUp>
-        {/* 骨架屏 */}
-        {[0, 1].map((i) => (
-          <div
-            key={i}
-            className="h-36 rounded-2xl animate-pulse"
-            style={{ background: '#eef0f4', animationDelay: `${i * 150}ms` }}
-          />
-        ))}
+        {/* 实时执行过程（每步耗时）；流式不可用时退回骨架屏 */}
+        {live ? (
+          <AgentLiveTrace live={live} />
+        ) : (
+          [0, 1].map((i) => (
+            <div
+              key={i}
+              className="h-36 rounded-2xl animate-pulse"
+              style={{ background: '#eef0f4', animationDelay: `${i * 150}ms` }}
+            />
+          ))
+        )}
       </div>
     )
   }
 
   if (!turn) return null
 
-  const { canvas, charts, message, toolSteps, intent, query: q } = turn
+  const { canvas, charts, message, toolSteps, timings, intent, query: q } = turn
   const hasAny = (canvas.metrics?.length ?? 0) > 0 || charts.length > 0 || canvas.table || canvas.insight || message
 
   if (!hasAny) return null
@@ -421,9 +431,9 @@ function CanvasPanel({
           <div className="text-[13px] leading-relaxed" style={{ color: '#4a4f63' }}>
             <ChatMarkdown content={message} />
           </div>
-          {toolSteps && toolSteps.length > 0 && (
+          {((toolSteps && toolSteps.length > 0) || timings) && (
             <div className="mt-3">
-              <AgentTracePanel toolSteps={toolSteps} />
+              <AgentTracePanel toolSteps={toolSteps} timings={timings} />
             </div>
           )}
         </CanvasCard>
@@ -520,6 +530,7 @@ export default function AgentRunView() {
   const [chatItems, setChatItems] = useState<ChatItem[]>([])
   const [sending, setSending] = useState(false)
   const [pendingQuery, setPendingQuery] = useState('')   // 正在加载时显示「正在分析…」
+  const [live, setLive] = useState<LiveState | null>(null)  // 流式进行中的实时步骤
 
   // 移动端输入栏
   const [mobileInput, setMobileInput] = useState('')
@@ -561,6 +572,17 @@ export default function AgentRunView() {
 
   // ─── 发送核心 ──────────────────────────────────────────────────────────────
 
+  /** 流式调用 Agent：过程事件实时写入 live，返回最终结果（与非流式接口同形） */
+  const runAgent = useCallback(async (body: Record<string, unknown>, signal: AbortSignal) => {
+    const feed = createLiveFeed(setLive)
+    try {
+      return await streamAgentChat(body, { signal, onEvent: feed.push })
+    } finally {
+      feed.stop()
+      setLive(null)
+    }
+  }, [])
+
   const doSend = useCallback(
     async (text: string) => {
       const trimmed = text.trim()
@@ -579,15 +601,10 @@ export default function AgentRunView() {
       abortRef.current = ctrl
 
       try {
-        const data = await apiFetch('/ai/agent/chat', {
-          method: 'POST',
-          body: JSON.stringify({
-            conversationId,
-            agentKey: currentAgentKey ?? undefined,
-            message: trimmed,
-          }),
-          signal: ctrl.signal,
-        })
+        const data = await runAgent(
+          { conversationId, agentKey: currentAgentKey ?? undefined, message: trimmed },
+          ctrl.signal,
+        )
 
         if (data?.status === 'need_clarification' && data.clarification) {
           const cl = data.clarification as ClarificationData
@@ -616,6 +633,7 @@ export default function AgentRunView() {
           charts,
           message: cleaned,
           toolSteps: trace.toolSteps,
+          timings: trace.timings,
           timestamp: Date.now(),
         }
         setTurns((prev) => [...prev, newTurn])
@@ -661,7 +679,7 @@ export default function AgentRunView() {
         setPendingQuery('')
       }
     },
-    [sending, conversationId, currentAgentKey, showToast],
+    [sending, conversationId, currentAgentKey, showToast, runAgent],
   )
 
   const resumeWith = useCallback(
@@ -679,22 +697,17 @@ export default function AgentRunView() {
       const ctrl = new AbortController()
       abortRef.current = ctrl
       try {
-        const data = await apiFetch('/ai/agent/chat', {
-          method: 'POST',
-          body: JSON.stringify({
-            conversationId,
-            agentKey: currentAgentKey ?? undefined,
-            resume: { field, value },
-          }),
-          signal: ctrl.signal,
-        })
+        const data = await runAgent(
+          { conversationId, agentKey: currentAgentKey ?? undefined, resume: { field, value } },
+          ctrl.signal,
+        )
         const rawMessage = typeof data?.message === 'string' ? data.message : ''
         const { cleaned, canvas } = extractCanvas(rawMessage)
         const trace = parseAgentTrace(data)
         const charts = extractCharts(trace.toolSteps)
         const newTurn: CanvasTurn = {
           id: uid(), query: label, intent: canvas.intent, canvas, charts,
-          message: cleaned, toolSteps: trace.toolSteps, timestamp: Date.now(),
+          message: cleaned, toolSteps: trace.toolSteps, timings: trace.timings, timestamp: Date.now(),
         }
         setTurns((prev) => [...prev, newTurn])
         setCurrentTurnId(newTurn.id)
@@ -714,7 +727,7 @@ export default function AgentRunView() {
         setPendingQuery('')
       }
     },
-    [conversationId, currentAgentKey, showToast],
+    [conversationId, currentAgentKey, showToast, runAgent],
   )
 
   const startNew = useCallback(() => {
@@ -821,10 +834,7 @@ export default function AgentRunView() {
         <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: '#eef2ff', color: '#4f6ef7', fontSize: 11, fontWeight: 600 }}>AI</div>
         <div className="flex-1 min-w-0" style={{ maxWidth: 300 }}>
           {item.loading ? (
-            <div className="flex items-center gap-1.5 py-2 text-[13px]" style={{ color: '#8b8fa3' }}>
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              <span className="animate-pulse">思考中…</span>
-            </div>
+            <AgentLiveStatus live={live} />
           ) : item.clarification && !item.clarificationResolved ? (
             <div className="rounded-xl rounded-tl px-3.5 py-3 border text-[13px]" style={{ background: '#f5f6f8', borderTopLeftRadius: 4 }}>
               <p className="mb-2" style={{ color: '#2d3142' }}>{item.clarification.question}</p>
@@ -954,14 +964,6 @@ export default function AgentRunView() {
 
               {chatItems.map(renderChatItem)}
 
-              {sending && (
-                <div className="flex gap-2.5">
-                  <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: '#eef2ff', color: '#4f6ef7', fontSize: 11, fontWeight: 600 }}>AI</div>
-                  <div className="flex items-center gap-1.5 text-[13px] animate-pulse" style={{ color: '#8b8fa3' }}>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> 思考中…
-                  </div>
-                </div>
-              )}
               <div ref={chatEndRef} />
             </div>
 
@@ -1006,7 +1008,7 @@ export default function AgentRunView() {
                 </div>
               )}
 
-              <CanvasPanel turn={currentTurn} loading={sending} query={pendingQuery} pcMode />
+              <CanvasPanel turn={currentTurn} loading={sending} query={pendingQuery} pcMode live={live} />
             </div>
           </div>
         </div>
@@ -1040,7 +1042,7 @@ export default function AgentRunView() {
 
             {/* 画布区 —— 主内容，直接展示在页面上 */}
             <div className="mb-3">
-              <CanvasPanel turn={currentTurn} loading={sending} query={pendingQuery} />
+              <CanvasPanel turn={currentTurn} loading={sending} query={pendingQuery} live={live} />
             </div>
 
             {/* 欢迎语（无内容时） */}

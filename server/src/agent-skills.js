@@ -113,9 +113,49 @@ function canUseSkill(userRoles, skillRoles) {
   return m.some((r) => u.includes(r));
 }
 
+// ---- skill 全量列表的进程内缓存 ----
+// 每次对话都要取 skill 清单，而 listAllSkills 会读出 body_md 与 resources_json 全文；
+// skill 变更频率极低，用短 TTL 缓存 + 写入时主动失效即可。
+// TTL 仅用于兜底（例如绕过本进程直接改库、或多实例部署时的最长陈旧时间）。
+const SKILL_CACHE_TTL_MS = (() => {
+  const n = Number(process.env.AI_SKILL_CACHE_TTL_MS);
+  return Number.isFinite(n) && n >= 0 ? n : 30000;
+})();
+let skillCache = null; // { at: number, items: Skill[], pending?: Promise }
+
+function invalidateSkillCache() {
+  skillCache = null;
+}
+
+/** 带缓存的全量 skill；并发未命中时共享同一次查询。返回的数组与元素为只读共享对象，调用方不可修改。 */
+async function listAllSkillsCached(pool) {
+  if (SKILL_CACHE_TTL_MS <= 0) return listAllSkills(pool);
+  const now = Date.now();
+  if (skillCache && skillCache.items && now - skillCache.at < SKILL_CACHE_TTL_MS) {
+    return skillCache.items;
+  }
+  if (skillCache && skillCache.pending) return skillCache.pending;
+  const entry = { at: 0, items: null, pending: null };
+  entry.pending = listAllSkills(pool).then(
+    (items) => {
+      entry.items = items;
+      entry.at = Date.now();
+      entry.pending = null;
+      return items;
+    },
+    (err) => {
+      // 失败不缓存；仅当缓存槽仍是本次查询时才清除
+      if (skillCache === entry) skillCache = null;
+      throw err;
+    }
+  );
+  skillCache = entry;
+  return entry.pending;
+}
+
 /** 列出某用户角色可用且启用的 skill（注入 Agent system prompt 用，第 1 层权限） */
 async function listSkillsForRoles(pool, userRoles) {
-  const all = await listAllSkills(pool);
+  const all = await listAllSkillsCached(pool);
   return all.filter((s) => s.enabled && canUseSkill(userRoles, s.roles));
 }
 
@@ -258,6 +298,7 @@ async function upsertSkill(pool, value) {
                   @produces_document, @enabled, @sort_order);
       `);
   }
+  invalidateSkillCache();
   return getSkill(pool, value.name);
 }
 
@@ -266,6 +307,7 @@ async function deleteSkill(pool, name) {
     .request()
     .input('n', sql.NVarChar(64), String(name || '').toLowerCase())
     .query(`DELETE FROM dbo.agent_skills WHERE name = @n`);
+  invalidateSkillCache();
   return rs.rowsAffected && rs.rowsAffected[0] > 0;
 }
 
@@ -339,6 +381,7 @@ module.exports = {
   canUseSkill,
   listAllSkills,
   listSkillsForRoles,
+  invalidateSkillCache,
   getSkill,
   validateSkillInput,
   upsertSkill,

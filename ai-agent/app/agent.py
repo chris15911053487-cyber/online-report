@@ -14,7 +14,10 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.prebuilt import create_react_agent
 from langgraph.types import Command
 
+from . import steps as _steps
+from .recorder import TurnRecorder
 from .config import settings
+from .skill_prompt import format_skill_full, format_skill_index, index_skills, should_lazy_load
 from .tools import ALL_TOOLS
 
 # 全局约束规则的内置默认值（兜底）：当 agent_rules.md 缺失或为空时使用。
@@ -37,6 +40,8 @@ _DEFAULT_BASE_INSTRUCTIONS = (
     "   ```\n"
     "   支持的 type：navigate（需 view 字段：settings/catalog）、openCatalog、openProSign、followup（追问建议）。\n"
     "   只在有意义时附加，不要每次都加；最多 3 个。如果不需要就不要输出此块。\n"
+    "8. 效率：相互独立的查询在同一轮一次性发出多个工具调用（会并行执行）；优先用一条带 CTE / GROUP BY / 条件聚合的汇总 SQL，"
+    "不要为每个维度各写一条；工具只返回前几十行，需要总览请在 SQL 里聚合。\n"
 )
 
 # 全局约束规则 md 文件路径（可通过环境变量 AGENT_RULES_FILE 覆盖）。
@@ -74,7 +79,12 @@ def _build_model():
         "api_key": settings.resolve_api_key() or "dummy-key-for-dev",
         "timeout": settings.TIMEOUT_MS / 1000.0,
         "max_tokens": settings.MAX_TOKENS,
+        # 流式输出：token 经回调实时推给 SSE；对普通 /chat 调用无副作用
+        "streaming": True,
     }
+    if settings.STREAM_USAGE:
+        # 让流式响应带回 token 用量（用于显示 prompt 大小）。个别 OpenAI 兼容服务不支持，故默认关闭
+        kwargs["stream_usage"] = True
     base_url = settings.resolve_base_url()
     if base_url:
         kwargs["base_url"] = base_url
@@ -98,29 +108,19 @@ def build_system_prompt(skills, user, agent_prompt: str = "") -> str:
     lines = [load_base_instructions(), "", "## 可用 skill（按你的权限过滤后）"]
     if not skills:
         lines.append("（当前无可用 skill，仅可做一般性回答）")
-    for s in skills or []:
-        lines.append(f"\n### {s.get('name')}\n{s.get('description','')}\n{s.get('bodyMd','')}")
-        allowed_tables = s.get("allowedTables") or []
-        if allowed_tables:
-            lines.append(
-                "\n**本 skill 的 run_sql 表白名单（硬约束）**：只能引用以下表，"
-                + "、".join(str(t) for t in allowed_tables)
-                + "。禁止 JOIN 或查询白名单以外的任何表；"
-                "需要新增维度/字段时，只能在这些表已有的列上扩展（加入 SELECT 并同步加入 GROUP BY），"
-                "不可引入新表。调用 run_sql 时必须传 skill_name=\""
-                + str(s.get("name"))
-                + "\"。"
-            )
-        resources = s.get("resources") or []
-        if resources:
-            lines.append("\n本 skill 附带以下资源文件（仅列清单，内容未加载）：")
-            for r in resources:
-                lines.append(f"- {r.get('path')}（{r.get('size', 0)} 字节）")
-            lines.append(
-                "需要其中细节时，用 read_skill_resource(skill_name, path) 按需读取；不要凭空臆测资源内容。"
-            )
-        else:
-            lines.append("\n注意：本 skill 无附带资源文件，不要调用 read_skill_resource。正文中如提到文件路径属于说明文本，直接按正文指引执行即可。")
+    elif should_lazy_load(skills, settings.SKILL_INLINE_MAX_CHARS):
+        # skill 正文总量较大：只放索引，命中后由 load_skill 按需取完整说明，避免 prompt 膨胀
+        lines.extend(format_skill_index(skills))
+    else:
+        for s in skills:
+            lines.extend(format_skill_full(s))
+    # 附加该 Agent 专属指令（来自 dbo.agents.system_prompt_extra）
+    if agent_prompt and agent_prompt.strip():
+        lines.append("")
+        lines.append("## Agent 专属指令")
+        lines.append(agent_prompt.strip())
+    # 随用户变化的内容必须放在最后：前面的「全局规则 + skill + Agent 指令」对同角色的所有用户逐字相同，
+    # OpenAI 兼容服务（如 DeepSeek）按相同前缀自动缓存，前缀越长命中越多、首 token 越快。
     display_name = (user or {}).get("displayName") or ""
     user_code = (user or {}).get("userCode") or ""
     roles = (user or {}).get("roles") or []
@@ -132,74 +132,37 @@ def build_system_prompt(skills, user, agent_prompt: str = "") -> str:
         lines.append(f"当前用户编码：{user_code}（对应数据库 OUSR.USER_CODE，可用于按用户过滤查询）")
     if roles:
         lines.append(f"当前用户角色：{', '.join(roles)}")
-    # 附加该 Agent 专属指令（来自 dbo.agents.system_prompt_extra）
-    if agent_prompt and agent_prompt.strip():
-        lines.append("")
-        lines.append("## Agent 专属指令")
-        lines.append(agent_prompt.strip())
     return "\n".join(lines)
 
 
-def _interrupt_payload(result):
+def _interrupt_payload(result, graph=None, config=None):
+    """取出挂起的人机协同中断负载（消歧 / 保存确认）。
+
+    新版 LangGraph 的 invoke 结果里带 __interrupt__；但 requirements 固定的 0.2.x 不带，
+    此时必须从 checkpoint 状态（StateSnapshot.tasks[*].interrupts）里取——两种方式都兼容。
+    """
     intr = result.get("__interrupt__") if isinstance(result, dict) else None
-    if not intr:
-        return None
-    first = intr[0] if isinstance(intr, (list, tuple)) and intr else intr
-    return getattr(first, "value", None) or (first if isinstance(first, dict) else None)
-
-
-TOOL_LABELS = {
-    "knowledge_search": "检索知识库",
-    "read_skill_resource": "读取 Skill 资源",
-    "lookup_options": "查找候选项",
-    "run_report": "执行报表查询",
-    "run_sql": "执行 SQL 查询",
-    "ask_user_to_choose": "等待用户确认",
-    "save_record": "保存记录",
-    "generate_document": "生成文档",
-    "generate_chart": "生成图表",
-}
-
-
-def _truncate_text(text, limit=180):
-    s = str(text or "").replace("\n", " ").strip()
-    return s if len(s) <= limit else s[:limit] + "…"
-
-
-def _summarize_args(tool, args):
-    if not isinstance(args, dict):
-        return {}
-    out = dict(args)
-    if tool == "run_report" and "params_json" in out:
+    if intr:
+        first = intr[0] if isinstance(intr, (list, tuple)) and intr else intr
+        return getattr(first, "value", None) or (first if isinstance(first, dict) else None)
+    if graph is not None:
         try:
-            raw = out.get("params_json")
-            parsed = json.loads(raw) if isinstance(raw, str) else raw
-            out["params"] = parsed if isinstance(parsed, dict) else raw
+            state = graph.get_state(config)
+            for task in getattr(state, "tasks", None) or ():
+                for it in getattr(task, "interrupts", None) or ():
+                    value = getattr(it, "value", None)
+                    if value:
+                        return value
         except Exception:  # noqa: BLE001
             pass
-        out.pop("params_json", None)
-    if tool == "save_record" and "payload_json" in out:
-        try:
-            raw = out.get("payload_json")
-            parsed = json.loads(raw) if isinstance(raw, str) else raw
-            out["payload"] = parsed if isinstance(parsed, (dict, list)) else raw
-        except Exception:  # noqa: BLE001
-            pass
-        out.pop("payload_json", None)
-    if tool == "generate_document":
-        for key in ("columns_json", "rows_json"):
-            if key in out:
-                try:
-                    raw = out.get(key)
-                    parsed = json.loads(raw) if isinstance(raw, str) else raw
-                    out[key.replace("_json", "")] = parsed
-                except Exception:  # noqa: BLE001
-                    pass
-                out.pop(key, None)
-    if tool == "lookup_options" and "options_json" in out:
-        out.pop("options_json", None)
-    out.pop("config", None)
-    return out
+    return None
+
+
+# 工具步骤展示辅助已移至 steps.py；保留旧名称别名以兼容既有引用
+TOOL_LABELS = _steps.TOOL_LABELS
+_truncate_text = _steps.truncate_text
+_summarize_args = _steps.summarize_args
+_tool_result_preview = _steps.tool_result_preview
 
 
 def _collect_tool_steps(messages):
@@ -222,6 +185,7 @@ def _collect_tool_steps(messages):
                 raw_args = c.get("args") if isinstance(c, dict) else getattr(c, "args", {})
                 tid = c.get("id") if isinstance(c, dict) else getattr(c, "id", None)
                 step = {
+                    "id": tid,  # tool_call_id：用于把工具耗时写回步骤
                     "tool": name,
                     "label": TOOL_LABELS.get(name, name),
                     "args": _summarize_args(name, raw_args),
@@ -243,23 +207,6 @@ def _collect_tool_steps(messages):
                 if is_err:
                     steps[idx]["status"] = "error"
     return steps
-
-
-def _tool_result_preview(content: str):
-    """解析工具返回；失败时提取可读错误供前台展示。"""
-    text = str(content or "").strip()
-    if not text:
-        return "", False
-    try:
-        data = json.loads(text)
-        if isinstance(data, dict) and data.get("success") is False:
-            err = str(data.get("error") or "工具调用失败")
-            return _truncate_text(err), True
-    except Exception:  # noqa: BLE001
-        pass
-    if "失败" in text or text.startswith("（读取资源失败"):
-        return _truncate_text(text), True
-    return _truncate_text(text), False
 
 
 def _collect_tool_names(steps):
@@ -291,6 +238,12 @@ def _guess_skill(tool_names, steps):
         return "report-query"
     if "knowledge_search" in tool_names:
         return "knowledge-qa"
+    # 只加载了 skill 但没执行后续工具（如直接答复 / 追问）：以加载的 skill 为准
+    for s in steps:
+        if s.get("tool") == "load_skill":
+            sk = (s.get("args") or {}).get("skill_name")
+            if sk:
+                return str(sk)
     return None
 
 
@@ -322,9 +275,20 @@ def _extract_suggested_actions(text):
     return cleaned, valid
 
 
-def run_turn(*, thread_id, scoped_token, input_obj, history, skills, user, agent_prompt: str = ""):
+def run_turn(*, thread_id, scoped_token, input_obj, history, skills, user, agent_prompt: str = "", recorder=None):
     graph = get_graph()
-    config = {"configurable": {"thread_id": thread_id, "scoped_token": scoped_token}}
+    recorder = recorder or TurnRecorder()
+    config = {
+        "configurable": {
+            "thread_id": thread_id,
+            "scoped_token": scoped_token,
+            # load_skill 的查表来源：每次请求都由网关带来（已按角色/Agent 过滤），
+            # 不依赖 checkpoint，重启或 resume 后仍可用。值为 dict（非基础类型），不会写入 checkpoint 元数据。
+            "skills_by_name": index_skills(skills),
+        },
+        # 记录 LLM/工具耗时；流式接口通过它实时推送事件
+        "callbacks": [recorder],
+    }
 
     if input_obj.get("type") == "resume":
         result = graph.invoke(Command(resume=input_obj.get("value")), config)
@@ -350,9 +314,10 @@ def run_turn(*, thread_id, scoped_token, input_obj, history, skills, user, agent
             messages = seeded
         result = graph.invoke({"messages": messages}, config)
 
-    clar = _interrupt_payload(result)
+    clar = _interrupt_payload(result, graph, config)
     msgs = result.get("messages", []) if isinstance(result, dict) else []
-    tool_steps = _collect_tool_steps(msgs)
+    tool_steps = recorder.apply_durations(_collect_tool_steps(msgs))
+    timings = recorder.summary()
     tool_names = _collect_tool_names(tool_steps)
     skill_used = _guess_skill(tool_names, tool_steps)
 
@@ -374,6 +339,7 @@ def run_turn(*, thread_id, scoped_token, input_obj, history, skills, user, agent
             "skillUsed": skill_used,
             "toolCalls": tool_names,
             "toolSteps": tool_steps,
+            "timings": timings,
         }
 
     final = ""
@@ -389,4 +355,5 @@ def run_turn(*, thread_id, scoped_token, input_obj, history, skills, user, agent
         "skillUsed": skill_used,
         "toolCalls": tool_names,
         "toolSteps": tool_steps,
+        "timings": timings,
     }

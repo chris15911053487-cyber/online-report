@@ -29,7 +29,10 @@ const {
   verifyScopedToken,
   userFromScopedPayload,
 } = require('../ai-scoped-token');
-const { listSkillsForRoles, canUseSkill, checkSqlTablesAllowed } = require('../agent-skills');
+const { listSkillsForRoles, canUseSkill, checkSqlTablesAllowed, getSkill } = require('../agent-skills');
+const { runSqlLimited } = require('../agent-sql');
+const { resolveAgentContext } = require('../agent-context');
+const { agentChatCore } = require('../agent-chat-core');
 const {
   isValidConversationId,
   ensureConversation,
@@ -253,47 +256,12 @@ async function aiAgentRoutes(fastify) {
           .map((m) => ({ role: m.role, content: m.content }));
       } catch {}
 
-      let skills = [];
-      try {
-        const { getAgent } = require('../agents');
-        const allSkills = await listSkillsForRoles(pool, userRoles);
-
-        // 若前端指定了 agentKey，只注入该 Agent 关联的 skill
-        if (agentKey) {
-          try {
-            const agent = await getAgent(pool, agentKey);
-            if (agent && agent.enabled && agent.skills && agent.skills.length > 0) {
-              const agentSkillSet = new Set(agent.skills);
-              skills = allSkills.filter((s) => agentSkillSet.has(s.name));
-            }
-          } catch { skills = allSkills; }
-        } else {
-          skills = allSkills;
-        }
-
-        skills = skills.map((s) => ({
-          name: s.name,
-          description: s.description,
-          bodyMd: s.bodyMd,
-          producesDocument: s.producesDocument,
-          allowedTables: s.allowedTables || [],
-          // 资源只传清单（路径+大小），内容由 Agent 经 read_skill_resource 按需读取
-          resources: Object.entries(s.resources || {}).map(([p, r]) => ({
-            path: p,
-            size: Number(r?.size) || (typeof r?.content === 'string' ? r.content.length : 0),
-          })),
-        }));
-      } catch {}
-
-      // 若 agent 有附加 system prompt，透传给 ai-agent
-      let agentPrompt = '';
-      if (agentKey) {
-        try {
-          const { getAgent } = require('../agents');
-          const agent = await getAgent(pool, agentKey);
-          if (agent && agent.systemPromptExtra) agentPrompt = agent.systemPromptExtra;
-        } catch { /* ignore */ }
-      }
+      // 组装 skill 清单与 Agent 专属指令（一次对话只查一次 agents 表；与 bot/定时报告共用）
+      const { skills, agentPrompt } = await resolveAgentContext(pool, {
+        agentKey,
+        userRoles,
+        log: request.log,
+      });
 
       const scopedToken = signScopedToken({ userCode, displayName, roles: userRoles, conversationId });
 
@@ -377,6 +345,84 @@ async function aiAgentRoutes(fastify) {
         await touchConversation(pool, conversationId);
       } catch {}
       return { conversationId, status: 'final', degraded: true, ...fallback };
+    }
+  );
+
+  /**
+   * 流式对话（SSE）：与 /ai/agent/chat 同一套逻辑（agentChatCore），但把过程事件实时推给前端：
+   *   start → llm_start / delta / llm_end / tool_call / tool_result ... → final（data 与 /ai/agent/chat 返回体一致）
+   * 出错为 error 事件。客户端断开会中止对 ai-agent 的转发，ai-agent 在下一次 LLM 调用前停止。
+   */
+  fastify.post(
+    '/ai/agent/chat/stream',
+    { preHandler: [fastify.authenticate] },
+    async (request, reply) => {
+      const body = request.body || {};
+      const conversationId = String(body.conversationId || '').trim();
+      if (!isValidConversationId(conversationId)) {
+        return reply.code(400).send({ error: 'conversationId 不合法', code: 'AGENT_BAD_CONV_ID' });
+      }
+      const isResume = body.resume && typeof body.resume === 'object';
+      const message = String(body.message || '').trim();
+      if (!isResume && !message) {
+        return reply.code(400).send({ error: '请提供 message', code: 'AGENT_EMPTY_MESSAGE' });
+      }
+
+      const userCode = String(request.user.username || '').trim();
+      const displayName = String(request.user.displayName || userCode);
+
+      // 接管响应：之后自行写 SSE。保留 CORS 等已设置的响应头（hijack 后 Fastify 不再自动附加）
+      reply.hijack();
+      const raw = reply.raw;
+      raw.writeHead(200, {
+        ...reply.getHeaders(),
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no', // 关闭 nginx 缓冲，否则事件会被攒到结束才出去
+      });
+      const send = (event) => {
+        if (raw.writableEnded || raw.destroyed) return;
+        raw.write(`data: ${JSON.stringify(event)}\n\n`);
+      };
+
+      // 客户端断开 → 中止转发
+      const ac = new AbortController();
+      raw.on('close', () => {
+        if (!raw.writableFinished) ac.abort();
+      });
+      // 长耗时工具/LLM 期间定时发心跳，避免反向代理空闲超时切断连接
+      const heartbeat = setInterval(() => {
+        if (!raw.writableEnded && !raw.destroyed) raw.write(': ping\n\n');
+      }, 15000);
+
+      try {
+        send({ type: 'start', conversationId });
+        const result = await agentChatCore({
+          userCode,
+          displayName,
+          conversationId,
+          agentKey: body.agentKey ? String(body.agentKey).trim().toLowerCase() : null,
+          message,
+          resume: isResume ? body.resume : undefined,
+          log: request.log,
+          onEvent: send,
+          signal: ac.signal,
+        });
+        if (result.status === 'cancelled') {
+          // 客户端已走，无需再写
+        } else if (result.error) {
+          send({ type: 'error', message: result.error, code: result.code });
+        } else {
+          send({ type: 'final', data: result });
+        }
+      } catch (err) {
+        request.log.error({ err }, 'ai/agent/chat/stream');
+        send({ type: 'error', message: err.message || '对话失败' });
+      } finally {
+        clearInterval(heartbeat);
+        if (!raw.writableEnded) raw.end();
+      }
     }
   );
 
@@ -561,14 +607,14 @@ async function aiAgentRoutes(fastify) {
       const req = pool.request();
       req.timeout = 30000;
 
-      const result = await req.query(rawSql);
-      const rows = result.recordset || [];
-      const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+      // 流式读取：只保留前 N 行、其余只计数，避免大结果集整体进内存
+      const out = await runSqlLimited(req, rawSql);
       return {
-        columns,
-        rows: rows.slice(0, 200),
-        totalRowCount: rows.length,
-        truncated: rows.length > 200,
+        columns: out.columns,
+        rows: out.rows,
+        totalRowCount: out.totalRowCount,
+        truncated: out.truncated,
+        totalCapped: out.totalCapped,
       };
     } catch (err) {
       request.log.error({ err }, 'agent internal run-sql');
@@ -782,7 +828,6 @@ async function aiAgentRoutes(fastify) {
   // ===========================================================================
   const {
     listAllSkills,
-    getSkill,
     validateSkillInput,
     upsertSkill,
     deleteSkill,

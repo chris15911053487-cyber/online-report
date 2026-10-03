@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AgentStatusBadge from '../components/AgentStatusBadge'
-import AgentTracePanel, { parseAgentTrace, type AgentToolStep } from '../components/AgentTracePanel'
+import AgentLiveTrace from '../components/AgentLiveTrace'
+import AgentTracePanel, { parseAgentTrace, type AgentTimings, type AgentToolStep } from '../components/AgentTracePanel'
 import ChatMarkdown, { bareDocUrls } from '../components/ChatMarkdown'
 import { useStore } from '../store'
 import { apiFetch, apiUrl, authHeaders } from '../utils/api'
+import { createLiveFeed, stripActionsBlock, streamAgentChat, type LiveState } from '../utils/agentStream'
 import { runHelpNavAction, type HelpNavAction } from '../utils/helpActions'
 
 type ChatRole = 'user' | 'assistant'
@@ -56,6 +58,7 @@ interface ChatMessage {
   clarificationResolved?: boolean
   skillUsed?: string
   toolSteps?: AgentToolStep[]
+  timings?: AgentTimings
   degraded?: boolean
   charts?: Record<string, unknown>[]
 }
@@ -157,10 +160,23 @@ export default function AiChatView() {
   const [quotedMsg, setQuotedMsg] = useState<{ index: number; text: string } | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
+  /** 流式进行中的实时步骤与文本；null = 当前没有进行中的对话 */
+  const [live, setLive] = useState<LiveState | null>(null)
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, loading])
+  }, [messages, loading, live?.steps.length, live?.text.length])
+
+  /** 流式调用 Agent：过程事件实时写入 live，返回最终结果（与非流式接口同形） */
+  const runAgent = useCallback(async (body: Record<string, unknown>, signal: AbortSignal) => {
+    const feed = createLiveFeed(setLive)
+    try {
+      return await streamAgentChat(body, { signal, onEvent: feed.push })
+    } finally {
+      feed.stop()
+      setLive(null)
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -255,11 +271,7 @@ export default function AiChatView() {
       const controller = new AbortController()
       abortRef.current = controller
       try {
-        const data = await apiFetch('/ai/agent/chat', {
-          method: 'POST',
-          body: JSON.stringify({ conversationId: cid, message: trimmed }),
-          signal: controller.signal,
-        })
+        const data = await runAgent({ conversationId: cid, message: trimmed }, controller.signal)
         applyAgentResponse(nextMsgs, data)
         void refreshConversations()
       } catch (e: unknown) {
@@ -274,7 +286,7 @@ export default function AiChatView() {
         setLoading(false)
       }
     },
-    [loading, messages, showToast, conversationId, applyAgentResponse, refreshConversations],
+    [loading, messages, showToast, conversationId, applyAgentResponse, refreshConversations, runAgent],
   )
 
   const navStore = { ...navStoreBase, sendText }
@@ -309,11 +321,7 @@ export default function AiChatView() {
       const controller = new AbortController()
       abortRef.current = controller
       try {
-        const data = await apiFetch('/ai/agent/chat', {
-          method: 'POST',
-          body: JSON.stringify({ conversationId, resume: { field, value } }),
-          signal: controller.signal,
-        })
+        const data = await runAgent({ conversationId, resume: { field, value } }, controller.signal)
         applyAgentResponse(withChoice, data)
         void refreshConversations()
       } catch (e: unknown) {
@@ -327,7 +335,7 @@ export default function AiChatView() {
         setLoading(false)
       }
     },
-    [loading, messages, conversationId, applyAgentResponse, refreshConversations, showToast],
+    [loading, messages, conversationId, applyAgentResponse, refreshConversations, showToast, runAgent],
   )
 
   const chooseOption = useCallback(
@@ -599,6 +607,7 @@ export default function AiChatView() {
               <AgentTracePanel
                 skillUsed={m.skillUsed}
                 toolSteps={m.toolSteps}
+                timings={m.timings}
                 degraded={m.degraded}
               />
             )}
@@ -745,16 +754,21 @@ export default function AiChatView() {
         ))}
 
         {loading && (
-          <div className="flex justify-start w-full">
-            <div className="max-w-full w-full space-y-2">
+          <div className="flex flex-col items-start w-full gap-2">
+            {live ? (
+              <>
+                <AgentLiveTrace live={live} />
+                {stripActionsBlock(live.text).trim() && (
+                  <div className="max-w-full w-full rounded-2xl rounded-bl-md px-3.5 py-3 text-sm bg-white border border-slate-100 text-slate-800 shadow-sm break-words">
+                    <ChatMarkdown content={stripActionsBlock(live.text)} />
+                  </div>
+                )}
+              </>
+            ) : (
               <div className="rounded-2xl rounded-bl-md bg-white border border-slate-100 px-4 py-3 text-sm text-slate-400 shadow-sm">
-                <span className="inline-flex gap-1">
-                  <span className="animate-pulse">正在分析并调用工具</span>
-                  <span className="animate-bounce">…</span>
-                </span>
-                <p className="text-[10px] text-slate-400 mt-1">完成后将展示 Skill 与工具调用明细</p>
+                <span className="animate-pulse">正在处理…</span>
               </div>
-            </div>
+            )}
           </div>
         )}
         <div ref={endRef} />
