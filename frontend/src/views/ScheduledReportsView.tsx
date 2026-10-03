@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react'
+import { Clock, History, Pencil, Play, Plus, Trash2 } from 'lucide-react'
 import { apiFetch } from '../utils/api'
+import { AdminPage, Badge, Button, Card, Checkbox, EditorActions, EmptyState, Field, IconButton, Input, Notice, RecordRow, Section, Skeleton, TableWrap, Textarea } from '../ui'
+import { tableClass, tdClass, thClass } from '../ui/classes'
+import { confirmDelete } from '../ui/confirm'
 
 interface ScheduledReport {
   id: number
@@ -49,6 +53,7 @@ export default function ScheduledReportsView() {
   const [logsName, setLogsName] = useState('')
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
+  const [saving, setSaving] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -106,6 +111,7 @@ export default function ScheduledReportsView() {
       channels_json: splitComma(form.channels_json),
       enabled: form.enabled,
     }
+    setSaving(true)
     try {
       if (editId) {
         await apiFetch(`/admin/scheduled-reports/${editId}`, { method: 'PATCH', body: JSON.stringify(body) })
@@ -116,13 +122,15 @@ export default function ScheduledReportsView() {
       load()
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存失败')
+    } finally {
+      setSaving(false)
     }
   }
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('确定删除此推送任务？')) return
+  const handleDelete = async (r: ScheduledReport) => {
+    if (!(await confirmDelete(`推送任务「${r.name}」`))) return
     try {
-      await apiFetch(`/admin/scheduled-reports/${id}`, { method: 'DELETE' })
+      await apiFetch(`/admin/scheduled-reports/${r.id}`, { method: 'DELETE' })
       load()
     } catch (e) {
       setError(e instanceof Error ? e.message : '删除失败')
@@ -152,131 +160,154 @@ export default function ScheduledReportsView() {
 
   if (mode === 'form') {
     return (
-      <div className="p-4 max-w-lg mx-auto">
-        <h2 className="text-lg font-semibold mb-4">{editId ? '编辑' : '新增'}推送任务</h2>
-        {error && <div className="mb-3 p-2 bg-danger-soft text-danger text-sm rounded">{error}</div>}
-        <div className="space-y-3">
-          <Field label="任务名称" value={form.name} onChange={(v) => setForm({ ...form, name: v })} placeholder="如：每日生产日报" />
-          <Field label="Cron 表达式" value={form.cron_expr} onChange={(v) => setForm({ ...form, cron_expr: v })} placeholder="如：0 8 * * 1-5（工作日8点）" />
-          <Field label="关联 Skill（可选）" value={form.skill_name} onChange={(v) => setForm({ ...form, skill_name: v })} placeholder="skill 名称" />
-          <div>
-            <label className="block text-sm text-fg-2 mb-1">Prompt 模板</label>
-            <textarea
-              value={form.prompt_template}
-              onChange={(e) => setForm({ ...form, prompt_template: e.target.value })}
-              rows={4}
-              className="w-full px-3 py-2 border border-line-strong rounded-lg text-sm focus:outline-none focus:border-primary"
-              placeholder="请统计昨天的生产完工数量，按工序汇总..."
-            />
-          </div>
-          <Field label="目标角色（逗号分隔）" value={form.target_roles_json} onChange={(v) => setForm({ ...form, target_roles_json: v })} placeholder="production, warehouse" />
-          <Field label="目标用户（逗号分隔，优先于角色）" value={form.target_users_json} onChange={(v) => setForm({ ...form, target_users_json: v })} placeholder="U001, U002" />
-          <Field label="推送渠道（逗号分隔）" value={form.channels_json} onChange={(v) => setForm({ ...form, channels_json: v })} placeholder="dingtalk, wecom, feishu" />
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} />
-            启用
-          </label>
+      <AdminPage title={`${editId ? '编辑' : '新增'}推送任务`} onBack={() => setMode('list')} withActionBar>
+        {error && <Notice tone="danger">{error}</Notice>}
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] items-start">
+          <Section title="任务内容">
+            <div className="flex flex-col gap-3">
+              <Field label="任务名称 *">
+                <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="如：每日生产日报" />
+              </Field>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="Cron 表达式 *" hint="分 时 日 月 周，如 0 8 * * 1-5 = 工作日 8 点">
+                  <Input className="font-mono" value={form.cron_expr} onChange={(e) => setForm({ ...form, cron_expr: e.target.value })} placeholder="0 8 * * 1-5" />
+                </Field>
+                <Field label="关联 Skill（可选）">
+                  <Input value={form.skill_name} onChange={(e) => setForm({ ...form, skill_name: e.target.value })} placeholder="skill 名称" />
+                </Field>
+              </div>
+              <Field label="Prompt 模板 *">
+                <Textarea
+                  rows={10}
+                  value={form.prompt_template}
+                  onChange={(e) => setForm({ ...form, prompt_template: e.target.value })}
+                  placeholder="请统计昨天的生产完工数量，按工序汇总..."
+                />
+              </Field>
+            </div>
+          </Section>
+          <Section title="推送" hint="多个值用逗号分隔">
+            <div className="flex flex-col gap-3">
+              <Field label="目标角色">
+                <Input value={form.target_roles_json} onChange={(e) => setForm({ ...form, target_roles_json: e.target.value })} placeholder="production, warehouse" />
+              </Field>
+              <Field label="目标用户" hint="优先于角色">
+                <Input value={form.target_users_json} onChange={(e) => setForm({ ...form, target_users_json: e.target.value })} placeholder="U001, U002" />
+              </Field>
+              <Field label="推送渠道">
+                <Input value={form.channels_json} onChange={(e) => setForm({ ...form, channels_json: e.target.value })} placeholder="dingtalk, wecom, feishu" />
+              </Field>
+              <Checkbox label="启用" checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} />
+            </div>
+          </Section>
         </div>
-        <div className="flex gap-3 mt-4">
-          <button onClick={() => setMode('list')} className="flex-1 py-2 border border-line-strong text-fg-2 rounded-lg text-sm hover:bg-surface-2">取消</button>
-          <button onClick={handleSave} className="flex-1 py-2 bg-primary text-primary-fg rounded-lg text-sm font-medium hover:bg-primary-hover">保存</button>
-        </div>
-      </div>
+        <EditorActions onCancel={() => setMode('list')} onSave={() => void handleSave()} saving={saving} />
+      </AdminPage>
     )
   }
 
   if (mode === 'logs') {
     return (
-      <div className="p-4 max-w-lg mx-auto">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">执行日志 · {logsName}</h2>
-          <button onClick={() => setMode('list')} className="text-sm text-primary">返回</button>
-        </div>
+      <AdminPage title={`执行日志 · ${logsName}`} onBack={() => setMode('list')}>
         {logs.length === 0 ? (
-          <p className="text-sm text-muted">暂无执行记录</p>
+          <Card>
+            <EmptyState title="暂无执行记录" />
+          </Card>
         ) : (
-          <div className="space-y-2">
-            {logs.map((l) => (
-              <div key={l.id} className="bg-surface rounded-lg shadow p-3 text-sm">
-                <div className="flex justify-between">
-                  <span className={l.status === 'done' ? 'text-success' : l.status === 'error' ? 'text-danger' : 'text-warning'}>
-                    {l.status === 'done' ? '✓ 成功' : l.status === 'error' ? '✗ 失败' : l.status === 'skipped' ? '⊘ 跳过' : '⋯ 运行中'}
-                  </span>
-                  <span className="text-subtle">{fmtTime(l.started_at)}</span>
-                </div>
-                <div className="text-fg-2 mt-1">推送 {l.sent_count}/{l.target_count} 人</div>
-                {l.error_message && <div className="text-danger mt-1 text-xs">{l.error_message}</div>}
-              </div>
-            ))}
-          </div>
+          <TableWrap>
+            <table className={tableClass}>
+              <thead>
+                <tr>
+                  <th className={thClass}>开始时间</th>
+                  <th className={thClass}>状态</th>
+                  <th className={thClass}>推送</th>
+                  <th className={thClass}>错误</th>
+                </tr>
+              </thead>
+              <tbody>
+                {logs.map((l) => (
+                  <tr key={l.id}>
+                    <td className={tdClass + ' num whitespace-nowrap'}>{fmtTime(l.started_at)}</td>
+                    <td className={tdClass}>
+                      <LogStatus status={l.status} />
+                    </td>
+                    <td className={tdClass + ' num'}>
+                      {l.sent_count}/{l.target_count} 人
+                    </td>
+                    <td className={tdClass + ' text-xs text-danger'}>{l.error_message}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableWrap>
         )}
-      </div>
+      </AdminPage>
     )
   }
 
   // list mode
   return (
-    <div className="p-4 max-w-lg mx-auto">
-      {error && <div className="mb-3 p-2 bg-danger-soft text-danger text-sm rounded">{error}</div>}
-      {msg && <div className="mb-3 p-2 bg-success-soft text-success text-sm rounded">{msg}</div>}
-      <button onClick={openCreate} className="w-full py-2 bg-primary text-primary-fg rounded-lg text-sm font-medium hover:bg-primary-hover mb-4">
-        ＋ 新增推送任务
-      </button>
-      {loading ? (
-        <p className="text-sm text-muted text-center">加载中...</p>
-      ) : items.length === 0 ? (
-        <p className="text-sm text-muted text-center">暂无推送任务</p>
-      ) : (
-        <div className="space-y-3">
-          {items.map((r) => (
-            <div key={r.id} className="bg-surface rounded-lg shadow p-4">
-              <div className="flex items-center justify-between mb-1">
-                <span className="font-medium text-sm">{r.name}</span>
-                <span className={`text-xs px-2 py-0.5 rounded ${r.enabled ? 'bg-success-soft text-success' : 'bg-surface-2 text-muted'}`}>
-                  {r.enabled ? '启用' : '禁用'}
-                </span>
-              </div>
-              <div className="text-xs text-muted mb-2">
-                <span className="mr-3">⏰ {r.cron_expr}</span>
-                <span>{safeJsonParse(r.channels_json)?.join(', ')}</span>
-              </div>
-              <div className="flex gap-2 flex-wrap">
-                <Btn onClick={() => openEdit(r)}>编辑</Btn>
-                <Btn onClick={() => handleTrigger(r.id)}>手动触发</Btn>
-                <Btn onClick={() => openLogs(r)}>日志</Btn>
-                <Btn onClick={() => handleDelete(r.id)} danger>删除</Btn>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
-  return (
-    <div>
-      <label className="block text-sm text-fg-2 mb-1">{label}</label>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-2 border border-line-strong rounded-lg text-sm focus:outline-none focus:border-primary"
-        placeholder={placeholder}
-      />
-    </div>
-  )
-}
-
-function Btn({ onClick, children, danger }: { onClick: () => void; children: React.ReactNode; danger?: boolean }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-2 py-1 text-xs rounded ${danger ? 'text-danger border border-danger/25 hover:bg-danger-soft' : 'text-primary border border-primary/25 hover:bg-primary-soft'}`}
+    <AdminPage
+      title="定时报告"
+      description="按计划让 AI 生成报告，并推送到钉钉 / 企微 / 飞书"
+      actions={
+        <Button icon={<Plus className="w-4 h-4" />} onClick={openCreate}>
+          新增推送任务
+        </Button>
+      }
     >
-      {children}
-    </button>
+      {error && <Notice tone="danger">{error}</Notice>}
+      {msg && <Notice tone="success">{msg}</Notice>}
+      {loading ? (
+        <Skeleton className="h-32" />
+      ) : (
+        <Card className="overflow-hidden">
+          {items.length === 0 && <EmptyState title="暂无推送任务" />}
+          {items.map((r) => (
+            <RecordRow
+              key={r.id}
+              onClick={() => openEdit(r)}
+              title={r.name}
+              badges={<Badge tone={r.enabled ? 'success' : 'neutral'}>{r.enabled ? '启用' : '停用'}</Badge>}
+              meta={
+                <span className="flex items-center gap-3 flex-wrap">
+                  <span className="inline-flex items-center gap-1 font-mono">
+                    <Clock className="w-3 h-3" />
+                    {r.cron_expr}
+                  </span>
+                  <span>{safeJsonParse(r.channels_json)?.join(', ')}</span>
+                  {r.skill_name && <span>Skill：{r.skill_name}</span>}
+                </span>
+              }
+              actions={
+                <>
+                  <IconButton label="手动触发" onClick={() => void handleTrigger(r.id)}>
+                    <Play className="w-4 h-4" />
+                  </IconButton>
+                  <IconButton label="执行日志" onClick={() => void openLogs(r)}>
+                    <History className="w-4 h-4" />
+                  </IconButton>
+                  <IconButton label="编辑" onClick={() => openEdit(r)}>
+                    <Pencil className="w-4 h-4" />
+                  </IconButton>
+                  <IconButton label="删除" className="hover:text-danger" onClick={() => void handleDelete(r)}>
+                    <Trash2 className="w-4 h-4" />
+                  </IconButton>
+                </>
+              }
+            />
+          ))}
+        </Card>
+      )}
+    </AdminPage>
   )
+}
+
+function LogStatus({ status }: { status: string }) {
+  if (status === 'done') return <Badge tone="success">成功</Badge>
+  if (status === 'error') return <Badge tone="danger">失败</Badge>
+  if (status === 'skipped') return <Badge tone="warning">跳过</Badge>
+  return <Badge tone="primary">运行中</Badge>
 }
 
 function safeJsonParse(s: string | null): string[] | null {

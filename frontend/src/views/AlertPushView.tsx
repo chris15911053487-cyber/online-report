@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react'
+import { Clock, Pencil, Play, Plus, Trash2, Zap } from 'lucide-react'
 import { apiFetch } from '../utils/api'
+import { AdminPage, Badge, Button, Card, Checkbox, EditorActions, EmptyState, Field, IconButton, Input, Notice, Pager, RecordRow, Section, Segmented, Skeleton, Tabs, Textarea, TableWrap } from '../ui'
+import { tableClass, tdClass, thClass } from '../ui/classes'
+import { confirmDelete } from '../ui/confirm'
 
 // ==================== Types ====================
 
@@ -59,26 +63,34 @@ export default function AlertPushView() {
   const [tab, setTab] = useState<Tab>('rules')
 
   return (
-    <div className="p-4 max-w-2xl mx-auto">
-      {/* Tab 切换 */}
-      <div className="flex gap-1 mb-4 bg-surface-2 rounded-lg p-1">
-        {(['rules', 'webhooks', 'logs'] as Tab[]).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`flex-1 py-2 text-sm rounded-md font-medium transition ${
-              tab === t ? 'bg-surface text-primary shadow-sm' : 'text-muted hover:text-fg-2'
-            }`}
-          >
-            {t === 'rules' ? '警报规则' : t === 'webhooks' ? 'Webhook' : '推送日志'}
-          </button>
-        ))}
-      </div>
-
+    <AdminPage title="警报推送" description="按规则检查业务数据或响应事件，推送给个人与钉钉群">
+      <Tabs
+        value={tab}
+        onChange={setTab}
+        options={[
+          { value: 'rules', label: '警报规则' },
+          { value: 'webhooks', label: '群 Webhook' },
+          { value: 'logs', label: '推送日志' },
+        ]}
+      />
       {tab === 'rules' && <RulesTab />}
       {tab === 'webhooks' && <WebhooksTab />}
       {tab === 'logs' && <LogsTab />}
-    </div>
+    </AdminPage>
+  )
+}
+
+function TriggerLabel({ type, cron, event }: { type: string; cron?: string | null; event?: string | null }) {
+  return type === 'cron' ? (
+    <span className="inline-flex items-center gap-1">
+      <Clock className="w-3 h-3" />
+      {cron || '定时'}
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1">
+      <Zap className="w-3 h-3" />
+      {event}
+    </span>
   )
 }
 
@@ -92,6 +104,7 @@ function RulesTab() {
   const [mode, setMode] = useState<'list' | 'form'>('list')
   const [editId, setEditId] = useState<number | null>(null)
   const [form, setForm] = useState(EMPTY_RULE_FORM)
+  const [saving, setSaving] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -165,6 +178,7 @@ function RulesTab() {
       cooldown_minutes: Number(form.cooldown_minutes) || 60,
       enabled: form.enabled,
     }
+    setSaving(true)
     try {
       if (editId) {
         await apiFetch(`/admin/alert-rules/${editId}`, { method: 'PATCH', body: JSON.stringify(body) })
@@ -175,13 +189,15 @@ function RulesTab() {
       load()
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存失败')
+    } finally {
+      setSaving(false)
     }
   }
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('确定删除此警报规则？')) return
+  const handleDelete = async (r: AlertRule) => {
+    if (!(await confirmDelete(`警报规则「${r.name}」`))) return
     try {
-      await apiFetch(`/admin/alert-rules/${id}`, { method: 'DELETE' })
+      await apiFetch(`/admin/alert-rules/${r.id}`, { method: 'DELETE' })
       load()
     } catch (e) {
       setError(e instanceof Error ? e.message : '删除失败')
@@ -199,42 +215,49 @@ function RulesTab() {
   }
 
   if (mode === 'form') {
-    return <RuleForm form={form} setForm={setForm} error={error} editId={editId} onSave={handleSave} onCancel={() => setMode('list')} />
+    return <RuleForm form={form} setForm={setForm} error={error} editId={editId} saving={saving} onSave={handleSave} onCancel={() => setMode('list')} />
   }
 
   return (
-    <div>
-      {error && <div className="mb-3 p-2 bg-danger-soft text-danger text-sm rounded">{error}</div>}
-      {msg && <div className="mb-3 p-2 bg-success-soft text-success text-sm rounded">{msg}</div>}
-      <button onClick={openCreate} className="w-full py-2 bg-primary text-primary-fg rounded-lg text-sm font-medium hover:bg-primary-hover mb-4">
-        ＋ 新增警报规则
-      </button>
+    <div className="flex flex-col gap-3">
+      <div className="flex justify-end">
+        <Button icon={<Plus className="w-4 h-4" />} onClick={openCreate}>新增警报规则</Button>
+      </div>
+      {error && <Notice tone="danger">{error}</Notice>}
+      {msg && <Notice tone="success">{msg}</Notice>}
       {loading ? (
-        <p className="text-sm text-muted text-center">加载中...</p>
-      ) : items.length === 0 ? (
-        <p className="text-sm text-muted text-center">暂无警报规则</p>
+        <Skeleton className="h-32" />
       ) : (
-        <div className="space-y-3">
+        <Card className="overflow-hidden">
+          {items.length === 0 && <EmptyState title="暂无警报规则" />}
           {items.map((r) => (
-            <div key={r.id} className="bg-surface rounded-lg shadow p-4">
-              <div className="flex items-center justify-between mb-1">
-                <span className="font-medium text-sm">{r.name}</span>
-                <span className={`text-xs px-2 py-0.5 rounded ${r.enabled ? 'bg-success-soft text-success' : 'bg-surface-2 text-muted'}`}>
-                  {r.enabled ? '启用' : '禁用'}
+            <RecordRow
+              key={r.id}
+              onClick={() => openEdit(r)}
+              title={r.name}
+              badges={<Badge tone={r.enabled ? 'success' : 'neutral'}>{r.enabled ? '启用' : '停用'}</Badge>}
+              meta={
+                <span className="flex items-center gap-2 flex-wrap">
+                  <TriggerLabel type={r.trigger_type} cron={r.cron_expr} event={r.event_name} />
+                  {r.description && <span className="text-subtle">· {r.description}</span>}
                 </span>
-              </div>
-              <div className="text-xs text-muted mb-2">
-                <span className="mr-3">{r.trigger_type === 'cron' ? `⏰ ${r.cron_expr}` : `⚡ ${r.event_name}`}</span>
-                {r.description && <span className="text-subtle">· {r.description}</span>}
-              </div>
-              <div className="flex gap-2 flex-wrap">
-                <Btn onClick={() => openEdit(r)}>编辑</Btn>
-                <Btn onClick={() => handleTest(r.id)}>测试</Btn>
-                <Btn onClick={() => handleDelete(r.id)} danger>删除</Btn>
-              </div>
-            </div>
+              }
+              actions={
+                <>
+                  <IconButton label="测试触发" onClick={() => void handleTest(r.id)}>
+                    <Play className="w-4 h-4" />
+                  </IconButton>
+                  <IconButton label="编辑" onClick={() => openEdit(r)}>
+                    <Pencil className="w-4 h-4" />
+                  </IconButton>
+                  <IconButton label="删除" className="hover:text-danger" onClick={() => void handleDelete(r)}>
+                    <Trash2 className="w-4 h-4" />
+                  </IconButton>
+                </>
+              }
+            />
           ))}
-        </div>
+        </Card>
       )}
     </div>
   )
@@ -263,83 +286,108 @@ const EMPTY_RULE_FORM = {
 
 type RuleFormData = typeof EMPTY_RULE_FORM
 
-function RuleForm({ form, setForm, error, editId, onSave, onCancel }: {
+function RuleForm({ form, setForm, error, editId, saving, onSave, onCancel }: {
   form: RuleFormData
   setForm: (f: RuleFormData) => void
   error: string
   editId: number | null
+  saving: boolean
   onSave: () => void
   onCancel: () => void
 }) {
+  const set = (p: Partial<RuleFormData>) => setForm({ ...form, ...p })
   return (
-    <div>
-      <h2 className="text-lg font-semibold mb-4">{editId ? '编辑' : '新增'}警报规则</h2>
-      {error && <div className="mb-3 p-2 bg-danger-soft text-danger text-sm rounded">{error}</div>}
-      <div className="space-y-3">
-        <Field label="规则名称 *" value={form.name} onChange={(v) => setForm({ ...form, name: v })} placeholder="如：库存低于安全库存" />
-        <Field label="描述" value={form.description} onChange={(v) => setForm({ ...form, description: v })} placeholder="规则用途说明" />
-
-        {/* 触发方式 */}
-        <div>
-          <label className="block text-sm text-fg-2 mb-1">触发方式 *</label>
-          <div className="flex gap-4">
-            <label className="flex items-center gap-1 text-sm">
-              <input type="radio" checked={form.trigger_type === 'cron'} onChange={() => setForm({ ...form, trigger_type: 'cron' })} />
-              定时检查
-            </label>
-            <label className="flex items-center gap-1 text-sm">
-              <input type="radio" checked={form.trigger_type === 'event'} onChange={() => setForm({ ...form, trigger_type: 'event' })} />
-              事件触发
-            </label>
-          </div>
-        </div>
-
-        {form.trigger_type === 'cron' && (
-          <>
-            <Field label="Cron 表达式 *" value={form.cron_expr} onChange={(v) => setForm({ ...form, cron_expr: v })} placeholder="如：*/5 * * * *（每5分钟）" />
-            <div>
-              <label className="block text-sm text-fg-2 mb-1">检查 SQL *（返回行数&gt;0 即触发）</label>
-              <textarea value={form.sql_template} onChange={(e) => setForm({ ...form, sql_template: e.target.value })} rows={4}
-                className="w-full px-3 py-2 border border-line-strong rounded-lg text-sm font-mono focus:outline-none focus:border-primary"
-                placeholder="SELECT * FROM ... WHERE ..." />
+    <div className="flex flex-col gap-4 pb-20">
+      <h3 className="font-display text-base font-semibold text-fg">{editId ? '编辑' : '新增'}警报规则</h3>
+      {error && <Notice tone="danger">{error}</Notice>}
+      <div className="grid gap-4 lg:grid-cols-2 items-start">
+        <div className="flex flex-col gap-4">
+          <Section title="规则与触发">
+            <div className="flex flex-col gap-3">
+              <Field label="规则名称 *">
+                <Input value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="如：库存低于安全库存" />
+              </Field>
+              <Field label="描述">
+                <Input value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="规则用途说明" />
+              </Field>
+              <Field label="触发方式 *">
+                <Segmented
+                  value={form.trigger_type}
+                  onChange={(v) => set({ trigger_type: v })}
+                  options={[
+                    { value: 'cron', label: '定时检查' },
+                    { value: 'event', label: '事件触发' },
+                  ]}
+                />
+              </Field>
+              {form.trigger_type === 'cron' ? (
+                <>
+                  <Field label="Cron 表达式 *">
+                    <Input className="font-mono" value={form.cron_expr} onChange={(e) => set({ cron_expr: e.target.value })} placeholder="如：*/5 * * * *（每5分钟）" />
+                  </Field>
+                  <Field label="检查 SQL *" hint="返回行数 > 0 即触发">
+                    <Textarea mono rows={8} value={form.sql_template} onChange={(e) => set({ sql_template: e.target.value })} placeholder="SELECT * FROM ... WHERE ..." spellCheck={false} />
+                  </Field>
+                </>
+              ) : (
+                <Field label="事件名称 *">
+                  <Input className="font-mono" value={form.event_name} onChange={(e) => set({ event_name: e.target.value })} placeholder="如：pro-sign-save" />
+                </Field>
+              )}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="去重键列名" hint="避免同一行重复告警">
+                  <Input value={form.key_column} onChange={(e) => set({ key_column: e.target.value })} placeholder="如：DocEntry" />
+                </Field>
+                <Field label="冷却时间（分钟）">
+                  <Input type="number" value={form.cooldown_minutes} onChange={(e) => set({ cooldown_minutes: e.target.value })} placeholder="60" />
+                </Field>
+              </div>
+              <Checkbox label="启用" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} />
             </div>
-          </>
-        )}
-
-        {form.trigger_type === 'event' && (
-          <Field label="事件名称 *" value={form.event_name} onChange={(v) => setForm({ ...form, event_name: v })} placeholder="如：pro-sign-save" />
-        )}
-
-        <Field label="去重键列名" value={form.key_column} onChange={(v) => setForm({ ...form, key_column: v })} placeholder="如：DocEntry（避免重复告警）" />
-        <Field label="冷却时间（分钟）" value={form.cooldown_minutes} onChange={(v) => setForm({ ...form, cooldown_minutes: v })} placeholder="60" />
-
-        <hr className="border-line" />
-        <p className="text-xs text-subtle">推送目标（用户优先于角色）</p>
-        <Field label="目标用户（逗号分隔）" value={form.target_users_json} onChange={(v) => setForm({ ...form, target_users_json: v })} placeholder="U001, U002" />
-        <Field label="目标角色（逗号分隔）" value={form.target_roles_json} onChange={(v) => setForm({ ...form, target_roles_json: v })} placeholder="production, warehouse" />
-        <Field label="群 Webhook ID（逗号分隔）" value={form.target_webhooks_json} onChange={(v) => setForm({ ...form, target_webhooks_json: v })} placeholder="1, 2" />
-
-        <hr className="border-line" />
-        <p className="text-xs text-subtle">卡片消息模板（支持 {'{ 列名 }'} 占位符）</p>
-        <Field label="卡片标题" value={form.card_title_template} onChange={(v) => setForm({ ...form, card_title_template: v })} placeholder="⚠️ {ItemName} 库存不足" />
-        <div>
-          <label className="block text-sm text-fg-2 mb-1">卡片正文（Markdown）</label>
-          <textarea value={form.card_body_template} onChange={(e) => setForm({ ...form, card_body_template: e.target.value })} rows={4}
-            className="w-full px-3 py-2 border border-line-strong rounded-lg text-sm focus:outline-none focus:border-primary"
-            placeholder="- 物料：{ItemName}&#10;- 当前库存：{OnHand}&#10;- 安全库存：{MinLevel}" />
+          </Section>
         </div>
-        <Field label="按钮文字" value={form.card_btn_title} onChange={(v) => setForm({ ...form, card_btn_title: v })} placeholder="查看详情" />
-        <Field label="按钮链接" value={form.card_btn_url} onChange={(v) => setForm({ ...form, card_btn_url: v })} placeholder="https://your-domain.com/" />
 
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} />
-          启用
-        </label>
+        <div className="flex flex-col gap-4">
+          <Section title="推送目标" hint="用户优先于角色；多个值用逗号分隔">
+            <div className="flex flex-col gap-3">
+              <Field label="目标用户">
+                <Input value={form.target_users_json} onChange={(e) => set({ target_users_json: e.target.value })} placeholder="U001, U002" />
+              </Field>
+              <Field label="目标角色">
+                <Input value={form.target_roles_json} onChange={(e) => set({ target_roles_json: e.target.value })} placeholder="production, warehouse" />
+              </Field>
+              <Field label="群 Webhook ID" hint="见「群 Webhook」页签">
+                <Input value={form.target_webhooks_json} onChange={(e) => set({ target_webhooks_json: e.target.value })} placeholder="1, 2" />
+              </Field>
+            </div>
+          </Section>
+
+          <Section title="卡片消息模板" hint={<>支持 {'{列名}'} 占位符</>}>
+            <div className="flex flex-col gap-3">
+              <Field label="卡片标题">
+                <Input value={form.card_title_template} onChange={(e) => set({ card_title_template: e.target.value })} placeholder="{ItemName} 库存不足" />
+              </Field>
+              <Field label="卡片正文（Markdown）">
+                <Textarea
+                  rows={5}
+                  value={form.card_body_template}
+                  onChange={(e) => set({ card_body_template: e.target.value })}
+                  placeholder={'- 物料：{ItemName}\n- 当前库存：{OnHand}\n- 安全库存：{MinLevel}'}
+                />
+              </Field>
+              <div className="grid gap-3 sm:grid-cols-[10rem_1fr]">
+                <Field label="按钮文字">
+                  <Input value={form.card_btn_title} onChange={(e) => set({ card_btn_title: e.target.value })} placeholder="查看详情" />
+                </Field>
+                <Field label="按钮链接">
+                  <Input value={form.card_btn_url} onChange={(e) => set({ card_btn_url: e.target.value })} placeholder="https://your-domain.com/" />
+                </Field>
+              </div>
+            </div>
+          </Section>
+        </div>
       </div>
-      <div className="flex gap-3 mt-4">
-        <button onClick={onCancel} className="flex-1 py-2 border border-line-strong text-fg-2 rounded-lg text-sm hover:bg-surface-2">取消</button>
-        <button onClick={onSave} className="flex-1 py-2 bg-primary text-primary-fg rounded-lg text-sm font-medium hover:bg-primary-hover">保存</button>
-      </div>
+      <EditorActions onCancel={onCancel} onSave={onSave} saving={saving} />
     </div>
   )
 }
@@ -353,6 +401,7 @@ function WebhooksTab() {
   const [mode, setMode] = useState<'list' | 'form'>('list')
   const [editId, setEditId] = useState<number | null>(null)
   const [form, setForm] = useState({ name: '', webhook_url: '', secret: '', enabled: true })
+  const [saving, setSaving] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -387,6 +436,7 @@ function WebhooksTab() {
     setError('')
     const body: Record<string, unknown> = { name: form.name, webhook_url: form.webhook_url, enabled: form.enabled }
     if (form.secret) body.secret = form.secret
+    setSaving(true)
     try {
       if (editId) {
         await apiFetch(`/admin/alert-webhooks/${editId}`, { method: 'PATCH', body: JSON.stringify(body) })
@@ -397,13 +447,15 @@ function WebhooksTab() {
       load()
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存失败')
+    } finally {
+      setSaving(false)
     }
   }
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('确定删除此 Webhook？')) return
+  const handleDelete = async (w: AlertWebhook) => {
+    if (!(await confirmDelete(`Webhook「${w.name}」`))) return
     try {
-      await apiFetch(`/admin/alert-webhooks/${id}`, { method: 'DELETE' })
+      await apiFetch(`/admin/alert-webhooks/${w.id}`, { method: 'DELETE' })
       load()
     } catch (e) {
       setError(e instanceof Error ? e.message : '删除失败')
@@ -412,54 +464,64 @@ function WebhooksTab() {
 
   if (mode === 'form') {
     return (
-      <div>
-        <h2 className="text-lg font-semibold mb-4">{editId ? '编辑' : '新增'} Webhook</h2>
-        {error && <div className="mb-3 p-2 bg-danger-soft text-danger text-sm rounded">{error}</div>}
-        <div className="space-y-3">
-          <Field label="名称 *" value={form.name} onChange={(v) => setForm({ ...form, name: v })} placeholder="如：生产报警群" />
-          <Field label="Webhook URL *" value={form.webhook_url} onChange={(v) => setForm({ ...form, webhook_url: v })} placeholder="https://oapi.dingtalk.com/robot/send?access_token=..." />
-          <Field label="加签密钥（可选）" value={form.secret} onChange={(v) => setForm({ ...form, secret: v })} placeholder="SEC..." />
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} />
-            启用
-          </label>
-        </div>
-        <div className="flex gap-3 mt-4">
-          <button onClick={() => setMode('list')} className="flex-1 py-2 border border-line-strong text-fg-2 rounded-lg text-sm hover:bg-surface-2">取消</button>
-          <button onClick={handleSave} className="flex-1 py-2 bg-primary text-primary-fg rounded-lg text-sm font-medium hover:bg-primary-hover">保存</button>
-        </div>
+      <div className="flex flex-col gap-4 pb-20">
+        <h3 className="font-display text-base font-semibold text-fg">{editId ? '编辑' : '新增'} Webhook</h3>
+        {error && <Notice tone="danger">{error}</Notice>}
+        <Section className="max-w-3xl">
+          <div className="flex flex-col gap-3">
+            <Field label="名称 *">
+              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="如：生产报警群" />
+            </Field>
+            <Field label="Webhook URL *">
+              <Input value={form.webhook_url} onChange={(e) => setForm({ ...form, webhook_url: e.target.value })} placeholder="https://oapi.dingtalk.com/robot/send?access_token=..." />
+            </Field>
+            <Field label="加签密钥（可选）" hint={editId ? '留空表示不修改' : undefined}>
+              <Input value={form.secret} onChange={(e) => setForm({ ...form, secret: e.target.value })} placeholder="SEC..." />
+            </Field>
+            <Checkbox label="启用" checked={form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} />
+          </div>
+        </Section>
+        <EditorActions onCancel={() => setMode('list')} onSave={handleSave} saving={saving} />
       </div>
     )
   }
 
   return (
-    <div>
-      {error && <div className="mb-3 p-2 bg-danger-soft text-danger text-sm rounded">{error}</div>}
-      <button onClick={openCreate} className="w-full py-2 bg-primary text-primary-fg rounded-lg text-sm font-medium hover:bg-primary-hover mb-4">
-        ＋ 新增 Webhook
-      </button>
+    <div className="flex flex-col gap-3">
+      <div className="flex justify-end">
+        <Button icon={<Plus className="w-4 h-4" />} onClick={openCreate}>新增 Webhook</Button>
+      </div>
+      {error && <Notice tone="danger">{error}</Notice>}
       {loading ? (
-        <p className="text-sm text-muted text-center">加载中...</p>
-      ) : items.length === 0 ? (
-        <p className="text-sm text-muted text-center">暂无 Webhook</p>
+        <Skeleton className="h-32" />
       ) : (
-        <div className="space-y-3">
+        <Card className="overflow-hidden">
+          {items.length === 0 && <EmptyState title="暂无 Webhook" />}
           {items.map((w) => (
-            <div key={w.id} className="bg-surface rounded-lg shadow p-4">
-              <div className="flex items-center justify-between mb-1">
-                <span className="font-medium text-sm">{w.name}</span>
-                <span className={`text-xs px-2 py-0.5 rounded ${w.enabled ? 'bg-success-soft text-success' : 'bg-surface-2 text-muted'}`}>
-                  {w.enabled ? '启用' : '禁用'}
-                </span>
-              </div>
-              <div className="text-xs text-subtle mb-2 truncate">{w.webhook_url_masked}</div>
-              <div className="flex gap-2">
-                <Btn onClick={() => openEdit(w)}>编辑</Btn>
-                <Btn onClick={() => handleDelete(w.id)} danger>删除</Btn>
-              </div>
-            </div>
+            <RecordRow
+              key={w.id}
+              onClick={() => openEdit(w)}
+              title={w.name}
+              badges={
+                <>
+                  <Badge>ID {w.id}</Badge>
+                  <Badge tone={w.enabled ? 'success' : 'neutral'}>{w.enabled ? '启用' : '停用'}</Badge>
+                </>
+              }
+              meta={<span className="truncate font-mono">{w.webhook_url_masked}</span>}
+              actions={
+                <>
+                  <IconButton label="编辑" onClick={() => openEdit(w)}>
+                    <Pencil className="w-4 h-4" />
+                  </IconButton>
+                  <IconButton label="删除" className="hover:text-danger" onClick={() => void handleDelete(w)}>
+                    <Trash2 className="w-4 h-4" />
+                  </IconButton>
+                </>
+              }
+            />
           ))}
-        </div>
+        </Card>
       )}
     </div>
   )
@@ -496,82 +558,56 @@ function LogsTab() {
 
   const totalPages = Math.ceil(total / pageSize)
 
+  if (loading && items.length === 0) return <Skeleton className="h-40" />
+  if (items.length === 0) return <Card><EmptyState title="暂无推送记录" /></Card>
+
   return (
-    <div>
-      {loading ? (
-        <p className="text-sm text-muted text-center">加载中...</p>
-      ) : items.length === 0 ? (
-        <p className="text-sm text-muted text-center">暂无推送记录</p>
-      ) : (
-        <>
-          <div className="space-y-2">
-            {items.map((l) => (
-              <div key={l.id} className="bg-surface rounded-lg shadow p-3 text-sm">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <span className="font-medium">{l.rule_name || `规则#${l.rule_id}`}</span>
-                    <span className="ml-2 text-xs text-subtle">{l.trigger_type === 'cron' ? '⏰定时' : `⚡${l.event_name}`}</span>
-                  </div>
-                  <StatusBadge status={l.status} />
-                </div>
-                <div className="text-muted mt-1 text-xs">
-                  <span>{fmtTime(l.triggered_at)}</span>
-                  <span className="ml-3">个人 {l.sent_count} · 群 {l.webhook_count}</span>
-                </div>
-                {l.card_title && <div className="text-fg-2 mt-1 text-xs truncate">📋 {l.card_title}</div>}
-                {l.error_message && <div className="text-danger mt-1 text-xs truncate">❌ {l.error_message}</div>}
-              </div>
-            ))}
-          </div>
-          {totalPages > 1 && (
-            <div className="flex justify-center items-center gap-3 mt-4 text-sm">
-              <button onClick={() => goPage(page - 1)} disabled={page <= 1} className="px-3 py-1 border rounded disabled:opacity-30">上一页</button>
-              <span className="text-muted">{page} / {totalPages}</span>
-              <button onClick={() => goPage(page + 1)} disabled={page >= totalPages} className="px-3 py-1 border rounded disabled:opacity-30">下一页</button>
-            </div>
-          )}
-        </>
-      )}
-    </div>
+    <TableWrap>
+      <table className={tableClass}>
+        <thead>
+          <tr>
+            <th className={thClass}>时间</th>
+            <th className={thClass}>规则</th>
+            <th className={thClass}>触发</th>
+            <th className={thClass}>状态</th>
+            <th className={thClass}>个人 / 群</th>
+            <th className={thClass}>卡片标题 / 错误</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((l) => (
+            <tr key={l.id}>
+              <td className={tdClass + ' num whitespace-nowrap'}>{fmtTime(l.triggered_at)}</td>
+              <td className={tdClass}>{l.rule_name || `规则#${l.rule_id}`}</td>
+              <td className={tdClass + ' text-xs text-muted whitespace-nowrap'}>
+                <TriggerLabel type={l.trigger_type} event={l.event_name} />
+              </td>
+              <td className={tdClass}><StatusBadge status={l.status} /></td>
+              <td className={tdClass + ' num'}>{l.sent_count} / {l.webhook_count}</td>
+              <td className={tdClass + ' text-xs max-w-[28rem]'}>
+                {l.card_title && <div className="truncate">{l.card_title}</div>}
+                {l.error_message && <div className="text-danger truncate" title={l.error_message}>{l.error_message}</div>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <Pager page={page} totalPages={totalPages} onChange={goPage} disabled={loading} summary={`共 ${total} 条`} />
+    </TableWrap>
   )
 }
 
 // ==================== Shared Components ====================
 
-function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
-  return (
-    <div>
-      <label className="block text-sm text-fg-2 mb-1">{label}</label>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-2 border border-line-strong rounded-lg text-sm focus:outline-none focus:border-primary"
-        placeholder={placeholder}
-      />
-    </div>
-  )
-}
-
-function Btn({ onClick, children, danger }: { onClick: () => void; children: React.ReactNode; danger?: boolean }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`px-2 py-1 text-xs rounded ${danger ? 'text-danger border border-danger/25 hover:bg-danger-soft' : 'text-primary border border-primary/25 hover:bg-primary-soft'}`}
-    >
-      {children}
-    </button>
-  )
-}
-
 function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; cls: string }> = {
-    sent: { label: '✓ 已发送', cls: 'text-success' },
-    failed: { label: '✗ 失败', cls: 'text-danger' },
-    skipped: { label: '⊘ 跳过', cls: 'text-warning' },
-    pending: { label: '⋯ 进行中', cls: 'text-primary' },
+  const map: Record<string, { label: string; tone: 'success' | 'danger' | 'warning' | 'primary' }> = {
+    sent: { label: '已发送', tone: 'success' },
+    failed: { label: '失败', tone: 'danger' },
+    skipped: { label: '跳过', tone: 'warning' },
+    pending: { label: '进行中', tone: 'primary' },
   }
-  const s = map[status] || { label: status, cls: 'text-muted' }
-  return <span className={`text-xs font-medium ${s.cls}`}>{s.label}</span>
+  const s = map[status]
+  return s ? <Badge tone={s.tone}>{s.label}</Badge> : <Badge>{status}</Badge>
 }
 
 // ==================== Utilities ====================

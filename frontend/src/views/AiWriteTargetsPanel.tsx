@@ -2,6 +2,10 @@ import { useCallback, useEffect, useState } from 'react'
 import { useStore } from '../store'
 import { apiFetch, apiFetchReport } from '../utils/api'
 import type { AppRole } from '../types'
+import { Pencil, Plus, Sparkles, Trash2 } from 'lucide-react'
+import AiGenerateDialog from '../components/AiGenerateDialog'
+import { Badge, Button, Card, Checkbox, ChipSelect, Code, EditorActions, EmptyState, Field, IconButton, Input, RecordRow, Section, Segmented, Select, Skeleton } from '../ui'
+import { confirmDelete } from '../ui/confirm'
 
 type SqlType = 'nvarchar' | 'int' | 'decimal' | 'datetime' | 'bit'
 
@@ -129,12 +133,6 @@ export default function AiWriteTargetsPanel({ roles }: { roles: AppRole[] }) {
     if (!editing) return
     setEditing({ ...editing, fields: editing.fields.filter((_, i) => i !== idx) })
   }
-  const toggleRole = (key: string) => {
-    if (!editing) return
-    const has = editing.roles.includes(key)
-    setEditing({ ...editing, roles: has ? editing.roles.filter((r) => r !== key) : [...editing.roles, key] })
-  }
-
   const save = async () => {
     if (!editing) return
     const kind: TargetKind = editing.targetKind === 'action' ? 'action' : 'table'
@@ -160,7 +158,7 @@ export default function AiWriteTargetsPanel({ roles }: { roles: AppRole[] }) {
   }
 
   const remove = async (name: string) => {
-    if (!confirm(`确认删除写入目标「${name}」？`)) return
+    if (!(await confirmDelete(`写入目标「${name}」`))) return
     try {
       await apiFetch(`/ai/agent/write-targets-admin/${name}`, { method: 'DELETE' })
       showToast('已删除')
@@ -170,289 +168,199 @@ export default function AiWriteTargetsPanel({ roles }: { roles: AppRole[] }) {
     }
   }
 
+  const aiDialog = (
+    <AiGenerateDialog
+      open={showAIDialog}
+      title="AI 辅助生成写入目标"
+      label="描述你想要的写入目标"
+      example="创建一个 AI 备注表，包含备注内容（必填，最长500字）、关联单据号（可选）和填写人字段。"
+      placeholder="描述写入目标的用途、需要哪些字段…"
+      onConfirm={(v) => void handleAIGenerate(v)}
+      onClose={() => setShowAIDialog(false)}
+    />
+  )
+
   if (editing) {
+    const kind: TargetKind = editing.targetKind === 'action' ? 'action' : 'table'
+    const act = actions.find((a) => a.name === editing.targetTable)
     return (
-      <div className="pb-24">
-        <h3 className="text-base font-semibold mb-3">{isNew ? '新建写入目标' : `编辑：${editing.name}`}</h3>
-        <div className="space-y-3 bg-surface rounded-lg shadow p-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-muted mb-1">实体名（小写连字符）</label>
-              <input
-                value={editing.name}
-                disabled={!isNew}
-                onChange={(e) => setEditing({ ...editing, name: e.target.value.toLowerCase() })}
-                placeholder="order-note"
-                className="w-full px-3 py-2 border border-line-strong rounded-lg text-sm disabled:bg-surface-2"
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-muted mb-1">显示名</label>
-              <input
-                value={editing.label}
-                onChange={(e) => setEditing({ ...editing, label: e.target.value })}
-                className="w-full px-3 py-2 border border-line-strong rounded-lg text-sm"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs text-muted mb-1">类型</label>
-            <div className="flex gap-2">
-              {([
-                { kind: 'table' as TargetKind, label: '表写入（白名单 INSERT）' },
-                { kind: 'action' as TargetKind, label: 'API 动作（调业务接口）' },
-              ]).map((opt) => (
-                <button
-                  key={opt.kind}
-                  type="button"
-                  onClick={() =>
-                    setEditing({
-                      ...editing,
-                      targetKind: opt.kind,
-                      targetTable: '',
-                      fields: opt.kind === 'action' ? [] : editing.fields,
-                    })
+      <div className="flex flex-col gap-4">
+        <h3 className="font-display text-base font-semibold text-fg">{isNew ? '新建写入目标' : `编辑：${editing.name}`}</h3>
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-start">
+          <Section title="基本信息">
+            <div className="flex flex-col gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="实体名（小写连字符）">
+                  <Input
+                    value={editing.name}
+                    disabled={!isNew}
+                    onChange={(e) => setEditing({ ...editing, name: e.target.value.toLowerCase() })}
+                    placeholder="order-note"
+                  />
+                </Field>
+                <Field label="显示名">
+                  <Input value={editing.label} onChange={(e) => setEditing({ ...editing, label: e.target.value })} />
+                </Field>
+              </div>
+              <Field label="类型">
+                <Segmented
+                  value={kind}
+                  onChange={(k) =>
+                    setEditing({ ...editing, targetKind: k, targetTable: '', fields: k === 'action' ? [] : editing.fields })
                   }
-                  className={`text-xs px-3 py-1.5 rounded-full border ${
-                    (editing.targetKind === 'action' ? 'action' : 'table') === opt.kind
-                      ? 'border-primary bg-primary-soft text-primary'
-                      : 'border-line text-muted'
-                  }`}
+                  options={[
+                    { value: 'table', label: '表写入（白名单 INSERT）' },
+                    { value: 'action', label: 'API 动作（调业务接口）' },
+                  ]}
+                />
+              </Field>
+              {kind === 'action' ? (
+                <Field
+                  label="API 动作（仅可选代码注册的动作）"
+                  hint={act?.payloadHint ? <span className="font-mono break-all">payload 格式：{act.payloadHint}</span> : undefined}
                 >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {editing.targetKind === 'action' ? (
-            <div>
-              <label className="block text-xs text-muted mb-1">API 动作（仅可选代码注册的动作）</label>
-              <select
-                value={editing.targetTable}
-                onChange={(e) => setEditing({ ...editing, targetTable: e.target.value })}
-                className="w-full px-3 py-2 border border-line-strong rounded-lg text-sm"
-              >
-                <option value="">请选择动作…</option>
-                {actions.map((a) => (
-                  <option key={a.name} value={a.name}>
-                    {a.label}（{a.name}）
-                  </option>
-                ))}
-              </select>
-              {(() => {
-                const act = actions.find((a) => a.name === editing.targetTable)
-                return act?.payloadHint ? (
-                  <p className="text-[11px] text-subtle mt-1 font-mono break-all">
-                    payload 格式：{act.payloadHint}
-                  </p>
-                ) : null
-              })()}
-            </div>
-          ) : (
-          <div>
-            <label className="block text-xs text-muted mb-1">目标表名（仅字母/数字/下划线）</label>
-            <input
-              value={editing.targetTable}
-              onChange={(e) => setEditing({ ...editing, targetTable: e.target.value })}
-              placeholder="X_ORDER_NOTE"
-              className="w-full px-3 py-2 border border-line-strong rounded-lg text-sm font-mono"
-            />
-          </div>
-          )}
-
-          {editing.targetKind !== 'action' && (
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs text-muted">字段白名单</label>
-              <button onClick={addField} className="text-xs text-primary">+ 添加字段</button>
-            </div>
-            <div className="space-y-2">
-              {editing.fields.map((f, idx) => (
-                <div key={idx} className="flex flex-wrap gap-2 items-center bg-surface-2 p-2 rounded-lg">
-                  <input
-                    value={f.name}
-                    onChange={(e) => updateField(idx, { name: e.target.value })}
-                    placeholder="列名"
-                    className="w-28 px-2 py-1 border border-line-strong rounded text-xs font-mono"
-                  />
-                  <input
-                    value={f.label}
-                    onChange={(e) => updateField(idx, { label: e.target.value })}
-                    placeholder="标签"
-                    className="w-24 px-2 py-1 border border-line-strong rounded text-xs"
-                  />
-                  <select
-                    value={f.sqlType}
-                    onChange={(e) => updateField(idx, { sqlType: e.target.value as SqlType })}
-                    className="px-2 py-1 border border-line-strong rounded text-xs"
-                  >
-                    {SQL_TYPES.map((t) => (
-                      <option key={t} value={t}>{t}</option>
+                  <Select value={editing.targetTable} onChange={(e) => setEditing({ ...editing, targetTable: e.target.value })}>
+                    <option value="">请选择动作…</option>
+                    {actions.map((a) => (
+                      <option key={a.name} value={a.name}>
+                        {a.label}（{a.name}）
+                      </option>
                     ))}
-                  </select>
-                  {f.sqlType === 'nvarchar' && (
-                    <input
-                      type="number"
-                      value={f.maxLen}
-                      onChange={(e) => updateField(idx, { maxLen: Number(e.target.value) || 255 })}
-                      className="w-16 px-2 py-1 border border-line-strong rounded text-xs"
-                      title="最大长度"
-                    />
-                  )}
-                  <label className="flex items-center gap-1 text-xs text-fg-2">
-                    <input
-                      type="checkbox"
-                      checked={f.required}
-                      onChange={(e) => updateField(idx, { required: e.target.checked })}
-                    />
-                    必填
-                  </label>
-                  <button onClick={() => removeField(idx)} className="text-xs text-danger ml-auto">删除</button>
+                  </Select>
+                </Field>
+              ) : (
+                <Field label="目标表名（仅字母/数字/下划线）">
+                  <Input
+                    className="font-mono"
+                    value={editing.targetTable}
+                    onChange={(e) => setEditing({ ...editing, targetTable: e.target.value })}
+                    placeholder="X_ORDER_NOTE"
+                  />
+                </Field>
+              )}
+              <Field label="允许写入的角色">
+                <ChipSelect
+                  options={roles.map((r) => ({ value: r.roleKey, label: r.label }))}
+                  selected={editing.roles}
+                  onChange={(next) => setEditing({ ...editing, roles: next })}
+                  empty="暂无角色定义"
+                />
+              </Field>
+              <Checkbox label="启用" checked={editing.enabled} onChange={(e) => setEditing({ ...editing, enabled: e.target.checked })} />
+            </div>
+          </Section>
+
+          {kind === 'table' && (
+            <Section
+              title="字段白名单"
+              actions={
+                <Button size="sm" variant="ghost" icon={<Plus className="w-3.5 h-3.5" />} onClick={addField}>
+                  添加字段
+                </Button>
+              }
+            >
+              {editing.fields.length === 0 ? (
+                <p className="text-xs text-subtle">尚未添加字段</p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <div className="hidden sm:grid grid-cols-[1fr_1fr_8rem_5rem_4rem_2rem] gap-2 text-xs text-muted px-1">
+                    <span>列名</span>
+                    <span>标签</span>
+                    <span>类型</span>
+                    <span>最大长度</span>
+                    <span>必填</span>
+                    <span />
+                  </div>
+                  {editing.fields.map((f, idx) => (
+                    <div key={idx} className="grid grid-cols-2 sm:grid-cols-[1fr_1fr_8rem_5rem_4rem_2rem] gap-2 items-center">
+                      <Input className="font-mono" value={f.name} onChange={(e) => updateField(idx, { name: e.target.value })} placeholder="列名" />
+                      <Input value={f.label} onChange={(e) => updateField(idx, { label: e.target.value })} placeholder="标签" />
+                      <Select value={f.sqlType} onChange={(e) => updateField(idx, { sqlType: e.target.value as SqlType })}>
+                        {SQL_TYPES.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </Select>
+                      <Input
+                        type="number"
+                        disabled={f.sqlType !== 'nvarchar'}
+                        value={f.sqlType === 'nvarchar' ? f.maxLen : ''}
+                        onChange={(e) => updateField(idx, { maxLen: Number(e.target.value) || 255 })}
+                        title="最大长度"
+                      />
+                      <Checkbox checked={f.required} onChange={(e) => updateField(idx, { required: e.target.checked })} label="必填" />
+                      <IconButton label="删除字段" className="hover:text-danger" onClick={() => removeField(idx)}>
+                        <Trash2 className="w-4 h-4" />
+                      </IconButton>
+                    </div>
+                  ))}
                 </div>
-              ))}
-              {editing.fields.length === 0 && <p className="text-xs text-subtle">尚未添加字段</p>}
-            </div>
-          </div>
+              )}
+            </Section>
           )}
-
-          <div>
-            <label className="block text-xs text-muted mb-1">允许写入的角色</label>
-            <div className="flex flex-wrap gap-2">
-              {roles.map((r) => (
-                <button
-                  key={r.roleKey}
-                  type="button"
-                  onClick={() => toggleRole(r.roleKey)}
-                  className={`text-xs px-3 py-1.5 rounded-full border ${
-                    editing.roles.includes(r.roleKey)
-                      ? 'border-primary bg-primary-soft text-primary'
-                      : 'border-line text-muted'
-                  }`}
-                >
-                  {r.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <label className="flex items-center gap-2 text-sm text-fg-2">
-            <input
-              type="checkbox"
-              checked={editing.enabled}
-              onChange={(e) => setEditing({ ...editing, enabled: e.target.checked })}
-            />
-            启用
-          </label>
         </div>
 
-        <div className="flex gap-3 mt-4">
-          <button onClick={() => setEditing(null)} className="flex-1 py-2 border border-line-strong text-fg-2 rounded-lg text-sm">
-            取消
-          </button>
-          <button
-            onClick={() => void save()}
-            disabled={saving}
-            className="flex-1 py-2 bg-primary text-primary-fg rounded-lg text-sm font-medium disabled:opacity-50"
-          >
-            {saving ? '保存中…' : '保存'}
-          </button>
-        </div>
+        <EditorActions onCancel={() => setEditing(null)} onSave={() => void save()} saving={saving} />
+        <div className="h-16" />
       </div>
     )
   }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-xs text-muted">
-          定义 AI 可写入的实体与字段白名单。写入经人工确认 + 参数化 + 审计。
-        </p>
-        <div className="flex gap-2 shrink-0 ml-2">
-          <button
-            onClick={() => setShowAIDialog(true)}
-            disabled={aiGenerating}
-            className="text-sm px-3 py-1.5 bg-accent text-white rounded-lg disabled:opacity-50"
-          >
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <p className="text-xs text-muted">定义 AI 可写入的实体与字段白名单。写入经人工确认 + 参数化 + 审计。</p>
+        <div className="flex gap-2">
+          <Button variant="soft" icon={<Sparkles className="w-4 h-4" />} onClick={() => setShowAIDialog(true)} disabled={aiGenerating}>
             {aiGenerating ? '生成中…' : 'AI 辅助生成'}
-          </button>
-          <button onClick={startNew} className="text-sm px-3 py-1.5 bg-primary text-primary-fg rounded-lg">
-            + 新建
-          </button>
+          </Button>
+          <Button icon={<Plus className="w-4 h-4" />} onClick={startNew}>
+            新建写入目标
+          </Button>
         </div>
       </div>
 
-      {showAIDialog && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-          onClick={(e) => { if (e.target === e.currentTarget) setShowAIDialog(false) }}
-        >
-          <div className="bg-surface rounded-xl shadow-xl w-[90%] max-w-lg p-5">
-            <p className="font-semibold text-fg mb-3">描述你想要的写入目标：</p>
-            <div className="text-xs text-muted mb-1">示例：</div>
-            <div className="text-xs text-fg-2 bg-surface-2 rounded p-2 mb-3 leading-relaxed">
-              创建一个 AI 备注表，包含备注内容（必填，最长500字）、关联单据号（可选）和填写人字段。
-            </div>
-            <textarea
-              id="ai-write-target-requirement"
-              className="w-full border border-line-strong rounded-lg p-2 text-sm min-h-[100px] focus:ring-2 focus:ring-primary/25 focus:border-primary/60 outline-none"
-              autoFocus
-              placeholder="描述写入目标的用途、需要哪些字段…"
+      {loading && <Skeleton className="h-32" />}
+      {!loading && (
+        <Card className="overflow-hidden">
+          {targets.length === 0 && <EmptyState title="暂无写入目标" />}
+          {targets.map((t) => (
+            <RecordRow
+              key={t.name}
+              onClick={() => startEdit(t)}
+              title={t.label}
+              badges={
+                <>
+                  <Code>
+                    {t.name} → {t.targetTable}
+                  </Code>
+                  {t.targetKind === 'action' && <Badge tone="accent">API 动作</Badge>}
+                  {!t.enabled && <Badge>已停用</Badge>}
+                </>
+              }
+              meta={
+                <span>
+                  {t.targetKind === 'action' ? `动作：${t.targetTable}` : `字段：${t.fields.map((f) => f.name).join('、') || '—'}`}
+                  {' · 角色：'}
+                  {t.roles.join('、') || '仅管理员'}
+                </span>
+              }
+              actions={
+                <>
+                  <IconButton label="编辑" onClick={() => startEdit(t)}>
+                    <Pencil className="w-4 h-4" />
+                  </IconButton>
+                  <IconButton label="删除" className="hover:text-danger" onClick={() => void remove(t.name)}>
+                    <Trash2 className="w-4 h-4" />
+                  </IconButton>
+                </>
+              }
             />
-            <div className="flex justify-end gap-2 mt-4">
-              <button
-                type="button"
-                className="px-4 py-2 text-sm rounded-lg border border-line-strong text-fg-2"
-                onClick={() => setShowAIDialog(false)}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                className="px-4 py-2 text-sm rounded-lg bg-accent text-white disabled:opacity-50"
-                onClick={() => {
-                  const el = document.getElementById('ai-write-target-requirement') as HTMLTextAreaElement | null
-                  const v = el?.value.trim()
-                  if (v) void handleAIGenerate(v)
-                }}
-              >
-                生成
-              </button>
-            </div>
-          </div>
-        </div>
+          ))}
+        </Card>
       )}
-      {loading && <p className="text-sm text-subtle py-6 text-center">加载中…</p>}
-      {!loading && targets.length === 0 && (
-        <p className="text-sm text-subtle py-6 text-center">暂无写入目标</p>
-      )}
-      <div className="space-y-2">
-        {targets.map((t) => (
-          <div key={t.name} className="bg-surface rounded-lg shadow p-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-fg">{t.label}</span>
-                <span className="text-[10px] text-subtle font-mono">{t.name} → {t.targetTable}</span>
-                {t.targetKind === 'action' && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent-soft text-accent">API 动作</span>
-                )}
-                {!t.enabled && <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-2 text-subtle">停用</span>}
-              </div>
-              <div className="flex gap-3">
-                <button onClick={() => startEdit(t)} className="text-xs text-primary">编辑</button>
-                <button onClick={() => void remove(t.name)} className="text-xs text-danger">删除</button>
-              </div>
-            </div>
-            <p className="text-[10px] text-subtle mt-1">
-              {t.targetKind === 'action'
-                ? `动作：${t.targetTable}`
-                : `字段：${t.fields.map((f) => f.name).join('、') || '—'}`}
-              {' · 角色：'}
-              {t.roles.join('、') || '仅管理员'}
-            </p>
-          </div>
-        ))}
-      </div>
+      {aiDialog}
     </div>
   )
 }

@@ -2,9 +2,11 @@
  * 通用界面组件。只用语义色（见 tailwind.config.js / theme/themes.css），六套主题下自动跟随。
  * 新页面优先组合这些组件；需要新的外观变体时在这里加，不要在页面里写颜色。
  */
-import { useEffect, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
-import { Check, Inbox, X } from 'lucide-react'
+import { useEffect, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
+import { Check, ChevronLeft, Inbox, X } from 'lucide-react'
 import { cn, inputClass, monoInputClass } from './classes'
+import { useConfirmStore } from './confirm'
+import { parseJsonField } from '../utils/bi'
 
 
 // ─── 按钮 ─────────────────────────────────────────────────────────────────────
@@ -313,5 +315,204 @@ export function KpiCard({ label, value, unit, delta, deltaTone = 'neutral', onCl
       </span>
       {delta && <span className={cn('num text-xs font-medium', tone)}>{delta}</span>}
     </Card>
+  )
+}
+
+// ─── 确认弹窗 ─────────────────────────────────────────────────────────────────
+
+/** 渲染 confirmAsync() 发起的确认框；在 App 根部挂载一次 */
+export function ConfirmHost() {
+  const request = useConfirmStore((s) => s.request)
+  const settle = useConfirmStore((s) => s.settle)
+  return (
+    <Modal
+      open={!!request}
+      onClose={() => settle(false)}
+      title={request?.title || '请确认'}
+      size="sm"
+      footer={
+        <>
+          <Button variant="secondary" onClick={() => settle(false)}>{request?.cancelLabel || '取消'}</Button>
+          <Button variant={request?.danger ? 'danger' : 'primary'} onClick={() => settle(true)} autoFocus>
+            {request?.confirmLabel || '确定'}
+          </Button>
+        </>
+      }
+    >
+      <p className="text-sm text-fg-2 whitespace-pre-wrap leading-relaxed">{request?.message}</p>
+    </Modal>
+  )
+}
+
+// ─── 管理页骨架 ───────────────────────────────────────────────────────────────
+
+/** 管理后台页面外壳：页头（可带返回）+ 内容。管理后台按 PC 优先布局，内容区不限宽。 */
+export function AdminPage({ title, description, actions, onBack, backLabel = '返回列表', withActionBar, className, children }: { title: ReactNode; description?: ReactNode; actions?: ReactNode; onBack?: () => void; backLabel?: string; /** 页面底部有 StickyActions 时为其留出空间 */ withActionBar?: boolean; className?: string; children: ReactNode }) {
+  return (
+    <div className={cn('p-4 lg:p-6 flex flex-col gap-4', withActionBar && 'pb-24', className)}>
+      {onBack && (
+        <button type="button" onClick={onBack} className="self-start -mb-2 flex items-center gap-1 text-[13px] text-muted hover:text-fg">
+          <ChevronLeft className="w-4 h-4" />
+          {backLabel}
+        </button>
+      )}
+      <PageHeader title={title} description={description} actions={actions} />
+      {children}
+    </div>
+  )
+}
+
+/** 固定在页面底部的操作栏（PC 让出左侧导航） */
+export function StickyActions({ children, leading }: { children: ReactNode; leading?: ReactNode }) {
+  return (
+    <div className="fixed bottom-0 left-0 right-0 lg:left-56 z-30 bg-surface border-t border-line shadow-sm safe-bottom">
+      <div className="flex items-center gap-2 px-4 py-3 lg:px-6">
+        <div className="flex-1 min-w-0 flex items-center gap-2">{leading}</div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+/** 编辑页的「取消 / 保存」底栏 */
+export function EditorActions({ onCancel, onSave, saving, saveLabel = '保存', leading }: { onCancel: () => void; onSave: () => void; saving?: boolean; saveLabel?: string; leading?: ReactNode }) {
+  return (
+    <StickyActions leading={leading}>
+      <Button variant="secondary" onClick={onCancel} className="min-w-[5.5rem]">取消</Button>
+      <Button onClick={onSave} disabled={saving} className="min-w-[5.5rem]">{saving ? '保存中…' : saveLabel}</Button>
+    </StickyActions>
+  )
+}
+
+/** 提示条：错误 / 成功 / 说明 */
+export function Notice({ tone = 'info', className, children }: { tone?: 'info' | 'success' | 'warning' | 'danger'; className?: string; children: ReactNode }) {
+  const cls = { info: 'bg-info-soft text-info border-info/25', success: 'bg-success-soft text-success border-success/25', warning: 'bg-warning-soft text-warning border-warning/25', danger: 'bg-danger-soft text-danger border-danger/25' }[tone]
+  return <div className={cn('text-[13px] rounded-lg border px-3 py-2 break-all', cls, className)}>{children}</div>
+}
+
+/** 管理列表的一行：标题 + 徽标 + 说明 + 右侧操作 */
+export function RecordRow({ title, badges, meta, actions, onClick, active, className }: { title: ReactNode; badges?: ReactNode; meta?: ReactNode; actions?: ReactNode; onClick?: () => void; active?: boolean; className?: string }) {
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-3 px-4 py-3 border-t border-line first:border-t-0 transition-colors',
+        onClick && 'cursor-pointer hover:bg-surface-2',
+        active && 'bg-primary-soft hover:bg-primary-soft',
+        className,
+      )}
+      onClick={onClick}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-sm font-semibold text-fg">{title}</span>
+          {badges}
+        </div>
+        {meta && <div className="text-xs text-muted mt-1 flex flex-col gap-0.5">{meta}</div>}
+      </div>
+      {actions && (
+        <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+          {actions}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 标识代码（agentKey、queryKey、routeKey 等） */
+export function Code({ className, children }: { className?: string; children: ReactNode }) {
+  return <code className={cn('text-[11px] px-1.5 py-0.5 rounded bg-surface-2 text-muted font-mono', className)}>{children}</code>
+}
+
+/** 多选标签组（角色、Skill 等） */
+export function ChipSelect({ options, selected, onChange, empty = '暂无可选项' }: { options: { value: string; label: ReactNode; hint?: ReactNode }[]; selected: string[]; onChange: (next: string[]) => void; empty?: ReactNode }) {
+  if (options.length === 0) return <p className="text-xs text-subtle">{empty}</p>
+  return (
+    <div className="flex flex-wrap gap-2">
+      {options.map((o) => {
+        const on = selected.includes(o.value)
+        return (
+          <button
+            key={o.value}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onChange(on ? selected.filter((x) => x !== o.value) : [...selected, o.value])}
+            className={cn(
+              'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[12px] transition-colors',
+              on ? 'border-primary/60 bg-primary-soft text-primary' : 'border-line text-fg-2 hover:bg-surface-2',
+            )}
+          >
+            {on && <Check className="w-3 h-3" strokeWidth={3} />}
+            {o.label}
+            {o.hint && <span className="text-subtle">{o.hint}</span>}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/** JSON 文本字段：失焦时校验，错误显示在字段下方 */
+export function JsonField({ label, hint, value, onChange, expect, rows = 5, placeholder, disabled, className }: { label: string; hint?: ReactNode; value: string; onChange: (v: string) => void; expect: 'array' | 'object'; rows?: number; placeholder?: string; disabled?: boolean; className?: string }) {
+  const [error, setError] = useState('')
+  return (
+    <Field label={label} hint={hint} error={error} className={className}>
+      <Textarea
+        mono
+        rows={rows}
+        value={value}
+        placeholder={placeholder}
+        disabled={disabled}
+        spellCheck={false}
+        className={error ? 'border-danger' : undefined}
+        onChange={(e) => {
+          onChange(e.target.value)
+          if (error) setError('')
+        }}
+        onBlur={() => {
+          const r = parseJsonField(value, label, expect)
+          setError(r.ok ? '' : r.error)
+        }}
+      />
+    </Field>
+  )
+}
+
+/** 简单分页 */
+export function Pager({ page, totalPages, onChange, summary, disabled }: { page: number; totalPages: number; onChange: (p: number) => void; summary?: ReactNode; disabled?: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-muted">
+      <span>{summary}</span>
+      <div className="flex items-center gap-2">
+        <Button size="sm" variant="ghost" disabled={disabled || page <= 1} onClick={() => onChange(page - 1)}>上一页</Button>
+        <span className="num">{page} / {Math.max(1, totalPages)}</span>
+        <Button size="sm" variant="ghost" disabled={disabled || page >= totalPages} onClick={() => onChange(page + 1)}>下一页</Button>
+      </div>
+    </div>
+  )
+}
+
+/** 试运行结果表 */
+export function ResultTable({ columns, rows, maxHeight = 'max-h-72' }: { columns: string[]; rows: Record<string, unknown>[]; maxHeight?: string }) {
+  return (
+    <div className={cn('overflow-auto border border-line rounded-lg', maxHeight)}>
+      <table className="min-w-full text-[12px]">
+        <thead className="bg-surface-2 sticky top-0">
+          <tr>
+            {columns.map((c) => (
+              <th key={c} className="px-2 py-1.5 text-left font-medium text-muted whitespace-nowrap">{c}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={i} className="border-t border-line">
+              {columns.map((c) => (
+                <td key={c} className="px-2 py-1 whitespace-nowrap text-fg-2">{row[c] == null ? '' : String(row[c])}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }

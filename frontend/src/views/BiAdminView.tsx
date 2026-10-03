@@ -7,10 +7,12 @@
  * 看板在「Agent 配置」里选择关联到某个 Agent，进入该 Agent 即显示。
  */
 import { useCallback, useEffect, useState } from 'react'
-import { ChevronLeft, Pencil, Play, Plus, Trash2 } from 'lucide-react'
+import { Pencil, Play, Plus, Trash2 } from 'lucide-react'
 import { useStore } from '../store'
 import { apiFetch } from '../utils/api'
 import { parseJsonField, toJsonText, type BiDrillLevel, type BiFilter, type BiParamDef } from '../utils/bi'
+import { AdminPage, Badge, Button, Card, Checkbox, ChipSelect, Code, EditorActions, EmptyState, Field, IconButton, Input, JsonField, Notice, RecordRow, ResultTable, Section, Skeleton, Tabs, Textarea } from '../ui'
+import { confirmDelete } from '../ui/confirm'
 
 interface BiQueryAdmin {
   queryKey: string
@@ -124,21 +126,6 @@ const CARDS_PLACEHOLDER = `[
   }
 ]`
 
-const inputCls =
-  'w-full px-3 py-2 border border-line-strong rounded-lg text-sm focus:outline-none focus:border-primary'
-const monoCls = inputCls + ' font-mono text-[12px] leading-relaxed'
-const labelCls = 'block text-[13px] font-medium text-fg-2 mb-1'
-
-function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <div className="bg-surface rounded-lg border border-line p-4 mb-3">
-      <h3 className="text-sm font-semibold text-fg mb-0.5">{title}</h3>
-      {hint && <p className="text-[12px] text-subtle mb-3">{hint}</p>}
-      <div className={hint ? '' : 'mt-3'}>{children}</div>
-    </div>
-  )
-}
-
 function queryToDraft(q: BiQueryAdmin): QueryDraft {
   return {
     queryKey: q.queryKey,
@@ -249,126 +236,102 @@ function QueryEditor({
   }
 
   return (
-    <div className="p-4 pb-24">
-      <button onClick={() => onDone(false)} className="flex items-center gap-1 text-sm text-muted hover:text-fg-2 mb-3">
-        <ChevronLeft className="w-4 h-4" />
-        返回列表
-      </button>
-      <h2 className="text-lg font-semibold text-fg mb-3">{isNew ? '新增查询' : `编辑：${d.label || d.queryKey}`}</h2>
-
-      <Section title="基本信息">
-        <div className="space-y-3">
-          <div>
-            <label className={labelCls}>查询标识（queryKey）</label>
-            <input className={inputCls} value={d.queryKey} disabled={!isNew} onChange={(e) => patch({ queryKey: e.target.value })} placeholder="fin_ar_by_customer" />
-            <p className="text-[11px] text-subtle mt-1">小写字母开头，仅小写字母/数字/下划线/连字符；创建后不可修改</p>
-          </div>
-          <div>
-            <label className={labelCls}>显示名称</label>
-            <input className={inputCls} value={d.label} onChange={(e) => patch({ label: e.target.value })} placeholder="应收账款 · 按客户" />
-          </div>
-          <div>
-            <label className={labelCls}>说明（这条查询回答什么问题；AI 也会看到）</label>
-            <textarea className={inputCls} rows={2} value={d.description} onChange={(e) => patch({ description: e.target.value })} />
-          </div>
-          <div>
-            <label className={labelCls}>口径说明</label>
-            <input className={inputCls} value={d.caliberNote} onChange={(e) => patch({ caliberNote: e.target.value })} placeholder="按过账日期，含未清贷项，币种本币" />
-          </div>
-        </div>
-      </Section>
-
-      <Section title="SQL" hint="只允许一条 SELECT / WITH 只读查询；参数写成 @name，并在下方「参数定义」中声明。">
-        <textarea className={monoCls} rows={10} value={d.sqlText} onChange={(e) => patch({ sqlText: e.target.value })} spellCheck={false} />
-      </Section>
-
-      <Section title="参数与维度">
-        <div className="space-y-3">
-          <div>
-            <label className={labelCls}>参数定义（JSON 数组；type 为 string / number / date / bool）</label>
-            <textarea className={monoCls} rows={4} value={d.paramsText} onChange={(e) => patch({ paramsText: e.target.value })} placeholder={PARAMS_PLACEHOLDER} spellCheck={false} />
-          </div>
-          <div>
-            <label className={labelCls}>可下钻维度（结果中可作为维度的列）</label>
-            <textarea className={monoCls} rows={4} value={d.dimensionsText} onChange={(e) => patch({ dimensionsText: e.target.value })} placeholder={DIMENSIONS_PLACEHOLDER} spellCheck={false} />
-          </div>
-        </div>
-      </Section>
-
-      <Section title="缓存与权限">
-        <div className="space-y-3">
-          <div>
-            <label className={labelCls}>结果缓存（秒）</label>
-            <input type="number" className={inputCls} value={d.cacheSecs} onChange={(e) => patch({ cacheSecs: Number(e.target.value) })} />
-            <p className="text-[11px] text-subtle mt-1">0 = 不缓存。缓存按「参数 + 用户角色组合」分别保存，不同角色不会共享结果</p>
-          </div>
-          <div>
-            <label className={labelCls}>可见角色（未勾选 = 仅管理员）</label>
-            <div className="flex flex-wrap gap-2">
-              {availableRoles.map((r) => (
-                <label key={r} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-line text-[12px] cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={d.roles.includes(r)}
-                    onChange={() => patch({ roles: d.roles.includes(r) ? d.roles.filter((x) => x !== r) : [...d.roles, r] })}
-                  />
-                  {r}
-                </label>
-              ))}
+    <AdminPage title={isNew ? '新增查询' : `编辑：${d.label || d.queryKey}`} onBack={() => onDone(false)} withActionBar>
+      <div className="grid gap-4 lg:grid-cols-2 items-start">
+        <div className="flex flex-col gap-4">
+          <Section title="基本信息">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="查询标识（queryKey）" hint="小写字母开头，仅小写字母/数字/下划线/连字符；创建后不可修改">
+                <Input value={d.queryKey} disabled={!isNew} onChange={(e) => patch({ queryKey: e.target.value })} placeholder="fin_ar_by_customer" />
+              </Field>
+              <Field label="显示名称">
+                <Input value={d.label} onChange={(e) => patch({ label: e.target.value })} placeholder="应收账款 · 按客户" />
+              </Field>
+              <Field label="说明（这条查询回答什么问题；AI 也会看到）" className="sm:col-span-2">
+                <Textarea rows={2} value={d.description} onChange={(e) => patch({ description: e.target.value })} />
+              </Field>
+              <Field label="口径说明" className="sm:col-span-2">
+                <Input value={d.caliberNote} onChange={(e) => patch({ caliberNote: e.target.value })} placeholder="按过账日期，含未清贷项，币种本币" />
+              </Field>
             </div>
-          </div>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" className="w-4 h-4" checked={d.enabled} onChange={(e) => patch({ enabled: e.target.checked })} />
-            <span className="text-sm text-fg-2">启用</span>
-          </label>
-        </div>
-      </Section>
+          </Section>
 
-      <Section title="试运行" hint="用当前表单里的定义执行（无需先保存），最多返回 50 行，不走缓存。">
-        <div className="space-y-2">
-          <textarea className={monoCls} rows={2} value={testParamsText} onChange={(e) => setTestParamsText(e.target.value)} placeholder='{ "period": "2026-09" }' spellCheck={false} />
-          <button onClick={() => void runTest()} disabled={testing} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-success text-white text-sm disabled:opacity-60">
-            <Play className="w-3.5 h-3.5" />
-            {testing ? '执行中…' : '试运行'}
-          </button>
-          {testError && <p className="text-[12px] text-danger break-all">{testError}</p>}
-          {testResult && (
-            <div>
-              <p className="text-[12px] text-muted mb-1">
-                {testResult.rowCount} 行{testResult.truncated ? '（已截断）' : ''} · {testResult.durationMs} ms
-              </p>
-              <div className="overflow-auto max-h-72 border border-line rounded">
-                <table className="min-w-full text-[12px]">
-                  <thead className="bg-surface-2 sticky top-0">
-                    <tr>
-                      {testResult.columns.map((c) => (
-                        <th key={c} className="px-2 py-1 text-left font-medium text-fg-2 whitespace-nowrap">{c}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {testResult.rows.map((row, i) => (
-                      <tr key={i} className="border-t border-line">
-                        {testResult.columns.map((c) => (
-                          <td key={c} className="px-2 py-1 whitespace-nowrap text-fg-2">{row[c] == null ? '' : String(row[c])}</td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          <Section title="SQL" hint="只允许一条 SELECT / WITH 只读查询；参数写成 @name，并在「参数定义」中声明。">
+            <Textarea mono rows={16} value={d.sqlText} onChange={(e) => patch({ sqlText: e.target.value })} spellCheck={false} />
+          </Section>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          <Section title="参数与维度">
+            <div className="flex flex-col gap-3">
+              <JsonField
+                label="参数定义"
+                hint="JSON 数组；type 为 string / number / date / bool"
+                expect="array"
+                value={d.paramsText}
+                onChange={(v) => patch({ paramsText: v })}
+                placeholder={PARAMS_PLACEHOLDER}
+              />
+              <JsonField
+                label="可下钻维度"
+                hint="结果中可作为维度的列"
+                expect="array"
+                value={d.dimensionsText}
+                onChange={(v) => patch({ dimensionsText: v })}
+                placeholder={DIMENSIONS_PLACEHOLDER}
+              />
+            </div>
+          </Section>
+
+          <Section title="缓存与权限">
+            <div className="flex flex-col gap-3">
+              <Field label="结果缓存（秒）" hint="0 = 不缓存。缓存按「参数 + 用户角色组合」分别保存，不同角色不会共享结果">
+                <Input type="number" className="max-w-[12rem]" value={d.cacheSecs} onChange={(e) => patch({ cacheSecs: Number(e.target.value) })} />
+              </Field>
+              <Field label="可见角色（未勾选 = 仅管理员）">
+                <ChipSelect
+                  options={availableRoles.map((r) => ({ value: r, label: r }))}
+                  selected={d.roles}
+                  onChange={(roles) => patch({ roles })}
+                  empty="暂无自定义角色"
+                />
+              </Field>
+              <Checkbox label="启用" checked={d.enabled} onChange={(e) => patch({ enabled: e.target.checked })} />
+            </div>
+          </Section>
+
+          <Section title="试运行" hint="用当前表单里的定义执行（无需先保存），最多返回 50 行，不走缓存。">
+            <div className="flex flex-col gap-2">
+              <div className="flex items-start gap-2">
+                <JsonField
+                  label="参数"
+                  expect="object"
+                  rows={2}
+                  className="flex-1"
+                  value={testParamsText}
+                  onChange={setTestParamsText}
+                  placeholder='{ "period": "2026-09" }'
+                />
+                <Button className="mt-6" variant="soft" icon={<Play className="w-3.5 h-3.5" />} onClick={() => void runTest()} disabled={testing}>
+                  {testing ? '执行中…' : '试运行'}
+                </Button>
               </div>
+              {testError && <Notice tone="danger">{testError}</Notice>}
+              {testResult && (
+                <div>
+                  <p className="text-xs text-muted mb-1">
+                    {testResult.rowCount} 行{testResult.truncated ? '（已截断）' : ''} · {testResult.durationMs} ms
+                  </p>
+                  <ResultTable columns={testResult.columns} rows={testResult.rows} />
+                </div>
+              )}
             </div>
-          )}
+          </Section>
         </div>
-      </Section>
-
-      <div className="fixed bottom-0 left-0 right-0 lg:left-56 bg-surface border-t border-line p-3 flex gap-2 z-10">
-        <button onClick={() => onDone(false)} className="flex-1 py-2.5 border border-line-strong rounded-lg text-sm text-fg-2">取消</button>
-        <button onClick={() => void save()} disabled={saving} className="flex-1 py-2.5 bg-primary text-primary-fg rounded-lg text-sm font-medium disabled:opacity-60">
-          {saving ? '保存中…' : '保存'}
-        </button>
       </div>
-    </div>
+
+      <EditorActions onCancel={() => onDone(false)} onSave={() => void save()} saving={saving} />
+    </AdminPage>
   )
 }
 
@@ -418,77 +381,64 @@ function DashboardEditor({
   }
 
   return (
-    <div className="p-4 pb-24">
-      <button onClick={() => onDone(false)} className="flex items-center gap-1 text-sm text-muted hover:text-fg-2 mb-3">
-        <ChevronLeft className="w-4 h-4" />
-        返回列表
-      </button>
-      <h2 className="text-lg font-semibold text-fg mb-3">{isNew ? '新增看板' : `编辑：${d.label || d.dashboardKey}`}</h2>
+    <AdminPage title={isNew ? '新增看板' : `编辑：${d.label || d.dashboardKey}`} onBack={() => onDone(false)} withActionBar>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] items-start">
+        <div className="flex flex-col gap-4">
+          <Section title="基本信息">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="看板标识（dashboardKey）">
+                <Input value={d.dashboardKey} disabled={!isNew} onChange={(e) => patch({ dashboardKey: e.target.value })} placeholder="finance" />
+              </Field>
+              <Field label="显示名称">
+                <Input value={d.label} onChange={(e) => patch({ label: e.target.value })} placeholder="财务经营看板" />
+              </Field>
+              <Field label="说明" className="sm:col-span-2">
+                <Textarea rows={2} value={d.description} onChange={(e) => patch({ description: e.target.value })} />
+              </Field>
+              <Checkbox label="启用" checked={d.enabled} onChange={(e) => patch({ enabled: e.target.checked })} />
+            </div>
+          </Section>
 
-      <Section title="基本信息">
-        <div className="space-y-3">
-          <div>
-            <label className={labelCls}>看板标识（dashboardKey）</label>
-            <input className={inputCls} value={d.dashboardKey} disabled={!isNew} onChange={(e) => patch({ dashboardKey: e.target.value })} placeholder="finance" />
-          </div>
-          <div>
-            <label className={labelCls}>显示名称</label>
-            <input className={inputCls} value={d.label} onChange={(e) => patch({ label: e.target.value })} placeholder="财务经营看板" />
-          </div>
-          <div>
-            <label className={labelCls}>说明</label>
-            <textarea className={inputCls} rows={2} value={d.description} onChange={(e) => patch({ description: e.target.value })} />
-          </div>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" className="w-4 h-4" checked={d.enabled} onChange={(e) => patch({ enabled: e.target.checked })} />
-            <span className="text-sm text-fg-2">启用</span>
-          </label>
-        </div>
-      </Section>
+          <Section
+            title="全局筛选"
+            hint="type：month / date / string / select。默认值可用 $today $yesterday $thisMonth $lastMonth $monthStart $yearStart。卡片参数里写 $filter.名称 引用。"
+          >
+            <JsonField label="筛选定义" expect="array" rows={6} value={d.filtersText} onChange={(v) => patch({ filtersText: v })} placeholder={FILTERS_PLACEHOLDER} />
+          </Section>
 
-      <Section
-        title="全局筛选"
-        hint="type：month / date / string / select。默认值可用 $today $yesterday $thisMonth $lastMonth $monthStart $yearStart。卡片参数里写 $filter.名称 引用。"
-      >
-        <textarea className={monoCls} rows={5} value={d.filtersText} onChange={(e) => patch({ filtersText: e.target.value })} placeholder={FILTERS_PLACEHOLDER} spellCheck={false} />
-      </Section>
-
-      <Section
-        title="卡片"
-        hint="type：kpi / bar / line / pie / table。layout.w 为 12 列栅格宽度（1~12），h 为高度档（1~4）。drill 为卡片内逐级下钻：bind 把点中那行的列值绑定为下一级查询的参数。"
-      >
-        <textarea className={monoCls} rows={18} value={d.cardsText} onChange={(e) => patch({ cardsText: e.target.value })} placeholder={CARDS_PLACEHOLDER} spellCheck={false} />
-      </Section>
-
-      <Section title="可引用的查询" hint="来自查询库；卡片与下钻的 queryKey 须在此列表中。">
-        {availableQueries.length === 0 ? (
-          <p className="text-[13px] text-subtle">查询库为空，请先到「查询库」页签新增。</p>
-        ) : (
-          <div className="space-y-1.5 max-h-72 overflow-y-auto">
-            {availableQueries.map((q) => (
-              <div key={q.queryKey} className="p-2 rounded border border-line text-[12px]">
-                <div className="flex items-center gap-1.5">
-                  <code className="font-medium text-fg">{q.queryKey}</code>
-                  <span className="text-muted">{q.label}</span>
-                  {!q.enabled && <span className="text-[10px] px-1.5 rounded bg-surface-2 text-muted">已停用</span>}
-                </div>
-                <div className="text-subtle mt-0.5">
-                  参数：{q.params.length ? q.params.map((p) => p.name).join('、') : '无'}
-                  {q.dimensions.length > 0 && ` · 维度：${q.dimensions.map((x) => x.column).join('、')}`}
-                </div>
+          <Section title="可引用的查询" hint="来自查询库；卡片与下钻的 queryKey 须在此列表中。">
+            {availableQueries.length === 0 ? (
+              <p className="text-[13px] text-subtle">查询库为空，请先到「查询库」页签新增。</p>
+            ) : (
+              <div className="flex flex-col gap-1.5 max-h-96 overflow-y-auto">
+                {availableQueries.map((q) => (
+                  <div key={q.queryKey} className="p-2 rounded-lg border border-line text-xs">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <code className="font-medium text-fg">{q.queryKey}</code>
+                      <span className="text-muted">{q.label}</span>
+                      {!q.enabled && <Badge>已停用</Badge>}
+                    </div>
+                    <div className="text-subtle mt-0.5">
+                      参数：{q.params.length ? q.params.map((p) => p.name).join('、') : '无'}
+                      {q.dimensions.length > 0 && ` · 维度：${q.dimensions.map((x) => x.column).join('、')}`}
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
-      </Section>
+            )}
+          </Section>
+        </div>
 
-      <div className="fixed bottom-0 left-0 right-0 lg:left-56 bg-surface border-t border-line p-3 flex gap-2 z-10">
-        <button onClick={() => onDone(false)} className="flex-1 py-2.5 border border-line-strong rounded-lg text-sm text-fg-2">取消</button>
-        <button onClick={() => void save()} disabled={saving} className="flex-1 py-2.5 bg-primary text-primary-fg rounded-lg text-sm font-medium disabled:opacity-60">
-          {saving ? '保存中…' : '保存'}
-        </button>
+        <Section
+          title="卡片"
+          hint="type：kpi / bar / line / pie / table。layout.w 为 12 列栅格宽度（1~12），h 为高度档（1~4）。drill 为卡片内逐级下钻：bind 把点中那行的列值绑定为下一级查询的参数。"
+        >
+          <JsonField label="卡片定义" expect="array" rows={28} value={d.cardsText} onChange={(v) => patch({ cardsText: v })} placeholder={CARDS_PLACEHOLDER} />
+        </Section>
       </div>
-    </div>
+
+      <EditorActions onCancel={() => onDone(false)} onSave={() => void save()} saving={saving} />
+    </AdminPage>
   )
 }
 
@@ -536,7 +486,7 @@ export default function BiAdminView() {
   }, [reloadTick])
 
   const remove = async (url: string, label: string) => {
-    if (!window.confirm(`确定删除「${label}」？此操作不可恢复。`)) return
+    if (!(await confirmDelete(`「${label}」`))) return
     try {
       await apiFetch(url, { method: 'DELETE' })
       showToast('已删除')
@@ -573,103 +523,108 @@ export default function BiAdminView() {
     )
   }
 
-  const tabBtn = (key: typeof tab, text: string) => (
-    <button
-      onClick={() => setTab(key)}
-      className={`flex-1 py-2 text-sm rounded-md transition-colors ${tab === key ? 'bg-surface shadow text-fg font-medium' : 'text-muted'}`}
-      aria-pressed={tab === key}
-    >
-      {text}
-    </button>
-  )
+  const openNew = () =>
+    tab === 'queries'
+      ? setEditQuery({ draft: { ...EMPTY_QUERY }, isNew: true })
+      : setEditDashboard({ draft: { ...EMPTY_DASHBOARD }, isNew: true })
 
   return (
-    <div className="p-4">
-      <div className="flex items-center justify-between mb-3">
-        <div>
-          <h2 className="text-lg font-semibold text-fg">BI 看板管理</h2>
-          <p className="text-[12px] text-muted mt-0.5">查询库供卡片、下钻和 Agent 追问共用；看板在「Agent 配置」里关联</p>
-        </div>
-        <button
-          onClick={() =>
-            tab === 'queries'
-              ? setEditQuery({ draft: { ...EMPTY_QUERY }, isNew: true })
-              : setEditDashboard({ draft: { ...EMPTY_DASHBOARD }, isNew: true })
-          }
-          className="flex items-center gap-1 px-3 py-2 bg-primary text-primary-fg rounded-lg text-sm font-medium hover:bg-primary-hover flex-shrink-0"
-        >
-          <Plus className="w-4 h-4" />
-          新增
-        </button>
-      </div>
+    <AdminPage
+      title="BI 看板管理"
+      description="查询库供卡片、下钻和 Agent 追问共用；看板在「Agent 配置」里关联"
+      actions={
+        <Button icon={<Plus className="w-4 h-4" />} onClick={openNew}>
+          {tab === 'queries' ? '新增查询' : '新增看板'}
+        </Button>
+      }
+    >
+      <Tabs
+        value={tab}
+        onChange={setTab}
+        options={[
+          { value: 'queries', label: `查询库（${queries.length}）` },
+          { value: 'dashboards', label: `看板（${dashboards.length}）` },
+        ]}
+      />
 
-      <div className="flex gap-1 p-1 bg-surface-2 rounded-lg mb-3" role="tablist">
-        {tabBtn('queries', `查询库（${queries.length}）`)}
-        {tabBtn('dashboards', `看板（${dashboards.length}）`)}
-      </div>
-
-      {loading && <p className="text-sm text-subtle">加载中…</p>}
-      {!loading && error && <div className="bg-danger-soft border border-danger/25 text-danger text-sm rounded-lg p-3">{error}</div>}
+      {loading && <Skeleton className="h-40" />}
+      {!loading && error && <Notice tone="danger">{error}</Notice>}
 
       {!loading && !error && tab === 'queries' && (
-        <div className="space-y-2">
-          {queries.length === 0 && <p className="text-sm text-subtle">暂无查询，点「新增」登记第一条。</p>}
+        <Card className="overflow-hidden">
+          {queries.length === 0 && <EmptyState title="暂无查询" description="点「新增查询」登记第一条" />}
           {queries.map((q) => (
-            <div key={q.queryKey} className="bg-surface rounded-lg border border-line p-3.5 flex items-start justify-between gap-2">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[15px] font-semibold text-fg">{q.label}</span>
-                  <code className="text-[11px] px-1.5 py-0.5 rounded bg-surface-2 text-muted">{q.queryKey}</code>
-                  {!q.enabled && <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-2 text-muted">已停用</span>}
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary-soft text-primary">缓存 {q.cacheSecs}s</span>
-                </div>
-                {q.caliberNote && <p className="text-[12px] text-muted mt-1">口径：{q.caliberNote}</p>}
-                <p className="text-[12px] text-muted mt-0.5">可见角色：{q.roles.length ? q.roles.join('、') : '仅管理员'}</p>
-              </div>
-              <div className="flex gap-1 flex-shrink-0">
-                <button onClick={() => setEditQuery({ draft: queryToDraft(q), isNew: false })} className="p-2 text-subtle hover:text-primary rounded-lg" aria-label="编辑">
-                  <Pencil className="w-4 h-4" />
-                </button>
-                <button onClick={() => void remove(`/admin/bi/queries/${encodeURIComponent(q.queryKey)}`, q.label)} className="p-2 text-subtle hover:text-danger rounded-lg" aria-label="删除">
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
+            <RecordRow
+              key={q.queryKey}
+              onClick={() => setEditQuery({ draft: queryToDraft(q), isNew: false })}
+              title={q.label}
+              badges={
+                <>
+                  <Code>{q.queryKey}</Code>
+                  {!q.enabled && <Badge>已停用</Badge>}
+                  <Badge tone="primary">缓存 {q.cacheSecs}s</Badge>
+                </>
+              }
+              meta={
+                <>
+                  {q.caliberNote && <span>口径：{q.caliberNote}</span>}
+                  <span>可见角色：{q.roles.length ? q.roles.join('、') : '仅管理员'}</span>
+                </>
+              }
+              actions={
+                <>
+                  <IconButton label="编辑" onClick={() => setEditQuery({ draft: queryToDraft(q), isNew: false })}>
+                    <Pencil className="w-4 h-4" />
+                  </IconButton>
+                  <IconButton label="删除" className="hover:text-danger" onClick={() => void remove(`/admin/bi/queries/${encodeURIComponent(q.queryKey)}`, q.label)}>
+                    <Trash2 className="w-4 h-4" />
+                  </IconButton>
+                </>
+              }
+            />
           ))}
-        </div>
+        </Card>
       )}
 
       {!loading && !error && tab === 'dashboards' && (
-        <div className="space-y-2">
-          {dashboards.length === 0 && <p className="text-sm text-subtle">暂无看板，点「新增」创建。</p>}
+        <Card className="overflow-hidden">
+          {dashboards.length === 0 && <EmptyState title="暂无看板" description="点「新增看板」创建" />}
           {dashboards.map((d) => (
-            <div key={d.dashboardKey} className="bg-surface rounded-lg border border-line p-3.5 flex items-start justify-between gap-2">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[15px] font-semibold text-fg">{d.label}</span>
-                  <code className="text-[11px] px-1.5 py-0.5 rounded bg-surface-2 text-muted">{d.dashboardKey}</code>
-                  {!d.enabled && <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-2 text-muted">已停用</span>}
-                </div>
-                <p className="text-[12px] text-muted mt-1">
-                  {d.cards.length} 张卡片 · {d.filters.length} 个筛选
-                </p>
-                <p className="text-[12px] text-muted mt-0.5">
-                  关联 Agent：{d.usedByAgents?.length ? d.usedByAgents.join('、') : <span className="text-warning">未关联（在「Agent 配置」里选择）</span>}
-                </p>
-              </div>
-              <div className="flex gap-1 flex-shrink-0">
-                <button onClick={() => setEditDashboard({ draft: dashboardToDraft(d), isNew: false })} className="p-2 text-subtle hover:text-primary rounded-lg" aria-label="编辑">
-                  <Pencil className="w-4 h-4" />
-                </button>
-                <button onClick={() => void remove(`/admin/bi/dashboards/${encodeURIComponent(d.dashboardKey)}`, d.label)} className="p-2 text-subtle hover:text-danger rounded-lg" aria-label="删除">
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
+            <RecordRow
+              key={d.dashboardKey}
+              onClick={() => setEditDashboard({ draft: dashboardToDraft(d), isNew: false })}
+              title={d.label}
+              badges={
+                <>
+                  <Code>{d.dashboardKey}</Code>
+                  {!d.enabled && <Badge>已停用</Badge>}
+                </>
+              }
+              meta={
+                <>
+                  <span>
+                    {d.cards.length} 张卡片 · {d.filters.length} 个筛选
+                  </span>
+                  <span>
+                    关联 Agent：
+                    {d.usedByAgents?.length ? d.usedByAgents.join('、') : <span className="text-warning">未关联（在「Agent 配置」里选择）</span>}
+                  </span>
+                </>
+              }
+              actions={
+                <>
+                  <IconButton label="编辑" onClick={() => setEditDashboard({ draft: dashboardToDraft(d), isNew: false })}>
+                    <Pencil className="w-4 h-4" />
+                  </IconButton>
+                  <IconButton label="删除" className="hover:text-danger" onClick={() => void remove(`/admin/bi/dashboards/${encodeURIComponent(d.dashboardKey)}`, d.label)}>
+                    <Trash2 className="w-4 h-4" />
+                  </IconButton>
+                </>
+              }
+            />
           ))}
-        </div>
+        </Card>
       )}
-
-    </div>
+    </AdminPage>
   )
 }

@@ -3,6 +3,7 @@ import { useStore } from './store'
 import LoginView from './views/LoginView'
 import MainLayout from './components/MainLayout'
 import Toast from './components/Toast'
+import { ConfirmHost } from './ui'
 import { startRouter } from './router'
 import { loadCompanyTheme, loadUserTheme } from './theme/sync'
 import './App.css'
@@ -28,6 +29,7 @@ function App() {
     <>
       {!isAuthenticated ? <LoginView /> : <MainLayout />}
       <Toast />
+      <ConfirmHost />
     </>
   )
 }

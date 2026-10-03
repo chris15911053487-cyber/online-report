@@ -14,6 +14,8 @@
 frontend/src/
 ├── theme/           # 六套主题 token（themes.css）、主题切换与服务端同步
 ├── ui/              # 通用组件（Button、Card、Badge、Segmented、Field、Modal、KpiCard…）
+│                    # 管理页骨架（AdminPage、EditorActions、RecordRow、JsonField、ChipSelect）
+│                    # confirm.ts：应用内确认框 confirmAsync / confirmDelete
 ├── components/      # MainLayout（外壳）、Sidebar（PC 导航）、BottomNav（手机 Tab）、
 │                    # bi/（看板卡片与图表）、ChartRenderer、AgentLiveTrace、Toast 等
 ├── views/           # 业务页：Catalog、DynamicReport、ProSign*、WorkRegistration、Owor、Orders…
@@ -108,6 +110,7 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 - 浏览器后退、安卓返回键与页面左上角返回一致；合并报工确认、行详情这类依赖当前选择的页面，刷新后回到所在报表。
 - 前端接口统一走 `/api` 前缀，服务端去掉前缀再匹配；机器人、ai-agent 回调等外部调用方仍可使用无前缀的旧地址。浏览器直接打开页面地址时服务端返回前端页面（`server/src/spa.js`）。
 - PC（≥1024px）为左侧导航 + 面包屑顶栏；手机为顶栏 + 底部 Tab。
+- 管理后台按 PC 优先设计（列表 + 编辑页，编辑页双栏、底部固定「取消 / 保存」栏），手机宽度可查看但不专门适配。「菜单与角色」为左侧菜单列表（搜索、按类型筛选）+ 右侧编辑，新增与编辑共用一张表单；JSON 字段失焦即校验。
 
 ## 后端 (Fastify)
 
