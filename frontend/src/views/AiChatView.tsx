@@ -5,7 +5,7 @@ import AgentTracePanel, { parseAgentTrace, type AgentTimings, type AgentToolStep
 import ChatMarkdown, { bareDocUrls } from '../components/ChatMarkdown'
 import { useStore } from '../store'
 import { apiFetch, apiUrl, authHeaders } from '../utils/api'
-import { createLiveFeed, stripActionsBlock, streamAgentChat, type LiveState } from '../utils/agentStream'
+import { attachToolResults, createLiveFeed, stripActionsBlock, streamAgentChat, type LiveState } from '../utils/agentStream'
 import { runHelpNavAction, type HelpNavAction } from '../utils/helpActions'
 
 type ChatRole = 'user' | 'assistant'
@@ -59,6 +59,8 @@ interface ChatMessage {
   skillUsed?: string
   toolSteps?: AgentToolStep[]
   timings?: AgentTimings
+  /** 本轮执行过程快照（含每步耗时、模型输出、完整 SQL/结果）；仅本次会话内有，历史会话没有 */
+  trace?: LiveState
   degraded?: boolean
   charts?: Record<string, unknown>[]
 }
@@ -162,6 +164,7 @@ export default function AiChatView() {
   const abortRef = useRef<AbortController | null>(null)
   /** 流式进行中的实时步骤与文本；null = 当前没有进行中的对话 */
   const [live, setLive] = useState<LiveState | null>(null)
+  const lastTraceRef = useRef<LiveState | null>(null) // 最近一轮结束时的执行过程快照
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -174,6 +177,7 @@ export default function AiChatView() {
       return await streamAgentChat(body, { signal, onEvent: feed.push })
     } finally {
       feed.stop()
+      lastTraceRef.current = feed.getState()
       setLive(null)
     }
   }, [])
@@ -220,7 +224,9 @@ export default function AiChatView() {
 
   /** 统一处理 Agent 响应（最终回答 / 需要澄清） */
   const applyAgentResponse = useCallback((base: ChatMessage[], data: Record<string, unknown>) => {
-    const trace = parseAgentTrace(data)
+    const parsed = parseAgentTrace(data)
+    const liveTrace = lastTraceRef.current ? attachToolResults(lastTraceRef.current, parsed.toolSteps) : undefined
+    const trace = { ...parsed, trace: liveTrace }
     const charts = extractCharts(trace.toolSteps)
     const status = String(data?.status || 'final')
     if (status === 'need_clarification' && data?.clarification) {
@@ -276,7 +282,7 @@ export default function AiChatView() {
         void refreshConversations()
       } catch (e: unknown) {
         if (e instanceof Error && e.name === 'AbortError') {
-          setMessages([...nextMsgs, { role: 'assistant', content: '⏹ 已停止生成。' }])
+          setMessages([...nextMsgs, { role: 'assistant', content: '⏹ 已停止生成。', trace: lastTraceRef.current ?? undefined }])
         } else {
           setMessages((prev) => (opts?.freshThread ? [] : prev.slice(0, -1)))
           showToast(e instanceof Error ? e.message : '发送失败，请检查网络或 AI 配置')
@@ -326,7 +332,7 @@ export default function AiChatView() {
         void refreshConversations()
       } catch (e: unknown) {
         if (e instanceof Error && e.name === 'AbortError') {
-          setMessages([...withChoice, { role: 'assistant', content: '⏹ 已停止生成。' }])
+          setMessages([...withChoice, { role: 'assistant', content: '⏹ 已停止生成。', trace: lastTraceRef.current ?? undefined }])
         } else {
           showToast(e instanceof Error ? e.message : '操作失败')
         }
@@ -603,14 +609,23 @@ export default function AiChatView() {
 
         {messages.map((m, i) => (
           <div key={i} className={`flex flex-col w-full ${m.role === 'user' ? 'items-end' : 'items-start'}`}>
-            {m.role === 'assistant' && (
-              <AgentTracePanel
-                skillUsed={m.skillUsed}
-                toolSteps={m.toolSteps}
-                timings={m.timings}
-                degraded={m.degraded}
-              />
-            )}
+            {m.role === 'assistant' &&
+              (m.trace && m.trace.steps.length > 0 && !m.degraded ? (
+                <AgentLiveTrace
+                  live={m.trace}
+                  running={false}
+                  totalMs={m.timings?.totalMs}
+                  timings={m.timings}
+                  skillUsed={m.skillUsed}
+                />
+              ) : (
+                <AgentTracePanel
+                  skillUsed={m.skillUsed}
+                  toolSteps={m.toolSteps}
+                  timings={m.timings}
+                  degraded={m.degraded}
+                />
+              ))}
             <div
               className={
                 (m.role === 'user' ? 'max-w-[88%] ' : 'max-w-full w-full ') +

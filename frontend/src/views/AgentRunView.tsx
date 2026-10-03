@@ -18,7 +18,7 @@ import {
 } from 'lucide-react'
 import { useStore } from '../store'
 import { apiFetch } from '../utils/api'
-import { createLiveFeed, streamAgentChat, type LiveState } from '../utils/agentStream'
+import { attachToolResults, createLiveFeed, streamAgentChat, type LiveState } from '../utils/agentStream'
 import ChartRenderer from '../components/ChartRenderer'
 import AgentLiveTrace, { AgentLiveStatus } from '../components/AgentLiveTrace'
 import AgentTracePanel, { parseAgentTrace, type AgentTimings, type AgentToolStep } from '../components/AgentTracePanel'
@@ -77,6 +77,9 @@ interface ChatItem {
   clarification?: ClarificationData
   clarificationResolved?: boolean
   loading?: boolean
+  /** 本轮执行过程快照（每步耗时）；完成后仍保留在对话里 */
+  trace?: LiveState
+  timings?: AgentTimings
 }
 
 // ─── 工具函数 ──────────────────────────────────────────────────────────────────
@@ -104,6 +107,12 @@ function extractCharts(steps?: AgentToolStep[]): Record<string, unknown>[] {
     } catch { /* ignore */ }
   }
   return out
+}
+
+/** 一轮结束后固化执行过程：并入 final.toolSteps 的完整 SQL 与完整结果，点开工具行即可查看 */
+function finishTrace(live: LiveState | null, data: Record<string, unknown>): LiveState | undefined {
+  if (!live) return undefined
+  return attachToolResults(live, parseAgentTrace(data).toolSteps)
 }
 
 function extractCanvas(text: string): { cleaned: string; canvas: CanvasData } {
@@ -531,6 +540,7 @@ export default function AgentRunView() {
   const [sending, setSending] = useState(false)
   const [pendingQuery, setPendingQuery] = useState('')   // 正在加载时显示「正在分析…」
   const [live, setLive] = useState<LiveState | null>(null)  // 流式进行中的实时步骤
+  const lastTraceRef = useRef<LiveState | null>(null)         // 最近一轮结束时的执行过程快照
 
   // 移动端输入栏
   const [mobileInput, setMobileInput] = useState('')
@@ -579,6 +589,7 @@ export default function AgentRunView() {
       return await streamAgentChat(body, { signal, onEvent: feed.push })
     } finally {
       feed.stop()
+      lastTraceRef.current = feed.getState() // 成功/失败/中止都保留，调用方据此固化到对话里
       setLive(null)
     }
   }, [])
@@ -605,13 +616,15 @@ export default function AgentRunView() {
           { conversationId, agentKey: currentAgentKey ?? undefined, message: trimmed },
           ctrl.signal,
         )
+        // 在 setState 回调之外取快照：回调可能稍后才执行，届时 ref 已可能被下一轮覆盖
+        const finishedTrace = finishTrace(lastTraceRef.current, data)
 
         if (data?.status === 'need_clarification' && data.clarification) {
           const cl = data.clarification as ClarificationData
           setChatItems((prev) =>
             prev.map((it) =>
               it.id === tempId
-                ? { ...it, loading: false, content: cl.question, clarification: cl }
+                ? { ...it, loading: false, content: cl.question, clarification: cl, trace: finishedTrace, timings: parseAgentTrace(data).timings }
                 : it,
             ),
           )
@@ -650,7 +663,7 @@ export default function AgentRunView() {
         setChatItems((prev) => {
           const updated = prev.map((it) =>
             it.id === tempId
-              ? { ...it, loading: false, content: assistantContent, turnRef: newTurn.id }
+              ? { ...it, loading: false, content: assistantContent, turnRef: newTurn.id, trace: finishedTrace, timings: trace.timings }
               : it,
           )
           // 追问建议追加为单独 item，内容用特殊前缀区分
@@ -667,7 +680,7 @@ export default function AgentRunView() {
       } catch (e: unknown) {
         if (e instanceof Error && e.name === 'AbortError') {
           setChatItems((prev) =>
-            prev.map((it) => (it.id === tempId ? { ...it, loading: false, content: '⏹ 已停止' } : it)),
+            prev.map((it) => (it.id === tempId ? { ...it, loading: false, content: '⏹ 已停止', trace: lastTraceRef.current ?? undefined } : it)),
           )
         } else {
           setChatItems((prev) => prev.filter((it) => it.id !== tempId))
@@ -701,6 +714,7 @@ export default function AgentRunView() {
           { conversationId, agentKey: currentAgentKey ?? undefined, resume: { field, value } },
           ctrl.signal,
         )
+        const finishedTrace = finishTrace(lastTraceRef.current, data)
         const rawMessage = typeof data?.message === 'string' ? data.message : ''
         const { cleaned, canvas } = extractCanvas(rawMessage)
         const trace = parseAgentTrace(data)
@@ -714,7 +728,7 @@ export default function AgentRunView() {
         setChatItems((prev) =>
           prev.map((it) =>
             it.id === tempId
-              ? { ...it, loading: false, content: cleaned || rawMessage || '（完成）', turnRef: newTurn.id }
+              ? { ...it, loading: false, content: cleaned || rawMessage || '（完成）', turnRef: newTurn.id, trace: finishedTrace, timings: trace.timings }
               : it,
           ),
         )
@@ -833,9 +847,15 @@ export default function AgentRunView() {
       <div key={item.id} className="flex gap-2.5 max-w-full">
         <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: '#eef2ff', color: '#4f6ef7', fontSize: 11, fontWeight: 600 }}>AI</div>
         <div className="flex-1 min-w-0" style={{ maxWidth: 300 }}>
-          {item.loading ? (
-            <AgentLiveStatus live={live} />
-          ) : item.clarification && !item.clarificationResolved ? (
+          {/* 执行过程放在左侧对话里：运行中实时刷新，完成后保留（可折叠） */}
+          {item.loading &&
+            (live ? <AgentLiveTrace live={live} /> : <AgentLiveStatus live={null} />)}
+          {!item.loading && item.trace && item.trace.steps.length > 0 && (
+            <div className="mb-2">
+              <AgentLiveTrace live={item.trace} running={false} totalMs={item.timings?.totalMs} timings={item.timings} />
+            </div>
+          )}
+          {item.loading ? null : item.clarification && !item.clarificationResolved ? (
             <div className="rounded-xl rounded-tl px-3.5 py-3 border text-[13px]" style={{ background: '#f5f6f8', borderTopLeftRadius: 4 }}>
               <p className="mb-2" style={{ color: '#2d3142' }}>{item.clarification.question}</p>
               {item.clarification.type === 'save_confirm' ? (
@@ -1008,7 +1028,7 @@ export default function AgentRunView() {
                 </div>
               )}
 
-              <CanvasPanel turn={currentTurn} loading={sending} query={pendingQuery} pcMode live={live} />
+              <CanvasPanel turn={currentTurn} loading={sending} query={pendingQuery} pcMode />
             </div>
           </div>
         </div>

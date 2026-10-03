@@ -55,7 +55,18 @@ export interface LiveStep {
   toolCalls?: number
   inputTokens?: number
   outputTokens?: number
+  /** llm：这一轮模型输出的文本（工具调用前的旁白，或最终回答）；用于点开查看 */
+  output?: string
+  /** tool：发起这次调用的 llm 步骤 id，用于在模型行下列出它决定调用的工具 */
+  parentId?: string
+  /** tool：tool_call_id，用于结束后与 final.toolSteps 对齐 */
+  toolCallId?: string
+  /** tool：完整结果（结束后由 attachToolResults 补入；运行中只有 preview） */
+  resultFull?: string
 }
+
+/** 单步输出文本的保留上限，避免超长回答撑大状态 */
+const MAX_STEP_OUTPUT = 20000
 
 export interface LiveState {
   startedAt: number
@@ -91,8 +102,12 @@ export function reduceLive(state: LiveState, ev: AgentStreamEvent, now: number):
       if (state.llmId && ev.llmId && ev.llmId !== state.llmId) return state
       const steps = state.llmId
         ? state.steps.map((s) =>
-            s.id === state.llmId && s.status === 'run' && s.kind === 'llm'
-              ? { ...s, label: `第 ${s.round ?? '?'} 轮 · 生成中` }
+            s.id === state.llmId && s.kind === 'llm'
+              ? {
+                  ...s,
+                  label: s.status === 'run' ? `第 ${s.round ?? '?'} 轮 · 生成中` : s.label,
+                  output: ((s.output ?? '') + ev.text).slice(0, MAX_STEP_OUTPUT),
+                }
               : s,
           )
         : state.steps
@@ -129,6 +144,7 @@ export function reduceLive(state: LiveState, ev: AgentStreamEvent, now: number):
         label: ev.label || ev.tool,
         tool: ev.tool,
         args: ev.args,
+        parentId: state.llmId,
         status: 'run',
         startedAt: now,
       }
@@ -142,11 +158,39 @@ export function reduceLive(state: LiveState, ev: AgentStreamEvent, now: number):
           status,
           durationMs: ev.durationMs,
           preview: ev.preview,
+          toolCallId: ev.toolCallId ?? undefined,
         }),
       }
     }
     default:
       return state
+  }
+}
+
+/** final.toolSteps 中与 attachToolResults 相关的字段 */
+export interface FinalToolStep {
+  id?: string | null
+  args?: Record<string, unknown>
+  resultFull?: string
+  resultPreview?: string
+}
+
+/**
+ * 一轮结束后，把 final.toolSteps 里的完整参数与完整结果并入实时步骤（按 tool_call_id 对齐），
+ * 这样点开工具行能看到完整 SQL 和完整结果，而不只是流式事件里的 180 字预览。
+ */
+export function attachToolResults(live: LiveState, toolSteps: FinalToolStep[] | undefined): LiveState {
+  if (!toolSteps || toolSteps.length === 0) return live
+  const byId = new Map<string, FinalToolStep>()
+  for (const t of toolSteps) if (t.id) byId.set(t.id, t)
+  return {
+    ...live,
+    steps: live.steps.map((s) => {
+      if (s.kind !== 'tool' || !s.toolCallId) return s
+      const t = byId.get(s.toolCallId)
+      if (!t) return s
+      return { ...s, args: t.args ?? s.args, resultFull: t.resultFull ?? t.resultPreview ?? s.resultFull }
+    }),
   }
 }
 
@@ -246,6 +290,10 @@ export function createLiveFeed(onChange: (s: LiveState) => void) {
     stop() {
       if (raf != null && hasRaf) cancelAnimationFrame(raf)
       raf = null
+    },
+    /** 当前最新状态（含尚未被节流刷新到 UI 的增量）；用于结束后把过程固化到消息里 */
+    getState(): LiveState {
+      return state
     },
   }
 }

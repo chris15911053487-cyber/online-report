@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { describeTimings, formatDuration, parseTimings, type AgentTimings } from '../utils/agentStream'
 import { formatStepArgs } from '../utils/agentTraceFormat'
+import { copyText } from '../utils/clipboard'
 
 export type { AgentTimings }
 
@@ -15,24 +16,6 @@ export interface AgentToolStep {
   status?: 'ok' | 'error'
   /** 工具执行耗时（毫秒） */
   durationMs?: number
-}
-
-function copyToClipboard(text: string) {
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(text).catch(() => fallbackCopy(text))
-  } else {
-    fallbackCopy(text)
-  }
-}
-function fallbackCopy(text: string) {
-  const ta = document.createElement('textarea')
-  ta.value = text
-  ta.style.position = 'fixed'
-  ta.style.opacity = '0'
-  document.body.appendChild(ta)
-  ta.select()
-  document.execCommand('copy')
-  document.body.removeChild(ta)
 }
 
 /** 构建步骤的完整可复制文本 */
@@ -93,7 +76,7 @@ function CopyStepBtn({ step }: { step: AgentToolStep }) {
       className="shrink-0 text-[10px] text-slate-400 hover:text-sky-600 px-1"
       title="复制完整内容"
       onClick={() => {
-        copyToClipboard(buildStepCopyText(step))
+        copyText(buildStepCopyText(step))
         setCopied(true)
         setTimeout(() => setCopied(false), 1500)
       }}
