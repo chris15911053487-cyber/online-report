@@ -12,15 +12,22 @@
 
 ```
 frontend/src/
-├── components/      # BottomNav, MainLayout, ImageLightbox, ReportOverlay, TextOverlay, Toast
-├── views/           # LoginView, CatalogView, DynamicReportView, AiChatView, MenuSettingsView,
-│                    # OworView, OrdersView, DetailView, ReportRowDetailView,
-│                    # ProSignReceiveView, ProSignOrderDetailView, WorkRegistrationView, SettingsView
+├── theme/           # 六套主题 token（themes.css）、主题切换与服务端同步
+├── ui/              # 通用组件（Button、Card、Badge、Segmented、Field、Modal、KpiCard…）
+├── components/      # MainLayout（外壳）、Sidebar（PC 导航）、BottomNav（手机 Tab）、
+│                    # bi/（看板卡片与图表）、ChartRenderer、AgentLiveTrace、Toast 等
+├── views/           # 业务页：Catalog、DynamicReport、ProSign*、WorkRegistration、Owor、Orders…
+│                    # AI 与 Agent：AiChat、AgentHub、AgentRun
+│                    # 管理：AdminHub、AgentsAdmin、BiAdmin、AiSkills、MenuSettings、
+│                    #       MessageAlertSettings、AlertPush、ScheduledReports；Settings、Login
+├── hooks/           # useMediaQuery（PC/手机断点）等
 ├── utils/
-│   ├── api.ts       # API 客户端（apiFetch / apiFetchReport）
-│   ├── helpers.ts   # 通用工具函数
-│   └── barcodeScan.ts
-├── store.ts         # Zustand 全局状态 + 路由管理
+│   ├── api.ts       # API 客户端（统一 /api 前缀）
+│   ├── chartTheme.ts# ECharts 跟随主题
+│   ├── bi*.ts       # 看板筛选、下钻、图表配置、AI 上下文
+│   └── helpers.ts   # 通用工具函数
+├── router.ts        # URL 路由：状态 ⇄ 地址同步
+├── store.ts         # Zustand 全局状态（currentView 等）
 ├── types.ts         # TypeScript 类型定义
 └── main.tsx
 ```
@@ -53,6 +60,11 @@ npm run build
 
 # 数据库初始化
 npm run init-db
+
+# 测试与检查
+cd server && npm test                 # 后端测试
+cd frontend && npx vitest run         # 前端单测
+cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题约定）
 ```
 
 生产或仅启动后端访问页面时，须先执行 `npm run build`，否则 `frontend/dist` 不存在，Web UI 不可用（API 仍可用）。
