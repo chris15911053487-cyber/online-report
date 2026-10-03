@@ -39,6 +39,8 @@ const { loadAndSchedule: startScheduledReports } = require('./scheduled-reports'
 const { loadAndScheduleAlerts: startAlertScheduler } = require('./alert-scheduler');
 const { getPool } = require('./db');
 const ensureNavMenuSchema = require('./ensure-nav-menu-schema');
+const uiSettingsRoutes = require('./routes/ui-settings');
+const { stripApiPrefix, registerSpaFallback } = require('./spa');
 
 const PORT = Number(process.env.PORT || 3000);
 const JWT_SECRET = process.env.JWT_SECRET || 'change-me-in-production';
@@ -73,7 +75,8 @@ async function resolveReadableApkFile(candidatePaths) {
 }
 
 async function build() {
-  const fastify = Fastify({ logger: true });
+  // 前端统一请求 /api/...，这里去掉前缀再匹配路由；无前缀的旧地址（机器人、ai-agent 回调等）照常可用
+  const fastify = Fastify({ logger: true, rewriteUrl: (req) => stripApiPrefix(req.url) });
 
   await fastify.register(cors, {
     origin: true,
@@ -112,6 +115,10 @@ async function build() {
     }
   });
 
+  // 浏览器直接打开 /report/xxx 等页面地址时返回 index.html（前端 URL 路由）。
+  // 须在注册路由之前：页面地址与部分 GET 接口同名（/agents、/admin/...），钩子要先于路由生效
+  registerSpaFallback(fastify, { indexPath: path.join(__dirname, '..', '..', 'frontend', 'dist', 'index.html') });
+
   await fastify.register(authRoutes);
   await fastify.register(authDingtalkRoutes);
   await fastify.register(rolesAdminRoutes);
@@ -131,6 +138,7 @@ async function build() {
   await fastify.register(scheduledReportsAdminRoutes);
   await fastify.register(alertAdminRoutes);
   await fastify.register(filesRoutes);
+  await fastify.register(uiSettingsRoutes);
 
   // 语音功能开关（默认启用，设 VOICE_ENABLED=false 关闭）
   const voiceEnabled = process.env.VOICE_ENABLED !== 'false';

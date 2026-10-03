@@ -5,7 +5,7 @@ const { getPool, sql } = require('../db');
 
 async function speechRoutes(fastify) {
   // 调试端点：前端各步骤状态写入 voice_logs，方便排查流程中断位置
-  fastify.post('/api/speech/debug', async (request, reply) => {
+  fastify.post('/speech/debug', async (request, reply) => {
     const { text } = request.body || {};
     if (!text) return reply.code(400).send({ error: '缺少 text' });
 
@@ -31,7 +31,7 @@ async function speechRoutes(fastify) {
     return { ok: true };
   });
 
-  fastify.post('/api/speech/recognize', async (request, reply) => {
+  fastify.post('/speech/recognize', async (request, reply) => {
     const { audio, format, rate } = request.body || {};
 
     if (!audio || typeof audio !== 'string') {

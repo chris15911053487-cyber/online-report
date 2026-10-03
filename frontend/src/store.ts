@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { apiFetch, getToken, setToken } from './utils/api'
 import { isDingTalkEnv, dingtalkLogin } from './utils/dingtalk'
 import type { User, NavMenuItem, ViewName, MessageSummary } from './types'
+import { rememberRecentMenu } from './utils/recentMenus'
 
 let toastHideTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -16,6 +17,8 @@ interface AppState {
 
   // Menu
   navMenus: NavMenuItem[]
+  /** 菜单已拉取过（成功或失败）；URL 路由要等它才能按地址打开报表 */
+  menusLoaded: boolean
   isLoading: boolean
 
   // Toast
@@ -73,6 +76,8 @@ interface AppState {
   fetchMessageSummary: () => Promise<void>
   showToast: (msg: string, durationMs?: number) => void
   hideToast: () => void
+  /** 点击菜单项：按 routeKey / menuKind 打开对应页面（菜单页、侧栏、URL 路由共用） */
+  openMenuItem: (menu: NavMenuItem) => void
   openMenu: (menu: NavMenuItem, opts?: { prefilledFilters?: Record<string, any>; autoQuery?: boolean }) => void
   openProSign: (menu: NavMenuItem, opts?: { prefilledFilters?: Record<string, any>; autoQuery?: boolean }) => void
   consumePrefilledFilters: () => void
@@ -98,6 +103,7 @@ export const useStore = create<AppState>((set, get) => ({
   currentView: 'catalog',
   viewHistory: [],
   navMenus: [],
+  menusLoaded: false,
   isLoading: false,
   toastMessage: null,
   toastDuration: 2200,
@@ -247,6 +253,7 @@ export const useStore = create<AppState>((set, get) => ({
       isAuthenticated: false,
       user: null,
       navMenus: [],
+      menusLoaded: false,
       currentView: 'catalog',
       viewHistory: [],
       activeMenu: null,
@@ -344,7 +351,7 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const data = await apiFetch('/menus')
       const items: NavMenuItem[] = data.items || data || []
-      set({ navMenus: items })
+      set({ navMenus: items, menusLoaded: true })
       // 同步给 voice.js（以及 ReactNative WebView 桥接）使用
       try {
         ;(window as any).__voiceMenus = items
@@ -354,6 +361,7 @@ export const useStore = create<AppState>((set, get) => ({
     } catch (err) {
       console.error('Failed to fetch menus:', err)
       const msg = err instanceof Error ? err.message : '菜单加载失败'
+      set({ menusLoaded: true })
       get().showToast(msg)
     }
   },
@@ -375,7 +383,29 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
+  openMenuItem: (menu: NavMenuItem) => {
+    const s = get()
+    if (menu.routeKey === 'orders') {
+      s.navigateTo('owor')
+      return
+    }
+    if (menu.routeKey === 'menu-settings') {
+      s.navigateTo('menu-settings')
+      return
+    }
+    if (menu.routeKey === 'pro-sign') {
+      s.openProSign(menu)
+      return
+    }
+    if (menu.menuKind === 'report') {
+      s.openMenu(menu)
+      return
+    }
+    s.showToast('该菜单页面尚未接入')
+  },
+
   openMenu: (menu: NavMenuItem, opts?: { prefilledFilters?: Record<string, any>; autoQuery?: boolean }) => {
+    rememberRecentMenu(menu.routeKey)
     set({
       activeMenu: menu,
       proSignMode: false,
@@ -387,6 +417,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   openProSign: (menu: NavMenuItem, opts?: { prefilledFilters?: Record<string, any>; autoQuery?: boolean }) => {
+    rememberRecentMenu(menu.routeKey)
     set({
       activeMenu: menu,
       proSignMode: true,

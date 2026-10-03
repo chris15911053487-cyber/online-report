@@ -1,0 +1,334 @@
+/**
+ * 六套界面主题的语义 token。组件只能经 tailwind.config.js 的语义色引用这些变量，不得写死颜色。
+ * 颜色值为 RGB 三元组，Tailwind 以 rgb(var(--c-x) / <alpha-value>) 使用，因此 bg-primary/10 这类写法可用。
+ * 切换：<html data-ui-theme="warm|tech|ent|ind|mono|dark">；无属性时为默认主题 D（warm）。任意元素也可局部套用。
+ * 新增 token 时六套主题都要补齐。视觉参照 docs/design/ui-style-demo.html。
+ */
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+:root,
+[data-ui-theme="warm"] {
+  /* D 暖色人文风 */
+  color-scheme: light;
+  --c-bg: 245 243 236;
+  --c-surface: 255 253 248;
+  --c-surface-2: 240 237 228;
+  --c-surface-3: 231 227 216;
+  --c-line: 230 226 214;
+  --c-line-strong: 211 205 189;
+  --c-fg: 31 30 27;
+  --c-fg-2: 77 74 66;
+  --c-muted: 111 107 96;
+  --c-subtle: 154 149 136;
+  --c-primary: 193 95 60;
+  --c-primary-hover: 169 79 48;
+  --c-primary-text: 180 83 47;
+  --c-primary-fg: 255 255 255;
+  --c-primary-soft: 246 231 222;
+  --c-accent: 125 90 155;
+  --c-accent-soft: 239 230 242;
+  --c-success: 61 122 79;
+  --c-success-soft: 229 239 227;
+  --c-warning: 160 98 10;
+  --c-warning-soft: 246 236 216;
+  --c-danger: 181 69 47;
+  --c-danger-soft: 246 227 220;
+  --c-info: 47 111 143;
+  --c-info-soft: 225 237 242;
+  --c-inverse: 42 40 36;
+  --c-inverse-fg: 245 243 236;
+  --c-chrome: 245 243 236;
+  --c-chrome-fg: 31 30 27;
+  --c-chrome-muted: 143 138 124;
+  --c-chrome-line: 230 226 214;
+  --c-chrome-active: 193 95 60;
+  --c-chrome-active-bg: 235 229 216;
+  --c-side: 238 235 225;
+  --c-chart-1: 193 95 60;
+  --c-chart-2: 212 162 127;
+  --c-chart-3: 91 127 106;
+  --c-chart-4: 138 124 176;
+  --c-chart-5: 201 162 39;
+  --c-chart-6: 111 143 166;
+  --c-chart-7: 176 112 90;
+  --c-chart-8: 154 149 136;
+  --ai-gradient: linear-gradient(135deg,#c96442,#d4a27f);
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-card-lg: 14px;
+  --shadow-card: 0 0 #0000;
+  --font-display: "Noto Serif SC","Songti SC","STSong",Georgia,serif;
+  --font-num: var(--font-sans);
+}
+
+[data-ui-theme="tech"] {
+  /* A 科技风 */
+  color-scheme: light;
+  --c-bg: 244 246 251;
+  --c-surface: 255 255 255;
+  --c-surface-2: 246 247 251;
+  --c-surface-3: 236 238 246;
+  --c-line: 230 232 242;
+  --c-line-strong: 207 211 227;
+  --c-fg: 27 31 59;
+  --c-fg-2: 74 80 112;
+  --c-muted: 107 113 144;
+  --c-subtle: 154 160 184;
+  --c-primary: 79 70 229;
+  --c-primary-hover: 67 56 202;
+  --c-primary-text: 79 70 229;
+  --c-primary-fg: 255 255 255;
+  --c-primary-soft: 238 240 255;
+  --c-accent: 168 85 247;
+  --c-accent-soft: 245 236 254;
+  --c-success: 15 159 110;
+  --c-success-soft: 227 246 238;
+  --c-warning: 194 120 3;
+  --c-warning-soft: 253 243 220;
+  --c-danger: 229 72 77;
+  --c-danger-soft: 253 236 236;
+  --c-info: 8 145 178;
+  --c-info-soft: 224 245 249;
+  --c-inverse: 27 31 59;
+  --c-inverse-fg: 255 255 255;
+  --c-chrome: 255 255 255;
+  --c-chrome-fg: 27 31 59;
+  --c-chrome-muted: 154 160 184;
+  --c-chrome-line: 236 238 246;
+  --c-chrome-active: 79 70 229;
+  --c-chrome-active-bg: 238 240 255;
+  --c-side: 255 255 255;
+  --c-chart-1: 99 102 241;
+  --c-chart-2: 34 211 238;
+  --c-chart-3: 168 85 247;
+  --c-chart-4: 245 158 11;
+  --c-chart-5: 16 185 129;
+  --c-chart-6: 239 68 68;
+  --c-chart-7: 59 130 246;
+  --c-chart-8: 148 163 184;
+  --ai-gradient: linear-gradient(135deg,#22d3ee,#6366f1 55%,#a855f7);
+  --radius-control: 10px;
+  --radius-card: 14px;
+  --radius-card-lg: 18px;
+  --shadow-card: 0 1px 2px rgba(30,27,75,.05),0 4px 14px rgba(79,70,229,.07);
+  --font-display: var(--font-sans);
+  --font-num: var(--font-sans);
+}
+
+[data-ui-theme="ent"] {
+  /* B 稳重企业风 */
+  color-scheme: light;
+  --c-bg: 245 246 248;
+  --c-surface: 255 255 255;
+  --c-surface-2: 247 248 250;
+  --c-surface-3: 236 238 242;
+  --c-line: 229 230 235;
+  --c-line-strong: 201 205 212;
+  --c-fg: 29 33 41;
+  --c-fg-2: 78 89 105;
+  --c-muted: 134 144 156;
+  --c-subtle: 169 174 184;
+  --c-primary: 22 119 255;
+  --c-primary-hover: 9 88 217;
+  --c-primary-text: 22 119 255;
+  --c-primary-fg: 255 255 255;
+  --c-primary-soft: 232 243 255;
+  --c-accent: 114 46 209;
+  --c-accent-soft: 243 235 252;
+  --c-success: 0 168 112;
+  --c-success-soft: 232 248 242;
+  --c-warning: 210 95 0;
+  --c-warning-soft: 255 243 232;
+  --c-danger: 245 63 63;
+  --c-danger-soft: 255 236 232;
+  --c-info: 20 169 201;
+  --c-info-soft: 230 247 251;
+  --c-inverse: 29 33 41;
+  --c-inverse-fg: 255 255 255;
+  --c-chrome: 255 255 255;
+  --c-chrome-fg: 29 33 41;
+  --c-chrome-muted: 134 144 156;
+  --c-chrome-line: 229 230 235;
+  --c-chrome-active: 22 119 255;
+  --c-chrome-active-bg: 232 243 255;
+  --c-side: 255 255 255;
+  --c-chart-1: 22 119 255;
+  --c-chart-2: 20 201 201;
+  --c-chart-3: 247 186 30;
+  --c-chart-4: 114 46 209;
+  --c-chart-5: 245 63 63;
+  --c-chart-6: 0 168 112;
+  --c-chart-7: 52 145 250;
+  --c-chart-8: 134 144 156;
+  --ai-gradient: linear-gradient(135deg,#1677ff,#1677ff);
+  --radius-control: 6px;
+  --radius-card: 8px;
+  --radius-card-lg: 8px;
+  --shadow-card: 0 0 #0000;
+  --font-display: var(--font-sans);
+  --font-num: var(--font-sans);
+}
+
+[data-ui-theme="ind"] {
+  /* C 深色工业风 */
+  color-scheme: light;
+  --c-bg: 238 241 245;
+  --c-surface: 255 255 255;
+  --c-surface-2: 244 246 249;
+  --c-surface-3: 226 232 240;
+  --c-line: 223 228 234;
+  --c-line-strong: 195 203 214;
+  --c-fg: 15 23 42;
+  --c-fg-2: 51 65 85;
+  --c-muted: 100 116 139;
+  --c-subtle: 148 163 184;
+  --c-primary: 8 145 178;
+  --c-primary-hover: 14 116 144;
+  --c-primary-text: 14 116 144;
+  --c-primary-fg: 255 255 255;
+  --c-primary-soft: 224 245 249;
+  --c-accent: 139 92 246;
+  --c-accent-soft: 239 233 254;
+  --c-success: 5 150 105;
+  --c-success-soft: 227 245 238;
+  --c-warning: 217 119 6;
+  --c-warning-soft: 253 242 225;
+  --c-danger: 220 38 38;
+  --c-danger-soft: 253 236 236;
+  --c-info: 37 99 235;
+  --c-info-soft: 230 238 253;
+  --c-inverse: 15 23 42;
+  --c-inverse-fg: 241 245 249;
+  --c-chrome: 15 23 42;
+  --c-chrome-fg: 241 245 249;
+  --c-chrome-muted: 100 116 139;
+  --c-chrome-line: 30 41 59;
+  --c-chrome-active: 34 211 238;
+  --c-chrome-active-bg: 22 40 58;
+  --c-side: 15 23 42;
+  --c-chart-1: 8 145 178;
+  --c-chart-2: 139 92 246;
+  --c-chart-3: 245 158 11;
+  --c-chart-4: 16 185 129;
+  --c-chart-5: 239 68 68;
+  --c-chart-6: 59 130 246;
+  --c-chart-7: 236 72 153;
+  --c-chart-8: 100 116 139;
+  --ai-gradient: linear-gradient(135deg,#06b6d4,#8b5cf6);
+  --radius-control: 6px;
+  --radius-card: 10px;
+  --radius-card-lg: 12px;
+  --shadow-card: 0 1px 2px rgba(15,23,42,.06);
+  --font-display: var(--font-sans);
+  --font-num: "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+
+[data-ui-theme="mono"] {
+  /* E 极简黑白风 */
+  color-scheme: light;
+  --c-bg: 250 250 250;
+  --c-surface: 255 255 255;
+  --c-surface-2: 245 245 245;
+  --c-surface-3: 235 235 235;
+  --c-line: 232 232 232;
+  --c-line-strong: 212 212 212;
+  --c-fg: 10 10 10;
+  --c-fg-2: 64 64 64;
+  --c-muted: 115 115 115;
+  --c-subtle: 163 163 163;
+  --c-primary: 17 17 17;
+  --c-primary-hover: 51 51 51;
+  --c-primary-text: 17 17 17;
+  --c-primary-fg: 255 255 255;
+  --c-primary-soft: 240 240 240;
+  --c-accent: 82 82 82;
+  --c-accent-soft: 239 239 239;
+  --c-success: 21 128 61;
+  --c-success-soft: 236 247 239;
+  --c-warning: 180 83 9;
+  --c-warning-soft: 253 244 230;
+  --c-danger: 220 38 38;
+  --c-danger-soft: 253 238 238;
+  --c-info: 37 99 235;
+  --c-info-soft: 238 243 253;
+  --c-inverse: 17 17 17;
+  --c-inverse-fg: 250 250 250;
+  --c-chrome: 255 255 255;
+  --c-chrome-fg: 10 10 10;
+  --c-chrome-muted: 163 163 163;
+  --c-chrome-line: 236 236 236;
+  --c-chrome-active: 10 10 10;
+  --c-chrome-active-bg: 239 239 239;
+  --c-side: 250 250 250;
+  --c-chart-1: 17 17 17;
+  --c-chart-2: 115 115 115;
+  --c-chart-3: 163 163 163;
+  --c-chart-4: 37 99 235;
+  --c-chart-5: 21 128 61;
+  --c-chart-6: 220 38 38;
+  --c-chart-7: 180 83 9;
+  --c-chart-8: 212 212 212;
+  --ai-gradient: linear-gradient(135deg,#111111,#111111);
+  --radius-control: 6px;
+  --radius-card: 8px;
+  --radius-card-lg: 10px;
+  --shadow-card: 0 1px 2px rgba(0,0,0,.04);
+  --font-display: var(--font-sans);
+  --font-num: var(--font-sans);
+}
+
+[data-ui-theme="dark"] {
+  /* F 全深色 */
+  color-scheme: dark;
+  --c-bg: 15 17 21;
+  --c-surface: 23 26 33;
+  --c-surface-2: 29 33 42;
+  --c-surface-3: 38 43 53;
+  --c-line: 38 43 53;
+  --c-line-strong: 54 60 72;
+  --c-fg: 230 232 238;
+  --c-fg-2: 195 200 211;
+  --c-muted: 139 147 165;
+  --c-subtle: 100 108 125;
+  --c-primary: 59 116 240;
+  --c-primary-hover: 82 135 245;
+  --c-primary-text: 143 176 255;
+  --c-primary-fg: 255 255 255;
+  --c-primary-soft: 29 42 69;
+  --c-accent: 167 139 250;
+  --c-accent-soft: 42 36 64;
+  --c-success: 62 207 142;
+  --c-success-soft: 22 48 42;
+  --c-warning: 245 181 68;
+  --c-warning-soft: 51 41 26;
+  --c-danger: 255 107 107;
+  --c-danger-soft: 58 31 36;
+  --c-info: 79 195 247;
+  --c-info-soft: 21 48 61;
+  --c-inverse: 230 232 238;
+  --c-inverse-fg: 15 17 21;
+  --c-chrome: 19 22 28;
+  --c-chrome-fg: 230 232 238;
+  --c-chrome-muted: 107 115 133;
+  --c-chrome-line: 35 40 51;
+  --c-chrome-active: 143 176 255;
+  --c-chrome-active-bg: 28 36 54;
+  --c-side: 19 22 28;
+  --c-chart-1: 91 140 255;
+  --c-chart-2: 177 151 252;
+  --c-chart-3: 62 207 142;
+  --c-chart-4: 245 181 68;
+  --c-chart-5: 255 107 107;
+  --c-chart-6: 79 195 247;
+  --c-chart-7: 247 131 172;
+  --c-chart-8: 139 147 165;
+  --ai-gradient: linear-gradient(135deg,#3b74f0,#8b5cf6);
+  --radius-control: 7px;
+  --radius-card: 10px;
+  --radius-card-lg: 12px;
+  --shadow-card: 0 0 #0000;
+  --font-display: var(--font-sans);
+  --font-num: var(--font-sans);
+}

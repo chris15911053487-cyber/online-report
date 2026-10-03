@@ -1,9 +1,9 @@
 export const TOKEN_KEY = 'online_report_token'
 
-/** dev uses Vite proxy /api; production is same-origin (matching legacy app.js) */
+/** 接口统一走 /api 前缀：开发时 Vite 代理去掉前缀转发，生产时由服务端 rewriteUrl 去掉（见 server/src/spa.js） */
 export function apiUrl(path: string): string {
   const p = path.startsWith('/') ? path : `/${path}`
-  return import.meta.env.DEV ? `/api${p}` : p
+  return `/api${p}`
 }
 
 export function getToken() {

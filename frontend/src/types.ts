@@ -132,6 +132,7 @@ export type ViewName =
   | 'work-registration'
   | 'scheduled-reports'
   | 'alert-push'
+  | 'admin'
 
 /** Agent 快捷提问 */
 export interface AgentQuickPrompt {

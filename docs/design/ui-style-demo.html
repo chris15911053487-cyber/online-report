@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- 界面主题演示（离线副本）。在线版：https://claude.ai/artifact/5h16EHwUafL4cjx2MJ8vsW -->
+<style>body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>界面风格对比</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&family=Noto+Serif+SC:wght@600;700&display=swap">
+<style>
+/* 布局：页头说明 → 控制条（场景 / 对比方式 / 风格）→ 舞台（三台手机并排，或单个 PC 窗口按宽度缩放）→ 风格要点 */
+:root{
+  --bg:#f2f3f6; --surface:#ffffff; --fg:#1c2230; --muted:#667085; --line:#dfe2e8; --accent:#2f5bd3; --accent-soft:#e9eefc;
+  --sys:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --bezel:#1f2430;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#14171e; --surface:#1c2029; --fg:#e7eaf0; --muted:#98a1b3; --line:#2c3240; --accent:#8aa6f5; --accent-soft:#232c44; --bezel:#05070b; color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#14171e; --surface:#1c2029; --fg:#e7eaf0; --muted:#98a1b3; --line:#2c3240; --accent:#8aa6f5; --accent-soft:#232c44; --bezel:#05070b; color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--sys);font-size:14px;line-height:1.55}
+.page{max-width:1240px;margin:0 auto;padding-inline:16px;padding-block:28px 48px;display:flex;flex-direction:column;gap:20px}
+.intro h1{font-size:24px;margin:0 0 6px;text-wrap:balance;letter-spacing:.01em}
+.intro p{margin:0;color:var(--muted);max-width:68ch}
+.controls{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;position:sticky;top:env(safe-area-inset-top,0px);z-index:20}
+.ctl{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ctl-label{font-size:12px;color:var(--muted);letter-spacing:.06em}
+.segc{display:inline-flex;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:2px;flex-wrap:wrap}
+.segc button{font:inherit;font-size:13px;border:0;background:transparent;color:var(--muted);padding:5px 12px;border-radius:6px;cursor:pointer}
+.segc button[aria-pressed="true"]{background:var(--surface);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.12);font-weight:600}
+.segc button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.stage-compare{display:flex;flex-wrap:wrap;gap:28px;justify-content:center}
+.col{display:flex;flex-direction:column;gap:10px;align-items:center;min-width:0}
+.col-head{width:360px;max-width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.col-head b{font-size:15px}
+.col-head span{font-size:12px;color:var(--muted)}
+.sw{display:flex;gap:4px}
+.sw i{width:14px;height:14px;border-radius:4px;border:1px solid rgba(0,0,0,.08);display:block}
+.pc-wrap{width:100%;overflow:hidden}
+.pc-wrap>.app{transform-origin:top left}
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+.note{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0}
+.note h3{margin:0 0 6px;font-size:15px;display:flex;gap:8px;align-items:center}
+.note dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 10px;font-size:13px}
+.note dt{color:var(--muted)}
+.note dd{margin:0}
+.foot{font-size:12px;color:var(--muted)}
+
+/* ================= 应用模型（每种风格是固定外观，与查看者明暗主题无关） ================= */
+.app{
+  --a-bg:#f4f6fb; --a-surface:#fff; --a-border:#e6e8f2; --a-text:#1b1f3b; --a-muted:#6b7190;
+  --a-primary:#4f46e5; --a-primary-soft:#eef0ff; --a-ai:linear-gradient(135deg,#22d3ee,#6366f1 55%,#a855f7);
+  --a-r:14px; --a-r-sm:10px; --a-shadow:0 1px 2px rgba(30,27,75,.05),0 4px 14px rgba(79,70,229,.07);
+  --a-head-bg:#fff; --a-head-fg:#1b1f3b; --a-head-border:#eceef6;
+  --a-nav-bg:#fff; --a-nav-fg:#9aa0b8; --a-nav-active:#4f46e5;
+  --a-side-bg:#fff; --a-side-fg:#4a5070; --a-side-muted:#9aa0b8; --a-side-active-bg:#eef0ff; --a-side-active-fg:#4f46e5; --a-side-border:#eceef6;
+  --a-tile-bg:#eef0ff; --a-tile-fg:#4f46e5; --a-chart:#6366f1; --a-chart2:#22d3ee; --a-grid:#eceef6;
+  --a-fs:14px; --a-num:var(--sys); --a-input:#f6f7fb; --a-seg-track:#eef0f6; --a-seg-on-bg:#fff; --a-seg-on-fg:#4f46e5;
+  --a-good:#0f9f6e; --a-good-soft:#e3f6ee; --a-bad:#e5484d; --a-bad-soft:#fdecec; --a-warn:#c27803; --a-warn-soft:#fdf3dc;
+  --a-display:var(--sys);
+  font-family:var(--sys); font-size:var(--a-fs); color:var(--a-text); background:var(--a-bg);
+  position:relative; display:flex; flex-direction:column; overflow:hidden; line-height:1.45; color-scheme:light;
+}
+.st-ent{
+  --a-bg:#f5f6f8; --a-border:#e5e6eb; --a-text:#1d2129; --a-muted:#86909c;
+  --a-primary:#1677ff; --a-primary-soft:#e8f3ff; --a-ai:#1677ff;
+  --a-r:8px; --a-r-sm:6px; --a-shadow:none;
+  --a-head-bg:#fff; --a-head-fg:#1d2129; --a-head-border:#e5e6eb;
+  --a-nav-fg:#86909c; --a-nav-active:#1677ff;
+  --a-side-fg:#4e5969; --a-side-muted:#86909c; --a-side-active-bg:#e8f3ff; --a-side-active-fg:#1677ff; --a-side-border:#e5e6eb;
+  --a-tile-bg:#e8f3ff; --a-tile-fg:#1677ff; --a-chart:#1677ff; --a-chart2:#69b1ff; --a-grid:#f0f1f3;
+  --a-fs:13px; --a-input:#f2f3f5; --a-seg-track:#fff; --a-seg-on-bg:#e8f3ff; --a-seg-on-fg:#1677ff;
+  --a-good:#00a870; --a-good-soft:#e8f8f2; --a-bad:#f53f3f; --a-bad-soft:#ffece8; --a-warn:#d25f00; --a-warn-soft:#fff3e8;
+}
+.st-ind{
+  --a-bg:#eef1f5; --a-border:#dfe4ea; --a-text:#0f172a; --a-muted:#64748b;
+  --a-primary:#0891b2; --a-primary-soft:#e0f5f9; --a-ai:linear-gradient(135deg,#06b6d4,#8b5cf6);
+  --a-r:10px; --a-r-sm:6px; --a-shadow:0 1px 2px rgba(15,23,42,.06);
+  --a-head-bg:#0f172a; --a-head-fg:#f1f5f9; --a-head-border:#0f172a;
+  --a-nav-bg:#0f172a; --a-nav-fg:#64748b; --a-nav-active:#22d3ee;
+  --a-side-bg:#0f172a; --a-side-fg:#a5b1c4; --a-side-muted:#5b6b82; --a-side-active-bg:rgba(34,211,238,.12); --a-side-active-fg:#22d3ee; --a-side-border:#1e293b;
+  --a-tile-bg:#0f172a; --a-tile-fg:#22d3ee; --a-chart:#0891b2; --a-chart2:#8b5cf6; --a-grid:#e5e9ef;
+  --a-fs:13.5px; --a-num:var(--mono); --a-input:#f1f4f8; --a-seg-track:#e2e8f0; --a-seg-on-bg:#0f172a; --a-seg-on-fg:#22d3ee;
+}
+.st-warm{
+  --a-bg:#f5f3ec; --a-surface:#fffdf8; --a-border:#e6e2d6; --a-text:#1f1e1b; --a-muted:#6f6b60;
+  --a-primary:#c15f3c; --a-primary-soft:#f6e7de; --a-ai:#c96442;
+  --a-r:12px; --a-r-sm:8px; --a-shadow:none;
+  --a-head-bg:#f5f3ec; --a-head-fg:#1f1e1b; --a-head-border:#e6e2d6;
+  --a-nav-bg:#faf8f2; --a-nav-fg:#8f8a7c; --a-nav-active:#c15f3c;
+  --a-side-bg:#eeebe1; --a-side-fg:#4d4a42; --a-side-muted:#8f8a7c; --a-side-active-bg:#e2ddcf; --a-side-active-fg:#1f1e1b; --a-side-border:#e2ddcf;
+  --a-tile-bg:#efeadf; --a-tile-fg:#c15f3c; --a-chart:#d4a27f; --a-chart2:#c15f3c; --a-grid:#ece8dd;
+  --a-fs:14px; --a-input:#f0ede4; --a-seg-track:#ebe7dc; --a-seg-on-bg:#fffdf8; --a-seg-on-fg:#1f1e1b;
+  --a-good:#3d7a4f; --a-good-soft:#e5efe3; --a-bad:#b5452f; --a-bad-soft:#f6e3dc; --a-warn:#a0620a; --a-warn-soft:#f6ecd8;
+  --a-display:"Noto Serif SC","Songti SC","STSong",Georgia,serif;
+}
+.st-mono{
+  --a-bg:#fafafa; --a-surface:#fff; --a-border:#e8e8e8; --a-text:#0a0a0a; --a-muted:#737373;
+  --a-primary:#111111; --a-primary-soft:#f2f2f2; --a-ai:#111111;
+  --a-r:8px; --a-r-sm:6px; --a-shadow:0 1px 2px rgba(0,0,0,.04);
+  --a-head-bg:#fff; --a-head-fg:#0a0a0a; --a-head-border:#ececec;
+  --a-nav-bg:#fff; --a-nav-fg:#a3a3a3; --a-nav-active:#0a0a0a;
+  --a-side-bg:#fafafa; --a-side-fg:#525252; --a-side-muted:#a3a3a3; --a-side-active-bg:#efefef; --a-side-active-fg:#0a0a0a; --a-side-border:#ececec;
+  --a-tile-bg:#f4f4f4; --a-tile-fg:#0a0a0a; --a-chart:#c4c4c4; --a-chart2:#111111; --a-grid:#f0f0f0;
+  --a-fs:13px; --a-input:#f5f5f5; --a-seg-track:#f2f2f2; --a-seg-on-bg:#fff; --a-seg-on-fg:#0a0a0a;
+  --a-good:#15803d; --a-good-soft:#ecf7ef; --a-bad:#dc2626; --a-bad-soft:#fdeeee; --a-warn:#b45309; --a-warn-soft:#fdf4e6;
+}
+.st-dark{
+  --a-bg:#0f1115; --a-surface:#171a21; --a-border:#262b35; --a-text:#e6e8ee; --a-muted:#8b93a5;
+  --a-primary:#3b74f0; --a-primary-soft:rgba(91,141,255,.16); --a-ai:linear-gradient(135deg,#3b74f0,#8b5cf6);
+  --a-r:10px; --a-r-sm:7px; --a-shadow:none;
+  --a-head-bg:#13161c; --a-head-fg:#e6e8ee; --a-head-border:#232833;
+  --a-nav-bg:#13161c; --a-nav-fg:#6b7385; --a-nav-active:#8fb0ff;
+  --a-side-bg:#13161c; --a-side-fg:#a3abbb; --a-side-muted:#5f6778; --a-side-active-bg:rgba(126,166,255,.12); --a-side-active-fg:#a9c3ff; --a-side-border:#232833;
+  --a-tile-bg:#1f2430; --a-tile-fg:#8fb0ff; --a-chart:#4a7cf0; --a-chart2:#b197fc; --a-grid:#232833;
+  --a-fs:13.5px; --a-input:#1d212a; --a-seg-track:#1d212a; --a-seg-on-bg:#2a3040; --a-seg-on-fg:#e6e8ee;
+  --a-good:#3ecf8e; --a-good-soft:rgba(62,207,142,.14); --a-bad:#ff6b6b; --a-bad-soft:rgba(255,107,107,.14); --a-warn:#f5b544; --a-warn-soft:rgba(245,181,68,.14);
+  color-scheme:dark;
+}
+.st-dark .chip.info,.st-dark .pop span:first-of-type,.st-dark .ctxpill{color:#a9c3ff}
+.st-dark .bar.hl{fill:var(--a-chart2)}
+.st-dark .bn .center{box-shadow:0 4px 14px rgba(59,116,240,.4)}
+.st-dark .pop{box-shadow:0 10px 26px rgba(0,0,0,.5)}
+.p-head h2,.hello b,.ph h2,.adm .a-h b,.prof b,.brand b{font-family:var(--a-display)}
+.st-warm .kpi .k-v{font-family:var(--a-display);font-weight:600}
+.st-warm .bn .center{box-shadow:0 4px 12px rgba(193,95,60,.3)}
+.st-mono .bn .center{box-shadow:0 4px 10px rgba(0,0,0,.2)}
+.st-mono .chip{border-radius:5px}
+.st-mono .bar.hl{fill:var(--a-chart2)}
+.st-warm .bar.hl{fill:var(--a-chart2)}
+.phone{width:360px;height:720px;border:9px solid var(--bezel);border-radius:34px;flex:none}
+.pc{width:1200px;height:740px;border:1px solid var(--line);border-radius:10px;flex:none;flex-direction:row;box-shadow:0 10px 30px rgba(0,0,0,.08)}
+.ic{flex:none;display:block}
+.num{font-family:var(--a-num);font-variant-numeric:tabular-nums}
+
+/* 手机：顶栏 / 主体 / 底部 */
+.p-status{height:22px;background:var(--a-head-bg);color:var(--a-head-fg);font-size:11px;display:flex;justify-content:space-between;align-items:center;padding:0 16px;font-weight:600}
+.p-head{background:var(--a-head-bg);color:var(--a-head-fg);border-bottom:1px solid var(--a-head-border);display:flex;align-items:center;gap:8px;padding:10px 14px;min-height:46px}
+.p-head h2{font-size:16px;margin:0;flex:1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.p-head .who{font-size:12px;opacity:.65}
+.logo{width:24px;height:24px;border-radius:7px;background:var(--a-ai);display:grid;place-items:center;color:#fff}
+.st-ent .logo{border-radius:5px}
+.p-body{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px;scrollbar-width:none}
+.p-body::-webkit-scrollbar{display:none}
+.bn{background:var(--a-nav-bg);border-top:1px solid var(--a-head-border);display:flex;align-items:flex-end;padding:4px 4px 10px}
+.bn a{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:10.5px;color:var(--a-nav-fg);position:relative}
+.bn a.on{color:var(--a-nav-active);font-weight:600}
+.bn .center{width:48px;height:48px;border-radius:50%;background:var(--a-ai);color:#fff;display:grid;place-items:center;margin-top:-20px;border:4px solid var(--a-nav-bg);box-shadow:0 6px 14px rgba(79,70,229,.3)}
+.st-ent .bn .center{box-shadow:0 4px 10px rgba(22,119,255,.3)}
+.st-ind .bn .center{box-shadow:0 4px 12px rgba(6,182,212,.35)}
+.badge{position:absolute;top:-3px;left:calc(50% + 4px);background:var(--a-bad);color:#fff;font-size:9.5px;border-radius:8px;padding:0 4px;line-height:14px;font-weight:600}
+
+/* 通用件 */
+.card{background:var(--a-surface);border:1px solid var(--a-border);border-radius:var(--a-r);box-shadow:var(--a-shadow)}
+.card-h{display:flex;justify-content:space-between;align-items:center;padding:10px 12px 0;font-weight:600;font-size:13.5px}
+.card-h small{font-weight:400;color:var(--a-muted);font-size:11.5px}
+.sec{font-size:12px;color:var(--a-muted);margin:4px 2px -2px;letter-spacing:.04em}
+.btn{border:0;font:inherit;border-radius:var(--a-r-sm);padding:9px 14px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:default}
+.btn-p{background:var(--a-primary);color:#fff}
+.btn-g{background:var(--a-surface);color:var(--a-text);border:1px solid var(--a-border)}
+.chip{font-size:11px;padding:1px 7px;border-radius:999px;font-weight:600;white-space:nowrap}
+.st-ent .chip{border-radius:4px}
+.chip.warn{background:var(--a-warn-soft);color:var(--a-warn)}
+.chip.good{background:var(--a-good-soft);color:var(--a-good)}
+.chip.info{background:var(--a-primary-soft);color:var(--a-primary)}
+.chip.mute{background:var(--a-input);color:var(--a-muted)}
+.field{background:var(--a-input);border:1px solid transparent;border-radius:var(--a-r-sm);padding:7px 10px;font-size:12.5px;color:var(--a-text);display:flex;align-items:center;gap:6px;white-space:nowrap}
+.st-ent .field{background:#fff;border-color:var(--a-border)}
+.field small{color:var(--a-muted)}
+
+/* 分段切换 */
+.seg{display:flex;background:var(--a-seg-track);border-radius:var(--a-r-sm);padding:3px;gap:2px}
+.seg span{flex:1;text-align:center;padding:6px 0;border-radius:calc(var(--a-r-sm) - 2px);font-size:12.5px;color:var(--a-muted)}
+.seg span.on{background:var(--a-seg-on-bg);color:var(--a-seg-on-fg);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.st-ent .seg{border:1px solid var(--a-border);padding:0;gap:0}
+.st-ent .seg span{border-radius:0;border-right:1px solid var(--a-border)}
+.st-ent .seg span:last-child{border-right:0}
+.st-ent .seg span.on{box-shadow:inset 0 -2px 0 var(--a-primary)}
+
+/* 菜单宫格 */
+.hello{padding:4px 2px}
+.hello b{font-size:17px;display:block}
+.hello span{color:var(--a-muted);font-size:12px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.tile{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 4px 10px;text-align:center;font-size:12.5px;font-weight:500}
+.tile .t-ic{width:38px;height:38px;border-radius:var(--a-r-sm);background:var(--a-tile-bg);color:var(--a-tile-fg);display:grid;place-items:center}
+.st-tech .tile .t-ic{border-radius:12px}
+.recent{display:flex;flex-direction:column}
+.recent div{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;border-top:1px solid var(--a-border);font-size:12.5px}
+.recent div:first-child{border-top:0}
+.recent span{color:var(--a-muted);font-size:11.5px}
+
+/* 报工列表 */
+.filters{display:flex;gap:6px}
+.filters .field{flex:1}
+.rc{display:flex;gap:10px;padding:10px 12px;align-items:flex-start}
+.rc.sel{border-color:var(--a-primary);background:color-mix(in srgb,var(--a-primary) 4%,var(--a-surface))}
+.cb{width:18px;height:18px;border-radius:5px;border:1.5px solid var(--a-border);flex:none;margin-top:1px;display:grid;place-items:center;color:#fff;background:var(--a-surface)}
+.st-ent .cb{border-radius:3px}
+.cb.on{background:var(--a-primary);border-color:var(--a-primary)}
+.rc-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.rc-top{display:flex;justify-content:space-between;align-items:center;gap:6px}
+.rc-top b{font-family:var(--a-num);font-size:13px}
+.rc-sub{color:var(--a-muted);font-size:12px}
+.prog-row{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--a-muted)}
+.prog{flex:1;height:5px;background:var(--a-input);border-radius:3px;overflow:hidden}
+.prog i{display:block;height:100%;background:var(--a-primary);border-radius:3px}
+.action-bar{background:var(--a-surface);border-top:1px solid var(--a-border);padding:10px 12px 14px;display:flex;gap:8px;align-items:center}
+.action-bar .hint{font-size:11.5px;color:var(--a-muted);flex:1}
+
+/* 看板 */
+.ptabs{display:flex;background:var(--a-head-bg);border-bottom:1px solid var(--a-head-border)}
+.ptabs span{flex:1;text-align:center;padding:8px 0;font-size:13px;color:var(--a-head-fg);opacity:.6}
+.ptabs span.on{opacity:1;font-weight:600;box-shadow:inset 0 -2px 0 var(--a-nav-active)}
+.kpis{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.kpi{padding:10px 12px;display:flex;flex-direction:column;gap:2px}
+.kpi .k-l{font-size:11.5px;color:var(--a-muted)}
+.kpi .k-v{font-size:21px;font-weight:700;font-family:var(--a-num);font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.st-ind .kpi .k-v{font-size:19px;font-weight:600}
+.kpi .k-v small{font-size:11.5px;font-weight:500;color:var(--a-muted);margin-left:2px;font-family:var(--sys)}
+.kpi .k-d{font-size:11.5px;font-weight:600;font-family:var(--a-num)}
+.up-bad,.down-bad{color:var(--a-bad)} .up-good{color:var(--a-good)}
+.st-ind .kpi{border-top:3px solid var(--a-chart)}
+.st-ind .kpi.alert{border-top-color:var(--a-bad)}
+.st-tech .kpi.feature{background:var(--a-ai);color:#fff;border:0}
+.st-tech .kpi.feature .k-l,.st-tech .kpi.feature .k-v small,.st-tech .kpi.feature .k-d{color:rgba(255,255,255,.88)}
+svg text{font-family:var(--sys)}
+.ax{fill:var(--a-muted);font-size:10.5px}
+.ax-num{fill:var(--a-muted);font-size:10px;font-family:var(--a-num)}
+.vl{fill:var(--a-text);font-size:10.5px;font-weight:600;font-family:var(--a-num)}
+.gl{stroke:var(--a-grid);stroke-width:1}
+.bar{fill:var(--a-chart)}
+.bar.hl{fill:var(--a-chart2)}
+.st-ind .bar.hl,.st-tech .bar.hl{fill:var(--a-chart2)}
+.ln{fill:none;stroke:var(--a-chart);stroke-width:2.2}
+.ar{fill:var(--a-chart);opacity:.12}
+.dot{fill:var(--a-surface);stroke:var(--a-chart);stroke-width:2}
+.ask{background:var(--a-surface);border-top:1px solid var(--a-border);padding:8px 12px 12px;display:flex;gap:8px;align-items:center}
+.ask .field{flex:1;color:var(--a-muted)}
+.send{width:34px;height:34px;border-radius:var(--a-r-sm);background:var(--a-ai);color:#fff;display:grid;place-items:center;flex:none}
+
+/* 设置 */
+.prof{display:flex;gap:12px;align-items:center;padding:14px}
+.avatar{width:46px;height:46px;border-radius:50%;background:var(--a-ai);color:#fff;display:grid;place-items:center;font-weight:700;font-size:17px;flex:none}
+.st-ent .avatar{background:var(--a-primary)}
+.prof b{font-size:15px}
+.prof .roles{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
+.list{display:flex;flex-direction:column}
+.li{display:flex;align-items:center;gap:10px;padding:11px 12px;border-top:1px solid var(--a-border)}
+.li:first-child{border-top:0}
+.li .l-ic{width:30px;height:30px;border-radius:8px;background:var(--a-tile-bg);color:var(--a-tile-fg);display:grid;place-items:center;flex:none}
+.st-ent .li .l-ic{border-radius:6px}
+.li .l-t{flex:1;min-width:0}
+.li .l-t div{font-weight:500}
+.li .l-t small{color:var(--a-muted);font-size:11.5px}
+.li .chev{color:var(--a-muted)}
+.li.danger{color:var(--a-bad);justify-content:center;font-weight:600}
+
+/* PC 外壳 */
+.side{width:212px;background:var(--a-side-bg);border-right:1px solid var(--a-side-border);display:flex;flex-direction:column;padding:14px 10px;gap:2px;flex:none}
+.brand{display:flex;align-items:center;gap:9px;padding:2px 8px 14px;color:var(--a-side-fg)}
+.brand b{color:var(--a-head-fg);font-size:14.5px}
+.st-tech .brand b,.st-ent .brand b{color:var(--a-text)}
+.side .grp{font-size:11px;color:var(--a-side-muted);padding:12px 10px 4px;letter-spacing:.06em}
+.side a{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:var(--a-r-sm);color:var(--a-side-fg);font-size:13px;position:relative}
+.side a.on{background:var(--a-side-active-bg);color:var(--a-side-active-fg);font-weight:600}
+.st-ent .side a.on{box-shadow:inset 3px 0 0 var(--a-primary);border-radius:0 var(--a-r-sm) var(--a-r-sm) 0}
+.side a .cnt{margin-left:auto;background:var(--a-bad);color:#fff;font-size:10px;border-radius:8px;padding:0 5px;line-height:15px}
+.side .me{margin-top:auto;display:flex;align-items:center;gap:8px;padding:10px 8px 0;border-top:1px solid var(--a-side-border);color:var(--a-side-fg);font-size:12px}
+.side .me .avatar{width:28px;height:28px;font-size:12px}
+.mainc{flex:1;min-width:0;display:flex;flex-direction:column;background:var(--a-bg)}
+.top{height:50px;background:var(--a-surface);border-bottom:1px solid var(--a-border);display:flex;align-items:center;gap:12px;padding:0 18px;flex:none}
+.crumb{font-size:13px;color:var(--a-muted);display:flex;gap:6px;align-items:center}
+.crumb b{color:var(--a-text);font-weight:600}
+.url{font-family:var(--mono);font-size:11px;background:var(--a-input);color:var(--a-muted);padding:3px 8px;border-radius:5px;border:1px dashed var(--a-border)}
+.top .sp{flex:1}
+.search{width:220px;color:var(--a-muted)}
+.content{flex:1;overflow:hidden;padding:16px 18px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.ph{display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
+.ph h2{margin:0;font-size:18px}
+.ph p{margin:2px 0 0;color:var(--a-muted);font-size:12.5px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.mod{display:flex;gap:10px;padding:14px;align-items:flex-start}
+.mod .t-ic{width:38px;height:38px;border-radius:var(--a-r-sm);background:var(--a-tile-bg);color:var(--a-tile-fg);display:grid;place-items:center;flex:none}
+.mod b{display:block;font-size:13.5px}
+.mod small{color:var(--a-muted);font-size:12px}
+.tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+.tbl th{text-align:left;font-weight:500;color:var(--a-muted);padding:9px 12px;background:var(--a-input);white-space:nowrap}
+.st-tech .tbl th{background:transparent;border-bottom:1px solid var(--a-border)}
+.tbl td{padding:10px 12px;border-top:1px solid var(--a-border);white-space:nowrap}
+.tbl tr.sel td{background:color-mix(in srgb,var(--a-primary) 5%,var(--a-surface))}
+.tbl td.r,.tbl th.r{text-align:right}
+.tbl-wrap{overflow:hidden}
+.pc-act{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--a-border);background:var(--a-surface)}
+.pc-act .hint{flex:1;color:var(--a-muted);font-size:12px}
+.chat{width:360px;background:var(--a-surface);border-right:1px solid var(--a-border);display:flex;flex-direction:column;flex:none}
+.chat-h{padding:12px 14px;border-bottom:1px solid var(--a-border);display:flex;align-items:center;gap:8px}
+.chat-h b{flex:1}
+.msgs{flex:1;overflow:hidden;padding:14px;display:flex;flex-direction:column;gap:10px}
+.bub{padding:9px 12px;border-radius:var(--a-r);font-size:12.5px;max-width:92%}
+.bub.me{align-self:flex-end;background:var(--a-primary);color:#fff;border-bottom-right-radius:4px}
+.bub.ai{background:var(--a-input);border-bottom-left-radius:4px}
+.ctxpill{align-self:flex-end;font-size:11px;color:var(--a-primary);background:var(--a-primary-soft);padding:2px 8px;border-radius:999px}
+.steps{display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--a-muted);padding-left:2px}
+.steps div{display:flex;gap:6px;align-items:center}
+.steps i{width:6px;height:6px;border-radius:50%;background:var(--a-good);display:block}
+.steps code{font-family:var(--mono);font-size:10.5px;color:var(--a-text)}
+.steps .t{margin-left:auto;font-family:var(--mono);font-size:10.5px}
+.dash-tabs{display:flex;gap:4px;border-bottom:1px solid var(--a-border);margin:-4px 0 0}
+.dash-tabs span{padding:6px 12px;font-size:13px;color:var(--a-muted)}
+.dash-tabs span.on{color:var(--a-text);font-weight:600;box-shadow:inset 0 -2px 0 var(--a-primary)}
+.fbar{display:flex;gap:8px;align-items:center}
+.fbar .asof{margin-left:auto;font-size:11.5px;color:var(--a-muted)}
+.charts{display:grid;grid-template-columns:7fr 5fr;gap:12px}
+.pop{position:absolute;background:var(--a-surface);border:1px solid var(--a-border);border-radius:var(--a-r-sm);box-shadow:0 10px 26px rgba(15,23,42,.16);padding:6px;display:flex;flex-direction:column;min-width:176px;font-size:12.5px;z-index:2}
+.pop .p-t{padding:4px 8px 6px;color:var(--a-muted);font-size:11.5px;border-bottom:1px solid var(--a-border);margin-bottom:3px}
+.pop span{padding:6px 8px;border-radius:5px;display:flex;align-items:center;gap:6px}
+.pop span:first-of-type{background:var(--a-primary-soft);color:var(--a-primary);font-weight:600}
+.adm{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.adm .card{padding:14px;display:flex;flex-direction:column;gap:8px}
+.adm .a-h{display:flex;align-items:center;gap:10px}
+.adm .a-h b{font-size:14px}
+.adm p{margin:0;color:var(--a-muted);font-size:12px}
+.adm .stat{font-size:12px;display:flex;gap:6px;flex-wrap:wrap}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+
+</head>
+<body>
+<div class="page">
+  <div class="intro">
+    <h1>在线报表系统 · 六种界面主题</h1>
+    <p>同一批真实场景（菜单、生产报工、Agent 与 BI 看板、设置与管理后台）按三种风格分别绘制，数据为示例。手机模式下六种主题并排对比；正式版默认 D，用户可在设置里切换；切到 PC 模式可看侧边栏导航和带地址的页面（引入 URL 路由后的样子）。</p>
+  </div>
+
+  <div class="controls" role="group" aria-label="演示控制">
+    <div class="ctl"><span class="ctl-label">场景</span>
+      <div class="segc" id="scene">
+        <button data-v="menu" aria-pressed="true">菜单</button>
+        <button data-v="pro" aria-pressed="false">生产报工</button>
+        <button data-v="agent" aria-pressed="false">Agent + 看板</button>
+        <button data-v="set" aria-pressed="false">设置 / 管理</button>
+      </div></div>
+    <div class="ctl"><span class="ctl-label">设备</span>
+      <div class="segc" id="mode">
+        <button data-v="phone" aria-pressed="true">手机 · 并排对比</button>
+        <button data-v="pc" aria-pressed="false">PC</button>
+      </div></div>
+    <div class="ctl" id="styleCtl" hidden><span class="ctl-label">风格</span>
+      <div class="segc" id="style">
+        <button data-v="tech" aria-pressed="false">A 科技风</button>
+        <button data-v="ent" aria-pressed="false">B 稳重企业风</button>
+        <button data-v="ind" aria-pressed="false">C 深色工业风</button>
+        <button data-v="warm" aria-pressed="true">D 暖色人文风</button>
+        <button data-v="mono" aria-pressed="false">E 极简黑白风</button>
+        <button data-v="dark" aria-pressed="false">F 全深色</button>
+      </div></div>
+  </div>
+
+  <div id="stage"></div>
+
+  <div class="notes">
+    <div class="note"><h3><span class="sw"><i style="background:#22d3ee"></i><i style="background:#6366f1"></i><i style="background:#a855f7"></i></span>A 科技风</h3>
+      <dl><dt>特点</dt><dd>延续现在登录页的青-靛-紫；Agent 入口、头像、重点 KPI 用渐变；圆角大、阴影柔和</dd>
+      <dt>适合</dt><dd>想突出"AI 系统"的新鲜感，对外演示效果好</dd>
+      <dt>注意</dt><dd>表格多、要长时间看数据的页面，渐变和大圆角会显得花哨</dd></dl></div>
+    <div class="note"><h3><span class="sw"><i style="background:#1677ff"></i><i style="background:#e8f3ff"></i><i style="background:#f5f6f8"></i></span>B 稳重企业风</h3>
+      <dl><dt>特点</dt><dd>单一蓝色，圆角 8，几乎无阴影，字号 13，信息密度最高；观感接近钉钉、飞书后台</dd>
+      <dt>适合</dt><dd>报表、报工这类天天用的业务页面；在钉钉里打开不突兀</dd>
+      <dt>注意</dt><dd>个性较弱，AI 功能不会显得特别"亮"</dd></dl></div>
+    <div class="note"><h3><span class="sw"><i style="background:#0f172a"></i><i style="background:#22d3ee"></i><i style="background:#8b5cf6"></i></span>C 深色工业风</h3>
+      <dl><dt>特点</dt><dd>深色顶栏、侧栏和底栏，浅色内容区；数字用等宽字体，KPI 顶部色条，看板感最强</dd>
+      <dt>适合</dt><dd>管理层看板、车间大屏、监控类页面</dd>
+      <dt>注意</dt><dd>手机上深色顶栏在钉钉白色界面里比较跳；表单页优势不明显</dd></dl></div>
+    <div class="note"><h3><span class="sw"><i style="background:#f5f3ec"></i><i style="background:#c15f3c"></i><i style="background:#1f1e1b"></i></span>D 暖色人文风</h3>
+      <dl><dt>特点</dt><dd>象牙白底、陶土橙强调色，标题和 KPI 数字用衬线体；无阴影、留白多，气质接近 Anthropic / Claude</dd>
+      <dt>适合</dt><dd>以 AI 对话、分析解读为主的页面，读起来像文档，长时间看不累</dd>
+      <dt>注意</dt><dd>衬线中文字体要额外加载（约几百 KB，按需分片）；密集表格需单独调紧凑</dd></dl></div>
+    <div class="note"><h3><span class="sw"><i style="background:#ffffff"></i><i style="background:#111111"></i><i style="background:#e8e8e8"></i></span>E 极简黑白风</h3>
+      <dl><dt>特点</dt><dd>黑白灰为主，按钮和重点数据用纯黑，颜色只留给状态（红/绿/橙）；细边框、小圆角</dd>
+      <dt>适合</dt><dd>偏现代互联网产品的观感，状态色在黑白底上非常醒目</dd>
+      <dt>注意</dt><dd>对车间一线用户偏"冷"，按钮区分度靠形状和文字，不靠颜色</dd></dl></div>
+    <div class="note"><h3><span class="sw"><i style="background:#0f1115"></i><i style="background:#3b74f0"></i><i style="background:#b197fc"></i></span>F 全深色</h3>
+      <dl><dt>特点</dt><dd>内容区、卡片、图表全部深色，低饱和蓝紫强调，状态色调亮以保证对比度</dd>
+      <dt>适合</dt><dd>夜班、车间大屏、长时间盯看板；可跟随系统深色模式自动切换</dd>
+      <dt>注意</dt><dd>报表里的图片列、导出的文件仍是浅色，需单独处理边框和底色</dd></dl></div>
+  </div>
+  <p class="foot">演示只用于选风格，不包含真实数据，也不代表最终细节。选定后再统一做组件库与全部页面改造。</p>
+</div>
+
+<script>
+(function(){
+const P={
+home:'M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z',
+bot:'M12 3v3M5 8h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2zM9 13v1M15 13v1',
+spark:'M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 17l.7 1.8 1.8.7-1.8.7L19 22l-.7-1.8-1.8-.7 1.8-.7z',
+msg:'M4 5h16v11H9l-5 4z',
+gear:'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1',
+factory:'M3 21V10l6 4v-4l6 4V5h6v16zM7 17h2M13 17h2',
+list:'M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01',
+clock:'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3 2',
+wrench:'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z',
+box:'M3 7.5 12 3l9 4.5v9L12 21l-9-4.5zM3 7.5l9 4.5 9-4.5M12 12v9',
+chart:'M4 20V11M10 20V5M16 20v-6M2 20h20',
+money:'M12 3v18M16.5 7H10a2.5 2.5 0 0 0 0 5h4a2.5 2.5 0 0 1 0 5H7',
+truck:'M3 6h11v10H3zM14 10h4l3 3v3h-7M7.5 19.5a1.5 1.5 0 1 0 0-.01M17.5 19.5a1.5 1.5 0 1 0 0-.01',
+check:'M4 12.5l5 5L20 6',
+search:'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-5-5',
+bell:'M6 16v-5a6 6 0 0 1 12 0v5l2 2H4zM10 21h4',
+chevR:'M9 6l6 6-6 6',
+back:'M15 6l-6 6 6 6',
+send:'M4 12 20 4l-6 16-2.5-6.5z',
+cal:'M4 6h16v14H4zM4 10h16M8 3v4M16 3v4',
+dash:'M3 3h8v8H3zM13 3h8v5h-8zM13 10h8v11h-8zM3 13h8v8H3z',
+shield:'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z',
+alert:'M12 3 2 20h20zM12 10v4M12 17h.01',
+key:'M14 7a4 4 0 1 1-3.2 6.4L4 20v-3h3v-3h3l.8-.8A4 4 0 0 1 14 7z',
+down:'M12 4v12M7 11l5 5 5-5M5 20h14',
+plus:'M12 5v14M5 12h14',
+filter:'M4 5h16l-6 8v6l-4-2v-4z',
+refresh:'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7'
+};
+const ic=(n,s=18,w=1.8)=>`<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${P[n]}"/></svg>`;
+
+const STYLES={tech:{n:'A 科技风',d:'延续登录页渐变',sw:['#22d3ee','#6366f1','#a855f7']},ent:{n:'B 稳重企业风',d:'单一蓝色，高密度',sw:['#1677ff','#e8f3ff','#f5f6f8']},ind:{n:'C 深色工业风',d:'深色框架，看板感',sw:['#0f172a','#22d3ee','#8b5cf6']},warm:{n:'D 暖色人文风',d:'默认 · 参考 Anthropic / Claude',sw:['#f5f3ec','#c15f3c','#1f1e1b']},mono:{n:'E 极简黑白风',d:'参考 Linear / Vercel',sw:['#ffffff','#111111','#e8e8e8']},dark:{n:'F 全深色',d:'夜间 / 大屏',sw:['#0f1115','#3b74f0','#b197fc']}};
+
+const MODS=[['生产报工','factory','接单 / 完工 / 暂停'],['生产订单','list','OWOR 订单查询'],['报工登记','clock','批次计时报工'],['返工领料','wrench','返工单领料出库'],['库存查询','box','按仓库 / 批次'],['销售日报','chart','当日出货与订单'],['应收账款','money','余额与账龄'],['采购在途','truck','未到货采购单'],['质检记录','check','来料与过程检验']];
+const ROWS=[
+ {no:'PO-26-1029',item:'前盖板 A2-118',step:'冲压 CY',plan:1200,done:800,ws:'冲压车间',due:'10-05',sel:1},
+ {no:'PO-26-1031',item:'前盖板 A2-118',step:'冲压 CY',plan:600,done:0,ws:'冲压车间',due:'10-06',sel:1},
+ {no:'PO-26-1033',item:'支架 B7-020',step:'焊接 HJ',plan:450,done:300,ws:'焊装车间',due:'10-04'},
+ {no:'PO-26-1040',item:'壳体 C3-305',step:'喷涂 PT',plan:900,done:120,ws:'涂装车间',due:'10-08'},
+ {no:'PO-26-1042',item:'支架 B7-021',step:'焊接 HJ',plan:300,done:0,ws:'焊装车间',due:'10-09'}];
+const AR=[['华东精密',286.4],['宏达机械',214.0],['新锐汽配',168.5],['恒通电器',121.3],['鼎盛五金',96.8]];
+const PAY=[['4月',860],['5月',905],['6月',880],['7月',1010],['8月',972],['9月',932]];
+const KPI=[
+ {l:'应收余额',v:'1,286.4',u:'万',d:'较上月 +3.2%',c:'up-good',f:1},
+ {l:'逾期应收',v:'214.7',u:'万',d:'较上月 +12.5%',c:'up-bad',a:1},
+ {l:'本月回款',v:'932.0',u:'万',d:'较上月 −4.1%',c:'down-bad'},
+ {l:'应收周转',v:'47',u:'天',d:'较上月 +2 天',c:'up-bad'}];
+const fmt=n=>n.toLocaleString('en-US');
+
+function barChart(w,h,hlIdx){
+  const x0=64,x1=w-40,top=6,bottom=h-20,max=300,n=AR.length,rh=(bottom-top)/n,bh=Math.min(16,rh*.56);
+  const sx=v=>x0+(x1-x0)*v/max;
+  let s=`<svg viewBox="0 0 ${w} ${h}" width="100%" role="img" aria-label="应收余额按客户 Top5（万元）">`;
+  [0,100,200,300].forEach(t=>{s+=`<line class="gl" x1="${sx(t)}" x2="${sx(t)}" y1="${top}" y2="${bottom}"/><text class="ax-num" x="${sx(t)}" y="${h-6}" text-anchor="middle">${t}</text>`});
+  AR.forEach(([k,v],i)=>{const y=top+rh*i+(rh-bh)/2;
+    s+=`<text class="ax" x="${x0-8}" y="${y+bh/2+3.5}" text-anchor="end">${k}</text><rect class="bar${i===hlIdx?' hl':''}" x="${x0}" y="${y}" width="${sx(v)-x0}" height="${bh}" rx="3"/><text class="vl" x="${sx(v)+5}" y="${y+bh/2+3.5}">${v.toFixed(1)}</text>`});
+  return s+'</svg>';
+}
+function lineChart(w,h){
+  const x0=34,x1=w-14,top=14,bottom=h-20,min=800,max=1050;
+  const sx=i=>x0+(x1-x0)*i/(PAY.length-1),sy=v=>bottom-(bottom-top)*(v-min)/(max-min);
+  let s=`<svg viewBox="0 0 ${w} ${h}" width="100%" role="img" aria-label="近 6 个月回款（万元）">`;
+  [800,900,1000].forEach(t=>{s+=`<line class="gl" x1="${x0}" x2="${x1}" y1="${sy(t)}" y2="${sy(t)}"/><text class="ax-num" x="${x0-6}" y="${sy(t)+3.5}" text-anchor="end">${t}</text>`});
+  const pts=PAY.map(([,v],i)=>`${sx(i)},${sy(v)}`);
+  s+=`<path class="ar" d="M${sx(0)},${bottom} L${pts.join(' L')} L${sx(PAY.length-1)},${bottom} Z"/><path class="ln" d="M${pts.join(' L')}"/>`;
+  PAY.forEach(([k,v],i)=>{s+=`<text class="ax" x="${sx(i)}" y="${h-5}" text-anchor="middle">${k}</text>`});
+  const li=PAY.length-1;s+=`<circle class="dot" cx="${sx(li)}" cy="${sy(PAY[li][1])}" r="4"/><text class="vl" x="${sx(li)-6}" y="${sy(PAY[li][1])-9}" text-anchor="end">932</text>`;
+  return s+'</svg>';
+}
+
+/* ---------- 手机 ---------- */
+const status=()=>`<div class="p-status"><span class="num">9:41</span><span>钉钉 · 5G</span></div>`;
+const phead=(t,{back,logo}={})=>`<div class="p-head">${back?ic('back',20):''}${logo?`<span class="logo">${ic('factory',14,2)}</span>`:''}<h2>${t}</h2><span class="who">王建国</span></div>`;
+function bnav(on){
+  const t=(id,l,i)=>`<a class="${on===id?'on':''}">${ic(i,20)}<span>${l}</span>${id==='msg'?'<span class="badge">3</span>':''}</a>`;
+  return `<div class="bn">${t('menu','菜单','home')}${t('ai','AI','spark')}<a class="${on==='agent'?'on':''}"><span class="center">${ic('bot',22)}</span><span>Agent</span></a>${t('msg','消息','msg')}${t('set','设置','gear')}</div>`;
+}
+const PH={
+menu:()=>status()+phead('工作台',{logo:1})+`<div class="p-body">
+  <div class="hello"><b>早上好，王建国</b><span>车间二部 · 10月3日 周六</span></div>
+  <div class="card" style="padding:10px 12px;display:flex;gap:10px;align-items:center"><span class="chip warn">待处理</span><span style="flex:1;font-size:12.5px">2 张生产订单今日到期，1 条库存预警</span>${ic('chevR',16)}</div>
+  <div class="sec">业务模块</div>
+  <div class="grid3">${MODS.map(([n,i])=>`<div class="card tile"><span class="t-ic">${ic(i,20)}</span>${n}</div>`).join('')}</div>
+  <div class="sec">最近使用</div>
+  <div class="card recent"><div>生产报工 · 待完工<span>10 分钟前</span></div><div>应收账款看板<span>昨天 17:20</span></div><div>库存查询 · 原材料仓<span>昨天 09:05</span></div></div>
+</div>`+bnav('menu'),
+pro:()=>status()+phead('生产报工',{back:1})+`<div class="p-body">
+  <div class="seg"><span>待接单</span><span class="on">待完工</span><span>已完工</span><span>恢复报工</span></div>
+  <div class="filters"><div class="field">${ic('cal',14)}<span class="num">2026-10-03</span></div><div class="field"><small>工序</small>全部</div><button class="btn btn-p" style="padding:7px 12px">查询</button></div>
+  <div style="font-size:11.5px;color:var(--a-muted);padding:0 2px">共 5 条 · 已选 2 条（同一工序）</div>
+  ${ROWS.map(r=>`<div class="card rc${r.sel?' sel':''}"><span class="cb${r.sel?' on':''}">${r.sel?ic('check',12,3):''}</span><div class="rc-main">
+    <div class="rc-top"><b>${r.no}</b><span class="chip ${r.done?'info':'mute'}">${r.done?'生产中':'未开工'}</span></div>
+    <div class="rc-sub">${r.item} · ${r.step} · ${r.ws}</div>
+    <div class="prog-row"><div class="prog"><i style="width:${Math.round(r.done/r.plan*100)}%"></i></div><span class="num">${fmt(r.done)} / ${fmt(r.plan)}</span></div></div></div>`).join('')}
+</div><div class="action-bar"><button class="btn btn-g">暂停报工</button><button class="btn btn-p" style="flex:1">完工（2 条）</button></div>`,
+agent:()=>status()+phead('财务经营分析',{back:1})+`<div class="ptabs"><span class="on">看板</span><span>对话</span></div><div class="p-body">
+  <div class="filters"><div class="field">${ic('cal',14)}期间 <span class="num">2026-09</span></div><div class="field"><small>部门</small>全部</div></div>
+  <div class="kpis">${KPI.map(k=>`<div class="card kpi${k.f?' feature':''}${k.a?' alert':''}"><span class="k-l">${k.l}</span><span class="k-v">${k.v}<small>${k.u}</small></span><span class="k-d ${k.c}">${k.d}</span></div>`).join('')}</div>
+  <div class="card"><div class="card-h">应收 · 按客户 Top5<small>万元 · 点柱子可解读/下钻</small></div><div style="padding:4px 10px 8px">${barChart(316,150,1)}</div></div>
+  <div class="card"><div class="card-h">近 6 个月回款<small>万元</small></div><div style="padding:4px 10px 8px">${lineChart(316,120)}</div></div>
+</div><div class="ask"><div class="field">${ic('spark',14)}问点别的，例如"逾期为什么上升"</div><span class="send">${ic('send',16)}</span></div>`,
+set:()=>status()+phead('设置')+`<div class="p-body">
+  <div class="card prof"><span class="avatar">王</span><div><b>王建国</b> <span style="color:var(--a-muted);font-size:12px" class="num">U0123</span><div class="roles"><span class="chip info">生产</span><span class="chip info">财务</span><span class="chip mute">查看成本</span></div></div></div>
+  <div class="sec">管理（仅管理员可见）</div>
+  <div class="card list">${[['bot','Agent 配置','6 个 Agent'],['dash','BI 看板管理','3 块看板 · 18 条查询'],['spark','AI Skill','14 个 Skill'],['shield','菜单与角色','42 个菜单 · 9 个角色'],['bell','消息提醒与警报','8 条规则'],['cal','定时报告','5 个任务']].map(([i,t,s])=>`<div class="li"><span class="l-ic">${ic(i,16)}</span><div class="l-t"><div>${t}</div><small>${s}</small></div><span class="chev">${ic('chevR',16)}</span></div>`).join('')}</div>
+  <div class="sec">账号</div>
+  <div class="card list"><div class="li"><span class="l-ic">${ic('key',16)}</span><div class="l-t"><div>修改密码</div></div><span class="chev">${ic('chevR',16)}</span></div><div class="li"><span class="l-ic">${ic('down',16)}</span><div class="l-t"><div>下载安卓 App</div></div><span class="chev">${ic('chevR',16)}</span></div><div class="li danger">退出登录</div></div>
+</div>`+bnav('set')
+};
+
+/* ---------- PC ---------- */
+function shell(active,crumbs,url,content,extraTop=''){
+  const a=(id,l,i,cnt)=>`<a class="${active===id?'on':''}">${ic(i,17)}${l}${cnt?`<span class="cnt">${cnt}</span>`:''}</a>`;
+  return `<aside class="side"><div class="brand"><span class="logo">${ic('factory',14,2)}</span><b>在线报表</b></div>
+    ${a('menu','工作台','home')}${a('agent','Agent','bot')}${a('ai','AI 助手','spark')}${a('msg','消息','msg',3)}
+    <div class="grp">常用</div>${a('pro','生产报工','factory')}${a('stock','库存查询','box')}${a('ar','应收账款','money')}
+    <div class="grp">管理</div>${a('admin','管理后台','gear')}
+    <div class="me"><span class="avatar">王</span><span>王建国<br><span style="opacity:.7">管理员</span></span></div></aside>
+  <div class="mainc"><div class="top"><div class="crumb">${crumbs}</div><span class="url">${url}</span><span class="sp"></span>${extraTop}<div class="field search">${ic('search',14)}搜索菜单、报表、Agent</div>${ic('bell',18)}</div>
+  <div class="content">${content}</div></div>`;
+}
+const PCV={
+menu:()=>shell('menu','<b>工作台</b>','/','<div class="ph"><div><h2>早上好，王建国</h2><p>车间二部 · 2 张生产订单今日到期，1 条库存预警</p></div><button class="btn btn-p">'+ic('bot',16)+'问 Agent</button></div>'
+  +`<div class="grid4" style="grid-template-columns:repeat(3,1fr)">${MODS.map(([n,i,d])=>`<div class="card mod"><span class="t-ic">${ic(i,20)}</span><div><b>${n}</b><small>${d}</small></div></div>`).join('')}</div>`
+  +`<div class="card"><div class="card-h">最近使用</div><table class="tbl" style="margin-top:8px"><tr><th>页面</th><th>筛选</th><th class="r">时间</th></tr><tr><td>生产报工</td><td>状态：待完工</td><td class="r num">10 分钟前</td></tr><tr><td>财务经营分析 · 看板</td><td>期间：2026-09</td><td class="r num">昨天 17:20</td></tr></table></div>`),
+pro:()=>shell('pro','工作台 / <b>生产报工</b>','/report/pro-sign?status=1',
+  `<div class="ph"><div><h2>生产报工</h2><p>勾选同一工序的明细后完工；点击行查看订单详情</p></div></div>
+  <div class="fbar"><div class="seg" style="width:380px"><span>待接单</span><span class="on">待完工</span><span>已完工</span><span>恢复报工</span></div><div class="field">${ic('cal',14)}<span class="num">2026-10-03</span></div><div class="field"><small>工序</small>全部</div><div class="field"><small>车间</small>全部</div><button class="btn btn-p" style="padding:7px 14px">${ic('filter',14)}查询</button></div>
+  <div class="card tbl-wrap" style="flex:1;display:flex;flex-direction:column"><table class="tbl"><tr><th style="width:36px"></th><th>生产订单</th><th>物料</th><th>工序</th><th class="r">计划数</th><th class="r">已报数</th><th style="width:150px">进度</th><th>车间</th><th>计划完工</th></tr>
+  ${ROWS.map(r=>`<tr class="${r.sel?'sel':''}"><td><span class="cb${r.sel?' on':''}">${r.sel?ic('check',12,3):''}</span></td><td class="num">${r.no}</td><td>${r.item}</td><td>${r.step}</td><td class="r num">${fmt(r.plan)}</td><td class="r num">${fmt(r.done)}</td><td><div class="prog"><i style="width:${Math.round(r.done/r.plan*100)}%"></i></div></td><td>${r.ws}</td><td class="num">${r.due}</td></tr>`).join('')}</table>
+  <div style="flex:1"></div><div class="pc-act"><span class="hint">已选 2 条 · 工序 冲压 CY · 合计计划 1,800</span><button class="btn btn-g">暂停报工</button><button class="btn btn-p">完工（2 条）</button></div></div>`),
+agent:()=>{
+  const chat=`<div class="chat"><div class="chat-h"><span class="logo">${ic('bot',14,2)}</span><b>财务经营分析</b><button class="btn btn-g" style="padding:5px 10px;font-size:12px">${ic('plus',14)}新对话</button></div>
+  <div class="msgs"><span class="ctxpill">看板 · 逾期应收 214.7 万</span><div class="bub me">逾期应收为什么比上月多了 12.5%？</div>
+  <div class="steps"><div><i></i>查询 <code>fin_ar_overdue</code><span class="t">0.8s</span></div><div><i></i>查询 <code>fin_ar_docs</code><span class="t">1.2s</span></div><div><i></i>模型回答<span class="t">3.4s</span></div></div>
+  <div class="bub ai">9 月逾期应收 <b class="num">214.7</b> 万，比 8 月多 <b class="num">23.9</b> 万。主要来自两家客户：<br>· 宏达机械新增逾期 <b class="num">15.2</b> 万，3 张发票超过 60 天；<br>· 新锐汽配新增 <b class="num">8.1</b> 万。<br>建议优先跟进宏达机械 INV-2608-112。<div style="margin-top:6px;font-size:11px;color:var(--a-muted)">口径：按过账日期，含未清贷项</div></div></div>
+  <div class="ask"><div class="field">${ic('spark',14)}继续追问…</div><span class="send">${ic('send',16)}</span></div></div>`;
+  const dash=`<div class="dash-tabs"><span class="on">看板</span><span>当前结果</span></div>
+  <div class="fbar"><div class="field">${ic('cal',14)}期间 <span class="num">2026-09</span></div><div class="field"><small>部门</small>全部</div><span class="asof">${ic('refresh',13)}</span><span class="asof" style="margin-left:4px">数据截至 10-03 08:00 · 缓存</span></div>
+  <div class="grid4">${KPI.map(k=>`<div class="card kpi${k.f?' feature':''}${k.a?' alert':''}"><span class="k-l">${k.l}</span><span class="k-v">${k.v}<small>${k.u}</small></span><span class="k-d ${k.c}">${k.d}</span></div>`).join('')}</div>
+  <div class="charts" style="position:relative"><div class="card"><div class="card-h">应收 · 按客户 Top5<small>万元</small></div><div style="padding:6px 12px 10px">${barChart(420,190,1)}</div></div>
+  <div class="card"><div class="card-h">近 6 个月回款<small>万元</small></div><div style="padding:6px 12px 10px">${lineChart(300,190)}</div></div>
+  <div class="pop" style="left:300px;top:96px"><div class="p-t">宏达机械 · 214.0 万</div><span>${ic('spark',14)}AI 解读</span><span>${ic('chevR',14)}下钻到单据</span><span>${ic('msg',14)}问点别的…</span></div></div>`;
+  return `<aside class="side" style="width:64px;padding:14px 8px;align-items:center"><span class="logo" style="margin-bottom:14px">${ic('factory',14,2)}</span>${['home','bot','spark','msg','factory','gear'].map((i,ix)=>`<a class="${ix===1?'on':''}" style="padding:9px">${ic(i,18)}</a>`).join('')}</aside>`
+   +`<div class="mainc"><div class="top"><div class="crumb">Agent / <b>财务经营分析</b></div><span class="url">/agent/finance?period=2026-09</span><span class="sp"></span><span style="font-size:12px;color:var(--a-muted)">侧栏在 Agent 页自动收起</span></div>
+   <div style="flex:1;display:flex;min-height:0">${chat}<div class="content" style="position:relative">${dash}</div></div></div>`;
+},
+set:()=>shell('admin','管理后台 / <b>概览</b>','/admin',
+  `<div class="ph"><div><h2>管理后台</h2><p>原来设置页里的 7 个彩色按钮，归并到这里分组管理</p></div></div>
+  <div class="adm">${[['bot','Agent 配置','对话入口、可用 Skill、关联看板','6 个 Agent','5 个启用'],['dash','BI 看板管理','查询库与看板卡片','3 块看板','18 条查询'],['spark','AI Skill','工作流、表白名单与资源','14 个 Skill','3 个仅管理员'],['shield','菜单与角色','菜单配置、角色定义、用户角色','42 个菜单','9 个角色'],['bell','消息提醒与警报','预警规则与钉钉群推送','8 条规则','今日触发 2 次'],['cal','定时报告','cron 定时生成并推送','5 个任务','08:00 已推送']].map(([i,t,p,a,b])=>`<div class="card"><div class="a-h"><span class="l-ic" style="width:34px;height:34px;border-radius:var(--a-r-sm);background:var(--a-tile-bg);color:var(--a-tile-fg);display:grid;place-items:center">${ic(i,18)}</span><b>${t}</b></div><p>${p}</p><div class="stat"><span class="chip info">${a}</span><span class="chip mute">${b}</span></div></div>`).join('')}</div>`)
+};
+
+/* ---------- 渲染 ---------- */
+const st={scene:'menu',mode:'phone',style:'warm'};
+try{const s=JSON.parse(localStorage.getItem('ui-demo-v2')||'{}');Object.assign(st,s)}catch(e){}
+const stage=document.getElementById('stage');
+function fitPc(){const w=stage.querySelector('.pc-wrap');if(!w)return;const f=w.firstElementChild;const sc=Math.min(1,w.clientWidth/1200);f.style.transform=`scale(${sc})`;w.style.height=(742*sc)+'px'}
+function render(){
+  document.querySelectorAll('.segc').forEach(g=>g.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.v===st[g.id]))));
+  document.getElementById('styleCtl').hidden=st.mode!=='pc';
+  if(st.mode==='phone'){
+    stage.className='stage-compare';
+    stage.innerHTML=Object.entries(STYLES).map(([k,s])=>`<div class="col"><div class="col-head"><div><b>${s.n}</b> <span>${s.d}</span></div><span class="sw">${s.sw.map(c=>`<i style="background:${c}"></i>`).join('')}</span></div><div class="app phone st-${k}">${PH[st.scene]()}</div></div>`).join('');
+  }else{
+    stage.className='';
+    stage.innerHTML=`<div class="col-head" style="width:auto;margin-bottom:10px"><div><b>${STYLES[st.style].n}</b> <span>${STYLES[st.style].d} · PC 宽度 1200px（按窗口缩放）</span></div></div><div class="pc-wrap"><div class="app pc st-${st.style}">${PCV[st.scene]()}</div></div>`;
+    fitPc();
+  }
+  try{localStorage.setItem('ui-demo-v2',JSON.stringify(st))}catch(e){}
+}
+document.querySelectorAll('.segc').forEach(g=>g.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;st[g.id]=b.dataset.v;render()}));
+window.addEventListener('resize',fitPc);
+render();
+})();
+</script>
+</body>
+</html>

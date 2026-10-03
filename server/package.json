@@ -5,6 +5,7 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
+    "test": "node --test test/",
     "dev": "node --watch src/index.js",
     "init-db": "node scripts/init-db.js"
   },

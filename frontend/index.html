@@ -1,11 +1,28 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN" data-ui-theme="warm">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="voice-enabled" content="false" />
-    <title>frontend</title>
+    <title>在线报表</title>
+    <script>
+      // 渲染前应用主题，避免闪烁（逻辑与 src/theme/index.ts 的 resolveTheme 保持一致）
+      (function () {
+        var ids = ['warm', 'tech', 'ent', 'ind', 'mono', 'dark'];
+        var get = function (k) { try { return localStorage.getItem(k) } catch (e) { return null } };
+        var pref = get('online_report_theme');
+        var company = get('online_report_company_theme');
+        var base = ids.indexOf(company) >= 0 ? company : 'warm';
+        var theme = base;
+        if (pref === 'system') {
+          theme = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : base;
+        } else if (ids.indexOf(pref) >= 0) {
+          theme = pref;
+        }
+        document.documentElement.setAttribute('data-ui-theme', theme);
+      })();
+    </script>
     <script src="https://g.alicdn.com/dingding/dingtalk-jsapi/3.0.12/dingtalk.open.js"></script>
   </head>
   <body>

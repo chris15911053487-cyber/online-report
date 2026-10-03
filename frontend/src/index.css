@@ -1,119 +1,105 @@
+@import './theme/themes.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
+  html {
+    background: rgb(var(--c-bg));
+  }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    @apply bg-bg text-fg font-sans antialiased;
+  }
+  /* 标题类元素用主题的展示字体（D 为衬线体，其余同正文） */
+  .font-display,
+  h1,
+  h2 {
+    font-family: var(--font-display);
+  }
+  ::selection {
+    background: rgb(var(--c-primary) / 0.18);
+  }
+  :focus-visible {
+    outline: 2px solid rgb(var(--c-primary) / 0.6);
+    outline-offset: 1px;
   }
 }
 
 @layer components {
-  .card {
-    @apply bg-white rounded-2xl shadow-sm border border-slate-200 p-5;
-  }
-  
-  .btn-primary {
-    @apply bg-sky-600 hover:bg-sky-700 text-white font-medium py-3 px-6 rounded-xl transition-colors active:scale-[0.985];
-  }
-  
-  .bottom-nav {
-    @apply fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex items-center justify-around py-1 z-50;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+  /* 数字：主题的数字字体 + 等宽数位，用于 KPI、表格数值、单号 */
+  .num {
+    font-family: var(--font-num);
+    font-variant-numeric: tabular-nums;
   }
 
-  /* ===== 登录页 · 明亮科技风（极光渐变 + 雷达脉冲） ===== */
+  /* ===== 登录页：按主题取色的柔和光斑 + 徽标脉冲 ===== */
   .login-hero {
-    @apply relative min-h-screen flex items-center justify-center p-4 overflow-hidden;
-    background:
-      radial-gradient(1000px 520px at 12% -8%, rgba(45, 212, 191, 0.28), transparent 60%),
-      radial-gradient(900px 480px at 108% 6%, rgba(129, 140, 248, 0.28), transparent 58%),
-      radial-gradient(820px 620px at 50% 118%, rgba(56, 189, 248, 0.24), transparent 60%),
-      linear-gradient(160deg, #f0f9ff 0%, #eef2ff 45%, #f5f3ff 100%);
+    @apply relative min-h-screen flex items-center justify-center p-4 overflow-hidden bg-bg;
+    background-image:
+      radial-gradient(1000px 520px at 12% -8%, rgb(var(--c-chart-2) / 0.22), transparent 60%),
+      radial-gradient(900px 480px at 108% 6%, rgb(var(--c-primary) / 0.18), transparent 58%),
+      radial-gradient(820px 620px at 50% 118%, rgb(var(--c-chart-3) / 0.16), transparent 60%);
   }
-
-  /* 缓慢流动的极光光斑 */
   .login-aurora {
     @apply pointer-events-none absolute inset-0;
     background:
-      radial-gradient(560px 300px at 22% 28%, rgba(20, 184, 166, 0.30), transparent 62%),
-      radial-gradient(520px 280px at 78% 72%, rgba(139, 92, 246, 0.28), transparent 62%);
+      radial-gradient(560px 300px at 22% 28%, rgb(var(--c-chart-2) / 0.22), transparent 62%),
+      radial-gradient(520px 280px at 78% 72%, rgb(var(--c-primary) / 0.2), transparent 62%);
     filter: blur(36px);
     animation: login-aurora-move 16s ease-in-out infinite alternate;
   }
-
-  /* 圆点科技底纹 */
   .login-grid {
-    @apply pointer-events-none absolute inset-0 opacity-[0.5];
-    background-image: radial-gradient(rgba(99, 102, 241, 0.22) 1.3px, transparent 1.3px);
+    @apply pointer-events-none absolute inset-0 opacity-50;
+    background-image: radial-gradient(rgb(var(--c-line-strong) / 0.7) 1.3px, transparent 1.3px);
     background-size: 26px 26px;
     mask-image: radial-gradient(circle at 50% 42%, black, transparent 72%);
     -webkit-mask-image: radial-gradient(circle at 50% 42%, black, transparent 72%);
   }
-
-  /* AI 核心徽标 */
   .ai-orb {
-    @apply relative flex items-center justify-center w-24 h-24 mx-auto rounded-[28px];
-    background: linear-gradient(135deg, #22d3ee 0%, #6366f1 55%, #a855f7 100%);
+    @apply relative flex items-center justify-center w-24 h-24 mx-auto rounded-[28px] bg-ai;
     box-shadow:
-      0 14px 34px rgba(99, 102, 241, 0.4),
-      0 6px 16px rgba(34, 211, 238, 0.35),
-      inset 0 1px 2px rgba(255, 255, 255, 0.6);
+      0 14px 34px rgb(var(--c-primary) / 0.32),
+      inset 0 1px 2px rgb(var(--c-primary-fg) / 0.5);
     animation: ai-orb-float 4s ease-in-out infinite;
   }
   .ai-orb-icon {
-    @apply relative z-10 text-white;
-    filter: drop-shadow(0 2px 6px rgba(30, 27, 75, 0.35));
+    @apply relative z-10 text-primary-fg;
   }
-
-  /* 雷达式扩散脉冲（多层同心圆向外扩散淡出） */
   .ai-pulse {
-    @apply pointer-events-none absolute rounded-full;
-    inset: 0;
-    border: 2px solid rgba(99, 102, 241, 0.45);
+    @apply pointer-events-none absolute rounded-full inset-0;
+    border: 2px solid rgb(var(--c-primary) / 0.4);
     animation: ai-pulse-out 3s ease-out infinite;
   }
-  .ai-pulse-2 { animation-delay: 1s; border-color: rgba(34, 211, 238, 0.5); }
-  .ai-pulse-3 { animation-delay: 2s; border-color: rgba(168, 85, 247, 0.4); }
-
+  .ai-pulse-2 {
+    animation-delay: 1s;
+    border-color: rgb(var(--c-chart-2) / 0.45);
+  }
+  .ai-pulse-3 {
+    animation-delay: 2s;
+    border-color: rgb(var(--c-accent) / 0.4);
+  }
   .login-card {
-    @apply relative w-full max-w-md rounded-3xl p-7;
-    background: rgba(255, 255, 255, 0.72);
+    @apply relative w-full max-w-md rounded-2xl p-7 border border-line;
+    background: rgb(var(--c-surface) / 0.86);
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
-    border: 1px solid rgba(255, 255, 255, 0.9);
-    box-shadow:
-      0 24px 60px rgba(79, 70, 229, 0.14),
-      0 2px 8px rgba(15, 23, 42, 0.06),
-      inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    box-shadow: 0 24px 60px rgb(var(--c-fg) / 0.08), 0 2px 8px rgb(var(--c-fg) / 0.05);
   }
-
   .login-input {
-    @apply w-full px-4 py-3 rounded-2xl text-slate-800 placeholder-slate-400 transition;
-    background: rgba(255, 255, 255, 0.85);
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    @apply w-full px-4 py-3 rounded-xl text-fg placeholder:text-subtle bg-surface border border-line transition;
   }
   .login-input:focus {
-    @apply outline-none;
-    border-color: rgba(99, 102, 241, 0.75);
-    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.16);
+    @apply outline-none border-primary;
+    box-shadow: 0 0 0 3px rgb(var(--c-primary) / 0.16);
   }
-
   .login-btn {
-    @apply w-full text-lg py-4 rounded-2xl font-semibold text-white transition;
-    background: linear-gradient(135deg, #22d3ee, #6366f1 55%, #a855f7);
-    box-shadow: 0 12px 28px rgba(99, 102, 241, 0.35);
-  }
-  .login-btn:hover {
-    filter: brightness(1.05);
-  }
-  .login-btn:active {
-    transform: scale(0.985);
+    @apply w-full text-lg py-4 rounded-xl font-semibold text-primary-fg bg-primary transition hover:bg-primary-hover active:scale-[0.985];
   }
 
-  /* AI 助手回复：通用富文本（Markdown / 表格 / 列表 / 代码 / 键值） */
+  /* ===== AI 助手回复：通用富文本（Markdown / 表格 / 列表 / 代码 / 键值） ===== */
   .chat-markdown {
-    @apply min-w-0 text-sm text-slate-800 leading-relaxed;
+    @apply min-w-0 text-sm text-fg leading-relaxed;
   }
   .chat-markdown > :first-child {
     @apply mt-0;
@@ -121,34 +107,33 @@
   .chat-markdown > :last-child {
     @apply mb-0;
   }
-
   .chat-md-p {
     @apply mb-2.5 last:mb-0;
   }
   .chat-md-h1 {
-    @apply text-base font-semibold text-slate-900 mb-2 mt-1;
+    @apply text-base font-semibold text-fg mb-2 mt-1;
   }
   .chat-md-h2 {
-    @apply text-sm font-semibold text-slate-900 mb-2 mt-1;
+    @apply text-sm font-semibold text-fg mb-2 mt-1;
   }
   .chat-md-h3,
   .chat-md-h4 {
-    @apply text-sm font-medium text-slate-800 mb-1.5 mt-1;
+    @apply text-sm font-medium text-fg mb-1.5 mt-1;
   }
   .chat-md-strong {
-    @apply font-semibold text-slate-900;
+    @apply font-semibold text-fg;
   }
   .chat-md-em {
-    @apply italic text-slate-700;
+    @apply italic text-fg-2;
   }
   .chat-md-del {
-    @apply text-slate-500;
+    @apply text-muted;
   }
   .chat-md-hr {
-    @apply my-3 border-slate-200;
+    @apply my-3 border-line;
   }
   .chat-md-blockquote {
-    @apply my-2.5 border-l-[3px] border-sky-300 bg-sky-50/50 pl-3 py-1.5 text-slate-600 rounded-r-lg;
+    @apply my-2.5 border-l-[3px] border-primary/40 bg-primary-soft/50 pl-3 py-1.5 text-fg-2 rounded-r-lg;
   }
   .chat-md-ul {
     @apply mb-2.5 ml-4 list-disc space-y-1;
@@ -160,64 +145,95 @@
     @apply leading-relaxed pl-0.5;
   }
   .chat-md-link {
-    @apply text-sky-600 underline underline-offset-2 break-all hover:text-sky-700;
+    @apply text-primary underline underline-offset-2 break-all hover:opacity-80;
   }
   .chat-md-doc-btn {
-    @apply inline-flex items-center gap-1 my-1 px-2.5 py-1 rounded-lg border border-violet-300 bg-violet-50 text-violet-700 text-xs active:bg-violet-100;
+    @apply inline-flex items-center gap-1 my-1 px-2.5 py-1 rounded-lg border border-accent/40 bg-accent-soft text-accent text-xs active:opacity-80;
   }
   .chat-md-code-inline {
-    @apply px-1 py-0.5 rounded bg-slate-100 text-[0.85em] font-mono text-slate-800 break-all;
+    @apply px-1 py-0.5 rounded bg-surface-2 text-[0.85em] font-mono text-fg break-all;
   }
   .chat-md-pre-wrap {
-    @apply my-2.5 rounded-lg overflow-hidden border border-slate-200;
+    @apply my-2.5 rounded-lg overflow-hidden border border-line;
   }
   .chat-md-pre-lang {
-    @apply px-3 py-1 text-[10px] font-mono uppercase tracking-wide text-slate-400 bg-slate-100 border-b border-slate-200;
+    @apply px-3 py-1 text-[10px] font-mono uppercase tracking-wide text-subtle bg-surface-2 border-b border-line;
   }
   .chat-md-pre {
-    @apply overflow-x-auto bg-slate-900 text-slate-100 p-3 text-[11px] leading-relaxed font-mono;
+    @apply overflow-x-auto bg-inverse text-inverse-fg p-3 text-[11px] leading-relaxed font-mono;
   }
   .chat-md-pre code {
     @apply whitespace-pre-wrap break-words;
   }
   .chat-md-table-wrap {
-    @apply my-3 -mx-0.5 overflow-x-auto rounded-lg border border-slate-200 shadow-sm;
+    @apply my-3 -mx-0.5 overflow-x-auto rounded-lg border border-line shadow-sm;
   }
   .chat-md-table {
     @apply min-w-full text-xs border-collapse;
   }
   .chat-md-thead {
-    @apply bg-slate-50;
+    @apply bg-surface-2;
   }
   .chat-md-tbody {
-    @apply divide-y divide-slate-100 bg-white;
+    @apply divide-y divide-line bg-surface;
   }
   .chat-md-tr:nth-child(even) {
-    @apply bg-slate-50/40;
+    @apply bg-surface-2/40;
   }
   .chat-md-th {
-    @apply px-3 py-2 text-left text-[11px] font-semibold text-slate-600 whitespace-nowrap border-b border-slate-200 sticky top-0 bg-slate-50;
+    @apply px-3 py-2 text-left text-[11px] font-semibold text-fg-2 whitespace-nowrap border-b border-line sticky top-0 bg-surface-2;
   }
   .chat-md-td {
-    @apply px-3 py-2 text-slate-700 align-top break-words min-w-[3.5rem] max-w-[280px];
+    @apply px-3 py-2 text-fg-2 align-top break-words min-w-[3.5rem] max-w-[280px];
+  }
+}
+
+@layer utilities {
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
   }
 }
 
 @keyframes ai-orb-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-8px); }
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
 }
 @keyframes ai-pulse-out {
-  0% { transform: scale(1); opacity: 0.7; }
-  100% { transform: scale(2.1); opacity: 0; }
+  0% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(2.1);
+    opacity: 0;
+  }
 }
 @keyframes login-aurora-move {
-  from { transform: translate3d(-4%, -2%, 0) scale(1); }
-  to { transform: translate3d(4%, 3%, 0) scale(1.08); }
+  from {
+    transform: translate3d(-4%, -2%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(4%, 3%, 0) scale(1.08);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .login-aurora, .ai-orb, .ai-pulse, .ai-pulse-2, .ai-pulse-3 {
+  .login-aurora,
+  .ai-orb,
+  .ai-pulse,
+  .ai-pulse-2,
+  .ai-pulse-3 {
     animation: none !important;
   }
 }
