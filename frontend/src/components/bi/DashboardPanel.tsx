@@ -49,20 +49,53 @@ export default function DashboardPanel({ agentKey, pcMode, onPick }: Props) {
     return <div className="rounded-xl bg-danger-soft border border-danger/25 text-danger text-[13px] p-4">{state.error || '看板不可用'}</div>
   }
 
-  const dashboard = state.dashboard
+  return <DashboardView dashboard={state.dashboard} pcMode={pcMode} onPick={onPick} filters={filters} onFiltersChange={setFilters} />
+}
+
+/**
+ * 看板渲染（筛选条 + 栅格卡片）。Agent 运行页与管理端预览共用；
+ * 管理端传入草稿看板（queries 为公开元数据），卡片照常经 /bi/query 取真实数据。
+ */
+export function DashboardView({
+  dashboard,
+  pcMode,
+  onPick,
+  filters: controlled,
+  onFiltersChange,
+  showHeader = true,
+}: {
+  dashboard: BiDashboard
+  pcMode: boolean
+  onPick?: Props['onPick']
+  /** 受控筛选值（Agent 运行页）；不传则组件内部按默认值管理（管理端预览） */
+  filters?: BiFilterValues
+  onFiltersChange?: (f: BiFilterValues) => void
+  showHeader?: boolean
+}) {
+  const [localFilters, setLocalFilters] = useState<BiFilterValues>(() => initialFilterValues(dashboard.filters || []))
+  const filters = controlled ?? localFilters
+  const setFilter = (name: string, v: BiScalar) => {
+    const next = { ...filters, [name]: v }
+    setLocalFilters(next)
+    onFiltersChange?.(next)
+  }
   const span = (w: number, type: string) => (pcMode ? w : type === 'kpi' ? 6 : 12)
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-end justify-between gap-3 flex-wrap">
-        <div className="min-w-0">
-          <h2 className="font-display text-[16px] font-semibold text-fg">{dashboard.label}</h2>
-          {dashboard.description && <p className="text-[12px] text-subtle mt-0.5">{dashboard.description}</p>}
-        </div>
+        {showHeader ? (
+          <div className="min-w-0">
+            <h2 className="font-display text-[16px] font-semibold text-fg">{dashboard.label}</h2>
+            {dashboard.description && <p className="text-[12px] text-subtle mt-0.5">{dashboard.description}</p>}
+          </div>
+        ) : (
+          <span />
+        )}
         {dashboard.filters.length > 0 && (
           <div className="flex items-end gap-2 flex-wrap" role="group" aria-label="看板筛选">
             {dashboard.filters.map((f) => (
-              <FilterInput key={f.name} filter={f} value={filters[f.name] ?? null} onChange={(v) => setFilters((cur) => ({ ...cur, [f.name]: v }))} />
+              <FilterInput key={f.name} filter={f} value={filters[f.name] ?? null} onChange={(v) => setFilter(f.name, v)} />
             ))}
           </div>
         )}

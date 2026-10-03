@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Info, RotateCw } from 'lucide-react'
 import { apiFetch } from '../../utils/api'
-import { changeRatio, formatValue, type BiCard, type BiColumnDef, type BiFilterValues, type BiQueryMeta, type BiQueryResult } from '../../utils/bi'
+import { changeRatio, formatValue, withColumnSemantics, type BiCard, type BiColumnDef, type BiFilterValues, type BiQueryMeta, type BiQueryResult } from '../../utils/bi'
 import { buildChartModel, columnLabel, type BiRow } from '../../utils/biOption'
 import { canDrillFrom, levelView, nextDrillLabel, popDrillTo, pushDrill, rootStack, type DrillFrame } from '../../utils/biDrill'
 import type { BiPick } from '../../utils/biContext'
@@ -82,13 +82,16 @@ export default function BiCardView({ card, filters, queries, onPick }: Props) {
   }
 
   const rows = useMemo(() => (data?.rows ?? []) as BiRow[], [data])
+  // 卡片没写的格式 / 单位 / 列名从查询的列语义继承；view.encoding 直接引用 card 里的对象，引用稳定
+  const semantics = meta?.columns
+  const resultColumns = data?.columns
+  const encoding = useMemo(() => withColumnSemantics(view.encoding, semantics, resultColumns), [view.encoding, semantics, resultColumns])
   const chart = useMemo(
     () =>
       view.type === 'bar' || view.type === 'line' || view.type === 'pie'
-        ? buildChartModel(view.type, view.encoding, rows, { clickable })
+        ? buildChartModel(view.type, encoding, rows, { clickable })
         : null,
-    // view.encoding 直接引用 card 里的对象（卡片或某级下钻），引用稳定
-    [rows, view.type, view.encoding, clickable],
+    [rows, view.type, encoding, clickable],
   )
 
   const height = CHART_HEIGHT[card.layout.h] ?? CHART_HEIGHT[2]
@@ -162,7 +165,7 @@ export default function BiCardView({ card, filters, queries, onPick }: Props) {
         {data && !error && rows.length === 0 && <p className="text-[12px] text-subtle py-6 text-center">暂无数据</p>}
         {data && !error && rows.length > 0 && (
           <>
-            {view.type === 'kpi' && <KpiBody card={card} row={rows[0]} onClick={(x, y) => pick(rows[0], x, y)} clickable={!!onPick} />}
+            {view.type === 'kpi' && <KpiBody card={card} enc={encoding} row={rows[0]} onClick={(x, y) => pick(rows[0], x, y)} clickable={!!onPick} />}
             {chart && (
               <BiChart
                 option={chart.option}
@@ -175,7 +178,7 @@ export default function BiCardView({ card, filters, queries, onPick }: Props) {
               <TableBody
                 rows={rows}
                 columns={data.columns}
-                encoding={view.encoding}
+                encoding={encoding}
                 maxHeight={height}
                 onRow={clickable ? (row, x, y) => pick(row, x, y) : undefined}
               />
@@ -197,8 +200,7 @@ export default function BiCardView({ card, filters, queries, onPick }: Props) {
   )
 }
 
-function KpiBody({ card, row, onClick, clickable }: { card: BiCard; row: BiRow; onClick: (x: number, y: number) => void; clickable: boolean }) {
-  const enc = card.encoding
+function KpiBody({ card, enc, row, onClick, clickable }: { card: BiCard; enc: BiCard['encoding']; row: BiRow; onClick: (x: number, y: number) => void; clickable: boolean }) {
   const value = enc.value ? row[enc.value] : undefined
   const ratio = enc.compare ? changeRatio(value, row[enc.compare]) : null
   const label = enc.label && row[enc.label] != null ? String(row[enc.label]) : ''

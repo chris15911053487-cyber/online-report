@@ -117,6 +117,7 @@ async function executeQuery(pool, query, params, opts = {}) {
   const r = await runSqlLimited(request, query.sqlText, { limit: maxRows, hardCap: maxRows + 1 });
   return {
     columns: r.columns,
+    columnTypes: r.columnTypes || {},
     rows: r.rows,
     rowCount: r.rows.length,
     truncated: r.truncated,

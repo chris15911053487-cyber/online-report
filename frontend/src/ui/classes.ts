@@ -9,3 +9,7 @@ export const monoInputClass = inputClass + ' font-mono text-[12px] leading-relax
 export const tableClass = 'w-full border-collapse text-sm'
 export const thClass = 'px-3 py-2.5 text-left text-xs font-medium text-muted bg-surface-2 whitespace-nowrap border-b border-line'
 export const tdClass = 'px-3 py-2.5 text-fg-2 border-b border-line'
+
+/** 表格单元格里的紧凑输入框 / 下拉（配置表格逐行编辑用） */
+export const compactInputClass =
+  'w-full h-8 px-2 rounded-md border border-line bg-surface text-[13px] text-fg placeholder:text-subtle focus:outline-none focus:border-primary disabled:bg-surface-2 disabled:text-muted'

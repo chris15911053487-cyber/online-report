@@ -1,7 +1,9 @@
 /**
  * BI 查询库（命名查询）：bi_queries 的校验与增删改查。
  *
- * 一条命名查询 = 一段只读 SQL + 参数定义 + 口径说明 + 可下钻维度 + 缓存策略 + 可见角色。
+ * 一条命名查询 = 一段只读 SQL + 参数定义 + 输出列语义 + 口径说明 + 示例问法 + 缓存策略 + 可见角色。
+ * 输出列语义（columns）是看板配置的基础：卡片的维度/度量只能从这里选，格式/单位默认从这里继承；
+ * 可下钻维度（dimensions）由 role 为 dimension / time 的列推导（未登记列时沿用手填的旧数据）。
  * 看板卡片、卡片下钻、Agent 追问（run_named_query）共用同一份定义，保证同一个数到处一致。
  *
  * SQL 由管理员编写；这里的只读校验是第二道防线（拒绝多语句、写操作、SELECT INTO、跨服务器访问等），
@@ -17,6 +19,10 @@ const COLUMN_RE = /^[^\s[\]"'`;]{1,128}$/;
 const PARAM_TYPES = new Set(['string', 'number', 'date', 'bool']);
 const MAX_PARAMS = 20;
 const MAX_DIMENSIONS = 30;
+const MAX_COLUMNS = 100;
+const MAX_SAMPLE_QUESTIONS = 10;
+const COLUMN_ROLES = new Set(['dimension', 'measure', 'time', 'attr']);
+const FORMATS = new Set(['number', 'money', 'percent', 'integer']);
 const MAX_SQL_CHARS = 100000;
 const MAX_CACHE_SECS = 86400;
 
@@ -200,6 +206,54 @@ function normalizeDimensions(input) {
   return { ok: true, value: out };
 }
 
+/** 输出列语义：列名唯一；role 决定能当维度还是度量；format / unit / scale 作为卡片的默认展示 */
+function normalizeColumns(input) {
+  const arr = Array.isArray(input) ? input : [];
+  if (arr.length > MAX_COLUMNS) return { ok: false, error: `输出列不能超过 ${MAX_COLUMNS} 个` };
+  const out = [];
+  const seen = new Set();
+  for (const raw of arr) {
+    if (!raw || typeof raw !== 'object') return { ok: false, error: '输出列须为对象数组' };
+    const column = String(raw.column || '').trim();
+    if (!COLUMN_RE.test(column)) return { ok: false, error: `输出列名非法：「${column}」` };
+    if (seen.has(column)) return { ok: false, error: `输出列重复：「${column}」` };
+    seen.add(column);
+    const role = String(raw.role || 'dimension').trim().toLowerCase();
+    if (!COLUMN_ROLES.has(role)) return { ok: false, error: `列「${column}」角色须为 dimension / measure / time / attr` };
+    const col = { column, label: String(raw.label || '').trim().slice(0, 64), role };
+    if (raw.format != null && raw.format !== '') {
+      if (!FORMATS.has(raw.format)) return { ok: false, error: `列「${column}」格式须为 number / money / percent / integer` };
+      col.format = raw.format;
+    }
+    const unit = String(raw.unit || '').trim().slice(0, 16);
+    if (unit) col.unit = unit;
+    if (raw.scale != null && raw.scale !== '') {
+      const n = Number(raw.scale);
+      if (!Number.isFinite(n) || n <= 0) return { ok: false, error: `列「${column}」缩放须为正数（如 10000 表示按万显示）` };
+      if (n !== 1) col.scale = n;
+    }
+    out.push(col);
+  }
+  return { ok: true, value: out };
+}
+
+function normalizeSampleQuestions(input) {
+  const arr = (Array.isArray(input) ? input : [])
+    .map((q) => String(q ?? '').trim())
+    .filter(Boolean);
+  if (arr.length > MAX_SAMPLE_QUESTIONS) return { ok: false, error: `示例问法不能超过 ${MAX_SAMPLE_QUESTIONS} 条` };
+  if (arr.some((q) => q.length > 200)) return { ok: false, error: '每条示例问法不能超过 200 字' };
+  return { ok: true, value: [...new Set(arr)] };
+}
+
+/** 由列语义推导可下钻维度（role 为 dimension / time 的列） */
+function dimensionsFromColumns(columns) {
+  return columns
+    .filter((c) => c.role === 'dimension' || c.role === 'time')
+    .slice(0, MAX_DIMENSIONS)
+    .map((c) => ({ column: c.column, label: c.label }));
+}
+
 /** 校验输入。返回 { ok, error?, value? } */
 function validateQueryInput(input) {
   const queryKey = String(input?.queryKey || '').trim().toLowerCase();
@@ -226,7 +280,12 @@ function validateQueryInput(input) {
     return { ok: false, error: `SQL 引用了未声明的参数：${undeclared.map((p) => '@' + p).join('、')}` };
   }
 
-  const dims = normalizeDimensions(input?.dimensions);
+  const columns = normalizeColumns(input?.columns);
+  if (!columns.ok) return columns;
+  const sampleQuestions = normalizeSampleQuestions(input?.sampleQuestions);
+  if (!sampleQuestions.ok) return sampleQuestions;
+  // 登记了列语义时维度由它推导；否则沿用手填的 dimensions（兼容旧数据）
+  const dims = columns.value.length > 0 ? { ok: true, value: dimensionsFromColumns(columns.value) } : normalizeDimensions(input?.dimensions);
   if (!dims.ok) return dims;
 
   const rawCache = Number(input?.cacheSecs);
@@ -242,7 +301,9 @@ function validateQueryInput(input) {
       description,
       sqlText,
       params: params.value,
+      columns: columns.value,
       dimensions: dims.value,
+      sampleQuestions: sampleQuestions.value,
       caliberNote,
       cacheSecs,
       roles: normalizeRoleKeys(Array.isArray(input?.roles) ? input.roles : []),
@@ -262,6 +323,8 @@ function canUseQuery(userRoles, queryRoles) {
 function rowToQuery(row) {
   const params = normalizeParamDefs(safeParseJson(row.params_json, []));
   const dims = normalizeDimensions(safeParseJson(row.dimensions_json, []));
+  const columns = normalizeColumns(safeParseJson(row.columns_json, []));
+  const samples = normalizeSampleQuestions(safeParseJson(row.sample_questions_json, []));
   return {
     id: Number(row.id),
     queryKey: String(row.query_key),
@@ -269,7 +332,9 @@ function rowToQuery(row) {
     description: String(row.description || ''),
     sqlText: String(row.sql_text || ''),
     params: params.ok ? params.value : [],
+    columns: columns.ok ? columns.value : [],
     dimensions: dims.ok ? dims.value : [],
+    sampleQuestions: samples.ok ? samples.value : [],
     caliberNote: String(row.caliber_note || ''),
     cacheSecs: Math.max(0, Number(row.cache_secs) || 0),
     roles: normalizeRoleKeys(safeParseJson(row.roles_json, [])),
@@ -279,7 +344,7 @@ function rowToQuery(row) {
 }
 
 const QUERY_COLS = `id, query_key, label, description, sql_text, params_json, dimensions_json,
-  caliber_note, cache_secs, roles_json, enabled, updated_at`;
+  columns_json, sample_questions_json, caliber_note, cache_secs, roles_json, enabled, updated_at`;
 
 // ---- 进程内缓存全量定义（看板每张卡片都要取定义，不能每次查库）----
 let listCache = null; // { at, items }
@@ -350,6 +415,8 @@ async function upsertQuery(pool, value) {
     .input('sql_text', sql.NVarChar(sql.MAX), value.sqlText)
     .input('params_json', sql.NVarChar(sql.MAX), JSON.stringify(value.params))
     .input('dimensions_json', sql.NVarChar(sql.MAX), JSON.stringify(value.dimensions))
+    .input('columns_json', sql.NVarChar(sql.MAX), JSON.stringify(value.columns || []))
+    .input('sample_questions_json', sql.NVarChar(sql.MAX), JSON.stringify(value.sampleQuestions || []))
     .input('caliber_note', sql.NVarChar(1024), value.caliberNote)
     .input('cache_secs', sql.Int, value.cacheSecs)
     .input('roles_json', sql.NVarChar(sql.MAX), JSON.stringify(value.roles))
@@ -360,14 +427,15 @@ async function upsertQuery(pool, value) {
       WHEN MATCHED THEN UPDATE SET
         label = @label, description = @description, sql_text = @sql_text,
         params_json = @params_json, dimensions_json = @dimensions_json,
+        columns_json = @columns_json, sample_questions_json = @sample_questions_json,
         caliber_note = @caliber_note, cache_secs = @cache_secs,
         roles_json = @roles_json, enabled = @enabled,
         updated_at = ${SQL_CHINA_LOCAL_NOW_EXPR}
       WHEN NOT MATCHED THEN
         INSERT (query_key, label, description, sql_text, params_json, dimensions_json,
-                caliber_note, cache_secs, roles_json, enabled)
+                columns_json, sample_questions_json, caliber_note, cache_secs, roles_json, enabled)
         VALUES (@query_key, @label, @description, @sql_text, @params_json, @dimensions_json,
-                @caliber_note, @cache_secs, @roles_json, @enabled);
+                @columns_json, @sample_questions_json, @caliber_note, @cache_secs, @roles_json, @enabled);
     `);
   invalidateQueryDefs(value.queryKey);
   return getQuery(pool, value.queryKey);
@@ -390,6 +458,7 @@ function toPublicQuery(q) {
     label: q.label,
     description: q.description,
     params: q.params,
+    columns: q.columns || [],
     dimensions: q.dimensions,
     caliberNote: q.caliberNote,
     cacheSecs: q.cacheSecs,
@@ -403,6 +472,8 @@ module.exports = {
   extractSqlParams,
   validateReadonlySql,
   normalizeParamDefs,
+  normalizeColumns,
+  COLUMN_ROLES,
   validateQueryInput,
   canUseQuery,
   rowToQuery,

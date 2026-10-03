@@ -35,9 +35,10 @@ export function columnLabel(enc: BiEncoding, col: string): string {
 
 const str = (v: unknown) => (v == null ? '' : String(v))
 
-/** 坐标轴用紧凑格式（不带单位，单位放在轴名上） */
+/** 坐标轴用紧凑格式（不带单位，单位放在轴名上；金额不显示小数位） */
 function axisFormatter(enc: BiEncoding) {
-  return (v: number) => formatValue(v, { format: enc.format, scale: enc.scale }, { withUnit: false })
+  const format = enc.format === 'money' ? 'number' : enc.format
+  return (v: number) => formatValue(v, { format, scale: enc.scale }, { withUnit: false })
 }
 
 export function buildChartModel(

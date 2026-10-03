@@ -60,3 +60,18 @@ IF OBJECT_ID(N'dbo.agents', N'U') IS NOT NULL
 BEGIN
   ALTER TABLE dbo.agents ADD dashboard_key NVARCHAR(64) NULL;
 END;
+
+-- 查询库语义层：输出列语义 + 示例问法（看板配置下拉、格式继承、AI 选查询都靠它）
+--   columns_json：[{ "column": "Balance", "label": "余额", "role": "dimension|measure|time|attr", "format": "money", "unit": "万", "scale": 10000 }]
+--   sample_questions_json：["本月应收余额多少？", "哪些客户欠款最多？"]
+IF OBJECT_ID(N'dbo.bi_queries', N'U') IS NOT NULL
+   AND COL_LENGTH(N'dbo.bi_queries', N'columns_json') IS NULL
+BEGIN
+  ALTER TABLE dbo.bi_queries ADD columns_json NVARCHAR(MAX) NULL;
+END;
+
+IF OBJECT_ID(N'dbo.bi_queries', N'U') IS NOT NULL
+   AND COL_LENGTH(N'dbo.bi_queries', N'sample_questions_json') IS NULL
+BEGIN
+  ALTER TABLE dbo.bi_queries ADD sample_questions_json NVARCHAR(MAX) NULL;
+END;

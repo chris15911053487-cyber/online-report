@@ -18,12 +18,14 @@ const {
   upsertQuery,
   deleteQuery,
   canUseQuery,
+  toPublicQuery,
 } = require('../bi-queries');
 const { runNamedQuery, testRunQuery, BiParamError } = require('../bi-exec');
 const {
   listAllDashboards,
   getDashboard,
   validateDashboardInput,
+  checkDashboardRefs,
   upsertDashboard,
   deleteDashboard,
   filterDashboardForRoles,
@@ -122,7 +124,16 @@ async function biRoutes(fastify) {
       const bad = parsed.value.roles.filter((r) => !known.has(r));
       if (bad.length > 0) return reply.code(400).send({ error: `未定义的角色：${bad.join('、')}` });
     }
-    return { query: await upsertQuery(pool, parsed.value) };
+    const saved = await upsertQuery(pool, parsed.value);
+    // 影响分析：改了参数 / 输出列后，引用它的看板是否还对得上（只提示，不阻止保存）
+    const all = await listAllQueries(pool);
+    const byKey = new Map(all.map((q) => [q.queryKey, q]));
+    const warnings = [];
+    for (const d of await listAllDashboards(pool)) {
+      if (findQueryReferences([d], saved.queryKey).length === 0) continue;
+      for (const p of checkDashboardRefs(d, byKey)) warnings.push(`看板「${d.label}」${p}`);
+    }
+    return { query: saved, warnings: warnings.slice(0, 20) };
   });
 
   /** 试运行：用表单里（可未保存）的定义执行，最多 50 行，不走缓存 */
@@ -160,14 +171,15 @@ async function biRoutes(fastify) {
         ...d,
         usedByAgents: agents.filter((a) => a.dashboardKey === d.dashboardKey).map((a) => a.agentKey),
       })),
-      availableQueries: queries.map((q) => ({ queryKey: q.queryKey, label: q.label, enabled: q.enabled, dimensions: q.dimensions, params: q.params })),
+      // 看板编辑器用：参数、输出列语义（下拉与格式继承）、口径（预览），不含 SQL
+      availableQueries: queries.map((q) => ({ ...toPublicQuery(q), enabled: q.enabled })),
     };
   });
 
   fastify.post('/admin/bi/dashboards', { preHandler: [fastify.requireAdmin] }, async (request, reply) => {
     const pool = await getPool();
     const queries = await listAllQueries(pool);
-    const parsed = validateDashboardInput(request.body || {}, new Set(queries.map((q) => q.queryKey)));
+    const parsed = validateDashboardInput(request.body || {}, new Map(queries.map((q) => [q.queryKey, q])));
     if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
     return { dashboard: await upsertDashboard(pool, parsed.value) };
   });

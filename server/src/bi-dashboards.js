@@ -242,8 +242,72 @@ function normalizeCards(input, filters, knownQueries) {
   return { ok: true, value: out };
 }
 
+/** encoding 里引用的全部列名 */
+function encodingColumns(enc) {
+  const cols = [];
+  for (const f of ['dimension', 'value', 'compare', 'series', 'label']) if (enc[f]) cols.push(enc[f]);
+  for (const v of enc.values || []) cols.push(v);
+  for (const c of enc.columns || []) cols.push(c.column);
+  return cols;
+}
+
 /**
- * 校验输入。knownQueries：已存在的 queryKey 集合（卡片与下钻引用必须存在）。
+ * 引用完整性：卡片 / 下钻与查询定义对得上。queriesByKey：Map<queryKey, { label, params, columns }>。
+ * - params / bind 的参数名须是该查询声明的参数；
+ * - 必填且无默认值的参数须有来源（卡片：params；下钻：本级 params + 各级 bind 累积）；
+ * - 查询登记了输出列时：encoding 用到的列、bind 取值的列须在其中（未登记列的旧查询跳过列检查）。
+ * 返回问题列表（空 = 通过）。
+ */
+function checkDashboardRefs(dashboard, queriesByKey) {
+  const problems = [];
+  const paramNames = (q) => new Set((q.params || []).map((p) => p.name.toLowerCase()));
+  const columnSet = (q) => ((q.columns || []).length > 0 ? new Set(q.columns.map((c) => c.column)) : null);
+  const checkLevel = (where, q, params, encoding, provided) => {
+    const names = paramNames(q);
+    for (const k of Object.keys(params || {})) {
+      if (!names.has(k.toLowerCase())) problems.push(`${where}：「${k}」不是查询「${q.label}」的参数`);
+    }
+    const have = new Set([...Object.keys(params || {}), ...provided].map((k) => k.toLowerCase()));
+    for (const p of q.params || []) {
+      if (p.required && p.default == null && !have.has(p.name.toLowerCase())) {
+        problems.push(`${where}：查询「${q.label}」的必填参数「${p.label || p.name}」没有取值来源`);
+      }
+    }
+    const cols = columnSet(q);
+    if (cols) {
+      for (const c of encodingColumns(encoding || {})) {
+        if (!cols.has(c)) problems.push(`${where}：列「${c}」不在查询「${q.label}」的输出列中`);
+      }
+    }
+  };
+  for (const card of dashboard.cards || []) {
+    const q = queriesByKey.get(card.queryKey);
+    if (!q) continue;
+    const where = `卡片「${card.title}」`;
+    checkLevel(where, q, card.params, card.encoding, []);
+    let source = q;
+    const bound = [];
+    (card.drill || []).forEach((d, i) => {
+      const target = queriesByKey.get(d.queryKey);
+      if (!target) return;
+      const w = `${where} 第 ${i + 1} 级下钻「${d.label}」`;
+      const names = paramNames(target);
+      const srcCols = columnSet(source);
+      for (const [p, col] of Object.entries(d.bind || {})) {
+        if (!names.has(p.toLowerCase())) problems.push(`${w}：「${p}」不是查询「${target.label}」的参数`);
+        if (srcCols && !srcCols.has(col)) problems.push(`${w}：取值列「${col}」不在上一级查询「${source.label}」的输出列中`);
+        bound.push(p);
+      }
+      checkLevel(w, target, d.params, d.encoding, bound);
+      source = target;
+    });
+  }
+  return problems;
+}
+
+/**
+ * 校验输入。knownQueries：已存在的 queryKey 集合（卡片与下钻引用必须存在）；
+ * 传 Map<queryKey, 查询定义> 时还会做引用完整性检查（checkDashboardRefs）。
  * 返回 { ok, error?, value? }
  */
 function validateDashboardInput(input, knownQueries) {
@@ -258,9 +322,14 @@ function validateDashboardInput(input, knownQueries) {
   if (description.length > 1024) return fail('说明不能超过 1024 字符');
   const filters = normalizeFilters(input?.filters);
   if (!filters.ok) return filters;
-  const known = knownQueries instanceof Set ? knownQueries : new Set(knownQueries || []);
+  const byKey = knownQueries instanceof Map ? knownQueries : null;
+  const known = byKey ? new Set(byKey.keys()) : knownQueries instanceof Set ? knownQueries : new Set(knownQueries || []);
   const cards = normalizeCards(input?.cards, filters.value, known);
   if (!cards.ok) return cards;
+  if (byKey) {
+    const problems = checkDashboardRefs({ cards: cards.value }, byKey);
+    if (problems.length > 0) return fail(problems.slice(0, 5).join('；'));
+  }
   return {
     ok: true,
     value: {
@@ -386,6 +455,7 @@ module.exports = {
   CARD_TYPES,
   DEFAULT_TOKENS,
   validateDashboardInput,
+  checkDashboardRefs,
   rowToDashboard,
   listAllDashboards,
   getDashboard,

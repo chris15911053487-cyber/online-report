@@ -28,6 +28,7 @@ function runSqlLimited(request, sqlText, opts = {}) {
     let settled = false;
     let recordsetCount = 0;
     let columns = [];
+    let columnTypes = {};
     const rows = [];
     let total = 0;
     let capped = false;
@@ -38,6 +39,7 @@ function runSqlLimited(request, sqlText, opts = {}) {
       if (err) return reject(err);
       resolve({
         columns,
+        columnTypes,
         rows,
         totalRowCount: total,
         truncated: total > limit,
@@ -48,7 +50,15 @@ function runSqlLimited(request, sqlText, opts = {}) {
     request.stream = true;
     request.on('recordset', (cols) => {
       recordsetCount += 1;
-      if (recordsetCount === 1) columns = Object.keys(cols || {});
+      if (recordsetCount === 1) {
+        columns = Object.keys(cols || {});
+        // 列的数据库类型（int / decimal / nvarchar / date …），供 BI 管理侧识别维度 / 度量
+        columnTypes = {};
+        for (const c of columns) {
+          const t = cols[c] && cols[c].type;
+          columnTypes[c] = String((t && (t.declaration || t.name)) || '').toLowerCase();
+        }
+      }
     });
     request.on('row', (row) => {
       if (settled || recordsetCount !== 1) return;

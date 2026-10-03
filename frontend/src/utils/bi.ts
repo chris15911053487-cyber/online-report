@@ -65,11 +65,23 @@ export interface BiParamDef {
   default?: BiScalar
 }
 
+/** 查询输出列的语义（查询库登记）：维度 / 度量 / 时间 / 属性，以及默认展示格式 */
+export type BiColumnRole = 'dimension' | 'measure' | 'time' | 'attr'
+export interface BiColumnSemantic {
+  column: string
+  label?: string
+  role: BiColumnRole
+  format?: BiFormat
+  unit?: string
+  scale?: number
+}
+
 export interface BiQueryMeta {
   queryKey: string
   label: string
   description?: string
   params: BiParamDef[]
+  columns?: BiColumnSemantic[]
   dimensions: { column: string; label?: string }[]
   caliberNote?: string
   cacheSecs?: number
@@ -148,6 +160,38 @@ export function resolveCardParams(
   for (const [k, v] of Object.entries(params || {})) {
     out[k] = typeof v === 'string' && v.startsWith('$filter.') ? (filters[v.slice(8)] ?? null) : v
   }
+  return out
+}
+
+/**
+ * 卡片 encoding 叠加查询的列语义（卡片没写的才继承）：
+ * - format / scale / unit 取主度量列（value 或 values[0]）的设置；
+ * - 列显示名与格式：encoding.columns 已配置时补齐缺的 label / format；未配置时按 resultColumns
+ *   （表格的实际结果列）或已登记的列生成，图表系列名、表头因此显示中文名。
+ */
+export function withColumnSemantics(enc: BiEncoding, semantics?: BiColumnSemantic[], resultColumns?: string[]): BiEncoding {
+  if (!semantics || semantics.length === 0) return enc
+  const byName = new Map(semantics.map((c) => [c.column, c]))
+  const out: BiEncoding = { ...enc }
+  const primary = byName.get(enc.value ?? enc.values?.[0] ?? '')
+  if (primary) {
+    if (out.format == null && primary.format) out.format = primary.format
+    if (out.scale == null && primary.scale) out.scale = primary.scale
+    if (out.unit == null && primary.unit) out.unit = primary.unit
+  }
+  const fill = (c: BiColumnDef): BiColumnDef => {
+    const sem = byName.get(c.column)
+    const def: BiColumnDef = { column: c.column }
+    const label = c.label || sem?.label
+    const format = c.format || (sem?.role === 'measure' ? sem.format : undefined)
+    if (label) def.label = label
+    if (format) def.format = format
+    return def
+  }
+  const base: BiColumnDef[] = enc.columns?.length
+    ? enc.columns
+    : (resultColumns ?? semantics.map((c) => c.column)).map((column) => ({ column }))
+  out.columns = base.map(fill)
   return out
 }
 

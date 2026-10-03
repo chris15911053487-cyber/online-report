@@ -100,7 +100,9 @@ cd frontend && npm run lint
 - 执行与缓存：`bi-exec.js`（缓存 key 含角色集合）；路由 `server/src/routes/bi.js`
 - 卡片、下钻、Agent 追问（`run_named_query`）共用同一命名查询，保证口径一致
 - 前端：`components/bi/`（`DashboardPanel`、`BiCardView`、`BiChart`、`BiPickPopover`）、`utils/bi*.ts`（结构须与后端校验保持一致）
-- 管理页 `views/BiAdminView.tsx` 目前是最简版：参数/维度/筛选/卡片都靠手写 JSON，无可视化编辑与预览
+- 查询库是语义层：`bi_queries.columns_json`（输出列语义：role = dimension / measure / time / attr，format / unit / scale）+ `sample_questions_json`；维度 `dimensions` 由 dimension / time 列推导。卡片 encoding 没写的格式/单位/列名在前端经 `withColumnSemantics()` 继承列语义
+- 引用完整性：`bi-dashboards.js` 的 `checkDashboardRefs()`（参数存在、必填参数有来源、encoding / bind 的列在输出列中）保存看板时校验；保存查询时对引用它的看板做影响分析（返回 `warnings`）。前端 `utils/biAdmin.ts` 的 `cardProblems()` 规则须与之一致
+- 管理页 `views/BiAdminView.tsx`（列表）+ `components/bi/admin/`（`QueryEditor`：SQL → 自动识别参数 → 试运行识别输出列 → 标注语义；`DashboardEditor` / `CardEditor`：筛选表格、列下拉、参数来源绑定、下钻、实时预览、JSON 模式）。预览复用 `DashboardPanel.tsx` 导出的 `DashboardView`
 
 ### IM 与消息
 
