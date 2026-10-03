@@ -2,6 +2,9 @@ node_modules/
 .expo/
 dist/
 .env
+.env.*
+!.env.example
 *.log
 .DS_Store
 server/public/apk/*.apk
+*.swp
