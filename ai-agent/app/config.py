@@ -17,6 +17,11 @@ class Settings:
     # LLM provider（openai / deepseek / grok）— 复用主项目 ai.js 的约定
     PROVIDER = (_trim("AI_PROVIDER", "openai")).lower()
     DEFAULT_MODEL = _trim("AI_DEFAULT_MODEL", "gpt-4o-mini")
+    # 快模型：看板「AI 解读」等要求快速响应的请求（mode=fast）使用；为空 = 与 DEFAULT_MODEL 相同。
+    # 与主模型同一 provider / key / base_url，例如 DeepSeek 用 deepseek-chat 做快模型、deepseek-reasoner 做主模型。
+    FAST_MODEL = _trim("AI_FAST_MODEL")
+    # 快模型单次最大输出 token（解读要求简短，限制输出也能明显缩短耗时）
+    FAST_MAX_TOKENS = int(_trim("AI_FAST_MAX_TOKENS", "1024") or 1024)
     TEMPERATURE = float(_trim("AI_TEMPERATURE", "0.1") or 0.1)
     MAX_TOKENS = int(_trim("AI_MAX_TOKENS", "2048") or 2048)
     TIMEOUT_MS = int(_trim("AI_TIMEOUT_MS", "45000") or 45000)

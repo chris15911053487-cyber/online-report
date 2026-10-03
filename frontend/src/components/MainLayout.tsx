@@ -16,6 +16,7 @@ import AiChatView from '../views/AiChatView'
 import AiSkillsView from '../views/AiSkillsView'
 import AgentHubView from '../views/AgentHubView'
 import AgentsAdminView from '../views/AgentsAdminView'
+import BiAdminView from '../views/BiAdminView'
 import AgentRunView from '../views/AgentRunView'
 import MessagesView from '../views/MessagesView'
 import MessageAlertSettingsView from '../views/MessageAlertSettingsView'
@@ -32,6 +33,7 @@ const viewComponents: Record<string, React.ComponentType> = {
   'agent-hub': AgentHubView,
   'agent-run': AgentRunView,
   'agents-admin': AgentsAdminView,
+  'bi-admin': BiAdminView,
   messages: MessagesView,
   settings: SettingsView,
   'dynamic-report': DynamicReportView,
@@ -61,6 +63,7 @@ function getPageTitle(
     'agent-hub': 'Agent',
     'agent-run': 'Agent',
     'agents-admin': 'Agent 配置',
+    'bi-admin': 'BI 看板管理',
     messages: '消息',
     settings: '设置',
     owor: '生产订单',

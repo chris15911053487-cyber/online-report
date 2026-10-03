@@ -14,6 +14,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.prebuilt import create_react_agent
 from langgraph.types import Command
 
+from .bi_context import compose_user_message
 from . import steps as _steps
 from .recorder import TurnRecorder
 from .config import settings
@@ -70,15 +71,15 @@ def load_base_instructions() -> str:
     return _DEFAULT_BASE_INSTRUCTIONS
 
 
-def _build_model():
+def _build_model(model_name: str | None = None, max_tokens: int | None = None):
     from langchain_openai import ChatOpenAI
 
     kwargs = {
-        "model": settings.DEFAULT_MODEL,
+        "model": model_name or settings.DEFAULT_MODEL,
         "temperature": settings.TEMPERATURE,
         "api_key": settings.resolve_api_key() or "dummy-key-for-dev",
         "timeout": settings.TIMEOUT_MS / 1000.0,
-        "max_tokens": settings.MAX_TOKENS,
+        "max_tokens": max_tokens or settings.MAX_TOKENS,
         # 流式输出：token 经回调实时推给 SSE；对普通 /chat 调用无副作用
         "streaming": True,
     }
@@ -92,15 +93,37 @@ def _build_model():
 
 
 _graph = None
+_fast_graph = None
+_saver = None
 
 
-def get_graph():
-    global _graph
-    if _graph is None:
+def _get_saver():
+    global _saver
+    if _saver is None:
         os.makedirs(os.path.dirname(settings.CHECKPOINT_DB) or ".", exist_ok=True)
         conn = sqlite3.connect(settings.CHECKPOINT_DB, check_same_thread=False)
-        saver = SqliteSaver(conn)
-        _graph = create_react_agent(_build_model(), ALL_TOOLS, checkpointer=saver)
+        _saver = SqliteSaver(conn)
+    return _saver
+
+
+def fast_model_enabled() -> bool:
+    return bool(settings.FAST_MODEL) and settings.FAST_MODEL != settings.DEFAULT_MODEL
+
+
+def get_graph(mode: str | None = None):
+    """mode='fast' 且配置了 AI_FAST_MODEL 时返回快模型图，否则返回主模型图。
+
+    两张图共用同一个 checkpointer：同一会话线程在快 / 主模型之间切换时上下文连续
+    （例如先点「AI 解读」用快模型，接着追问用主模型，主模型能看到前面的解读）。
+    """
+    global _graph, _fast_graph
+    if mode == "fast" and fast_model_enabled():
+        if _fast_graph is None:
+            model = _build_model(settings.FAST_MODEL, settings.FAST_MAX_TOKENS)
+            _fast_graph = create_react_agent(model, ALL_TOOLS, checkpointer=_get_saver())
+        return _fast_graph
+    if _graph is None:
+        _graph = create_react_agent(_build_model(), ALL_TOOLS, checkpointer=_get_saver())
     return _graph
 
 
@@ -228,6 +251,8 @@ def _guess_skill(tool_names, steps):
         return "save-record"
     if "generate_document" in tool_names:
         return "doc-export"
+    if "run_named_query" in tool_names and "run_sql" not in tool_names:
+        return "bi-named-query"
     if any(t in ("run_report", "lookup_options", "run_sql") for t in tool_names):
         # 优先从 run_sql 的 skill_name 参数获取真实 skill 名称
         for s in steps:
@@ -275,8 +300,20 @@ def _extract_suggested_actions(text):
     return cleaned, valid
 
 
-def run_turn(*, thread_id, scoped_token, input_obj, history, skills, user, agent_prompt: str = "", recorder=None):
-    graph = get_graph()
+def run_turn(
+    *,
+    thread_id,
+    scoped_token,
+    input_obj,
+    history,
+    skills,
+    user,
+    agent_prompt: str = "",
+    recorder=None,
+    context: dict | None = None,
+    mode: str | None = None,
+):
+    graph = get_graph(mode)
     recorder = recorder or TurnRecorder()
     config = {
         "configurable": {
@@ -293,7 +330,9 @@ def run_turn(*, thread_id, scoped_token, input_obj, history, skills, user, agent
     if input_obj.get("type") == "resume":
         result = graph.invoke(Command(resume=input_obj.get("value")), config)
     else:
-        content = str(input_obj.get("content", ""))
+        raw_content = str(input_obj.get("content", ""))
+        # 看板点击上下文注入本轮用户消息（不进 system prompt，保持前缀缓存）
+        content = compose_user_message(raw_content, context)
         existing = False
         try:
             state = graph.get_state(config)
@@ -304,13 +343,24 @@ def run_turn(*, thread_id, scoped_token, input_obj, history, skills, user, agent
         if existing:
             messages = [HumanMessage(content=content)]
         else:
-            hist = history or [{"role": "user", "content": content}]
+            hist = history or [{"role": "user", "content": raw_content}]
             seeded = [SystemMessage(content=build_system_prompt(skills, user, agent_prompt))]
             for m in hist:
                 if m.get("role") == "user":
                     seeded.append(HumanMessage(content=m.get("content", "")))
                 elif m.get("role") == "assistant":
                     seeded.append(AIMessage(content=m.get("content", "")))
+            if content != raw_content:
+                # 网关落库的是用户原话；新线程用历史播种时，把本轮那条换成带上下文的版本
+                for i in range(len(seeded) - 1, 0, -1):
+                    if isinstance(seeded[i], HumanMessage):
+                        if seeded[i].content == raw_content:
+                            seeded[i] = HumanMessage(content=content)
+                        else:
+                            seeded.append(HumanMessage(content=content))
+                        break
+                else:
+                    seeded.append(HumanMessage(content=content))
             messages = seeded
         result = graph.invoke({"messages": messages}, config)
 

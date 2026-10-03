@@ -15,6 +15,7 @@ const {
 } = require('./ai-conversations');
 const { retrieveRelevantChunks, suggestNavActions } = require('./help-knowledge');
 const { aiService } = require('./ai');
+const { normalizeBiContext, normalizeMode } = require('./bi-context');
 
 function agentBaseUrl() {
   return String(process.env.AI_AGENT_URL || 'http://ai-agent:8080').replace(/\/+$/, '');
@@ -150,10 +151,14 @@ async function postAgentStream(pathname, payload, scopedToken, opts = {}) {
  * @param {object} [opts.log]          - fastify logger（可选）
  * @param {(event:object)=>void} [opts.onEvent] - 提供后走流式：过程事件（llm_start/delta/tool_call/tool_result…）实时回调
  * @param {AbortSignal} [opts.signal]  - 外部中止信号（如客户端断开）；中止后返回 { status: 'cancelled' }
+ * @param {object} [opts.context]      - 看板点击上下文（见 bi-context.js），注入本轮用户消息
+ * @param {string} [opts.mode]         - 'fast' = 用快模型（点击解读）
  * @returns {Promise<object>}          - { conversationId, status, message, ... }
  */
 async function agentChatCore(opts) {
   const { userCode, displayName, conversationId, agentKey, message, resume, log, onEvent, signal } = opts;
+  const context = normalizeBiContext(opts.context);
+  const mode = normalizeMode(opts.mode);
   if (!isValidConversationId(conversationId)) {
     return { error: 'conversationId 不合法', code: 'AGENT_BAD_CONV_ID' };
   }
@@ -205,6 +210,8 @@ async function agentChatCore(opts) {
         skills,
         user: { userCode, displayName, roles: userRoles },
         agentPrompt: agentPrompt || undefined,
+        context: context || undefined,
+        mode,
       };
       const { ok, data, cancelled } = onEvent
         ? await postAgentStream('/chat/stream', agentPayload, scopedToken, { signal, onEvent })

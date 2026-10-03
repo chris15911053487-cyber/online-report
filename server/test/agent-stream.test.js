@@ -263,3 +263,57 @@ test('POST /ai/agent/chat/stream：SSE 头、事件顺序、final；无 message 
     await app.close();
   }
 });
+
+test('看板上下文与 mode：规范化后透传给 ai-agent（流式与非流式都带）', async () => {
+  behavior = async (req, res) => {
+    if (req.url === '/chat/stream') {
+      startSse(res);
+      sse(res, { type: 'final', data: { status: 'final', message: 'ok' } });
+      return res.end();
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'final', message: 'ok' }));
+  };
+  const context = { cardTitle: '应收', queryKey: 'FIN_AR', point: { 客户: '甲', bad: { x: 1 } }, caption: 'x', intent: 'explain' };
+  await agentChatCore({ ...base, context, mode: 'fast', onEvent: () => {} });
+  assert.equal(lastRequest.url, '/chat/stream');
+  assert.deepEqual(lastRequest.body.context, { cardTitle: '应收', queryKey: 'fin_ar', point: { 客户: '甲' }, intent: 'explain' });
+  assert.equal(lastRequest.body.mode, 'fast');
+
+  await agentChatCore({ ...base, context: { junk: 1 }, mode: 'turbo' });
+  assert.equal(lastRequest.url, '/chat');
+  assert.equal('context' in lastRequest.body, false, '无效上下文不传');
+  assert.equal('mode' in lastRequest.body, false, '未知 mode 不传');
+});
+
+test('路由：/ai/agent/chat 与 /ai/agent/chat/stream 都把 context/mode 交给 ai-agent', async () => {
+  const Fastify = require('fastify');
+  const app = Fastify();
+  app.decorate('authenticate', async (request) => { request.user = { username: 'U1', displayName: '张三', roles: ['operator'] }; });
+  app.decorate('requireAdmin', async () => {});
+  await app.register(require('../src/routes/ai-agent'));
+  await app.listen({ port: 0, host: '127.0.0.1' });
+  const root = `http://127.0.0.1:${app.server.address().port}`;
+  behavior = async (req, res) => {
+    if (req.url === '/chat/stream') {
+      startSse(res);
+      sse(res, { type: 'final', data: { status: 'final', message: 'ok' } });
+      return res.end();
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'final', message: 'ok' }));
+  };
+  const body = JSON.stringify({ conversationId: 'conv-9', message: '解读', context: { cardTitle: '应收', intent: 'explain' }, mode: 'fast' });
+  try {
+    for (const p of ['/ai/agent/chat', '/ai/agent/chat/stream']) {
+      lastRequest = null;
+      const res = await fetch(root + p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+      await res.text();
+      assert.equal(res.status, 200, p);
+      assert.deepEqual(lastRequest.body.context, { cardTitle: '应收', intent: 'explain' }, p);
+      assert.equal(lastRequest.body.mode, 'fast', p);
+    }
+  } finally {
+    await app.close();
+  }
+});

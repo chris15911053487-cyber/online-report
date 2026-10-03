@@ -23,6 +23,7 @@ const EMPTY_AGENT: AgentAdmin = {
   roles: [],
   enabled: true,
   sortOrder: 100,
+  dashboardKey: '',
 }
 
 const inputCls =
@@ -44,6 +45,7 @@ export default function AgentsAdminView() {
   const [items, setItems] = useState<AgentAdmin[]>([])
   const [availableSkills, setAvailableSkills] = useState<AgentSkillOption[]>([])
   const [availableRoles, setAvailableRoles] = useState<string[]>([])
+  const [availableDashboards, setAvailableDashboards] = useState<{ dashboardKey: string; label: string; enabled: boolean }[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -60,6 +62,10 @@ export default function AgentsAdminView() {
       setItems(Array.isArray(data?.items) ? data.items : [])
       setAvailableSkills(Array.isArray(data?.availableSkills) ? data.availableSkills : [])
       setAvailableRoles(Array.isArray(data?.availableRoles) ? data.availableRoles : [])
+      // 看板列表单独取；失败（如尚未迁移）不影响 Agent 配置本身
+      apiFetch('/admin/bi/dashboards')
+        .then((d) => setAvailableDashboards(Array.isArray(d?.items) ? d.items : []))
+        .catch(() => setAvailableDashboards([]))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Agent 配置加载失败')
     } finally {
@@ -189,6 +195,9 @@ export default function AgentsAdminView() {
                       <span className="text-amber-600">未关联（该 Agent 暂无数据查询能力）</span>
                     )}
                   </p>
+                  {agent.dashboardKey && (
+                    <p className="text-[12px] text-slate-500 mt-0.5">关联看板：{agent.dashboardKey}</p>
+                  )}
                   <p className="text-[12px] text-slate-500 mt-0.5">
                     可见角色：
                     {agent.roles.length > 0 ? agent.roles.join('、') : '仅管理员'}
@@ -421,8 +430,29 @@ export default function AgentsAdminView() {
       </Section>
 
       <Section
+        title="BI 看板"
+        hint="关联后，进入该 Agent 右侧默认显示这块看板（读缓存，秒开），用户可在看板上下钻或点击问 AI。看板与查询在「BI 看板管理」里维护。"
+      >
+        <select
+          className={inputCls}
+          value={editing.dashboardKey || ''}
+          onChange={(e) => patch({ dashboardKey: e.target.value })}
+        >
+          <option value="">不关联（保持原有画布）</option>
+          {availableDashboards.map((d) => (
+            <option key={d.dashboardKey} value={d.dashboardKey}>
+              {d.label}（{d.dashboardKey}）{d.enabled ? '' : ' · 已停用'}
+            </option>
+          ))}
+          {editing.dashboardKey && !availableDashboards.some((d) => d.dashboardKey === editing.dashboardKey) && (
+            <option value={editing.dashboardKey}>{editing.dashboardKey}（不存在）</option>
+          )}
+        </select>
+      </Section>
+
+      <Section
         title="默认内容"
-        hint="开启后，进入该 Agent 会自动执行一次默认分析（对应原型里进入即展示的日报）。"
+        hint="开启后，进入该 Agent 会自动执行一次默认分析（对应原型里进入即展示的日报）。已关联看板时不执行，以看板为准。"
       >
         <div className="space-y-3">
           <label className="flex items-center gap-2 cursor-pointer">

@@ -43,6 +43,7 @@ function StepIcon({ status }: { status: LiveStep['status'] }) {
 function stepHint(step: LiveStep): string {
   if (step.kind === 'llm') {
     const parts: string[] = []
+    if (step.model) parts.push(step.model)
     if (step.inputTokens != null) parts.push(`输入 ${step.inputTokens} tokens`)
     if (step.outputTokens != null) parts.push(`输出 ${step.outputTokens}`)
     return parts.join(' · ')

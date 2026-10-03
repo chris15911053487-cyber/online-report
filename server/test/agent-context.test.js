@@ -21,7 +21,14 @@ stub('agents.js', {
     return agentImpl(...args);
   },
 });
-const { resolveAgentContext } = require('../src/agent-context');
+let dashboardImpl = async () => null;
+let queriesImpl = async () => [];
+stub('bi-dashboards.js', { getDashboard: async (...a) => dashboardImpl(...a) });
+stub('bi-queries.js', {
+  listAllQueries: async (...a) => queriesImpl(...a),
+  canUseQuery: (u, q) => u.includes('admin') || q.some((r) => u.includes(r)),
+});
+const { resolveAgentContext, formatQueryCatalog } = require('../src/agent-context');
 
 const run = (agentKey) => {
   getAgentCalls = 0;
@@ -77,4 +84,48 @@ test('读取 Agent 失败：退回全部 skill，无专属指令', async () => {
   const r = await run('sales');
   assert.deepEqual(r.skills.map((s) => s.name), ['a', 'b']);
   assert.equal(r.agentPrompt, '');
+});
+
+
+// ---- 关联看板：命名查询目录 ----
+const Q = (queryKey, roles, extra = {}) => ({
+  queryKey, label: queryKey.toUpperCase(), description: '', params: [{ name: 'period', type: 'string', required: true }],
+  dimensions: [{ column: 'CardCode', label: '客户' }], caliberNote: '按过账日期', roles, enabled: true, sqlText: 'SELECT secret', ...extra,
+});
+
+test('关联看板：目录只含看板用到、启用且有权的查询；按 key 排序；不含 SQL；追加在专属指令之后', async () => {
+  agentImpl = async () => ({ enabled: true, skills: [], systemPromptExtra: 'EXTRA', dashboardKey: 'finance' });
+  dashboardImpl = async () => ({
+    enabled: true,
+    cards: [
+      { queryKey: 'z_ar', drill: [{ queryKey: 'b_docs' }, { queryKey: 'cost' }] },
+      { queryKey: 'off' },
+    ],
+  });
+  queriesImpl = async () => [Q('z_ar', ['operator']), Q('b_docs', ['operator']), Q('cost', ['cost-viewer']), Q('off', ['operator'], { enabled: false }), Q('unused', ['operator'])];
+  const r = await run('fin');
+  assert.ok(r.agentPrompt.startsWith('EXTRA\n\n### 可用命名查询'));
+  const keys = [...r.agentPrompt.matchAll(/- `([a-z_]+)`/g)].map((m) => m[1]);
+  assert.deepEqual(keys, ['b_docs', 'z_ar']);
+  assert.equal(r.agentPrompt.includes('secret'), false);
+  assert.match(r.agentPrompt, /参数：period:string（必填）；维度列：CardCode\(客户\)；口径：按过账日期/);
+});
+
+test('关联看板但看板停用 / 读取失败：不加目录，不影响 skill', async () => {
+  agentImpl = async () => ({ enabled: true, skills: ['a'], systemPromptExtra: '', dashboardKey: 'finance' });
+  dashboardImpl = async () => ({ enabled: false, cards: [{ queryKey: 'z_ar' }] });
+  let r = await run('fin');
+  assert.equal(r.agentPrompt, '');
+  dashboardImpl = async () => { throw new Error('db'); };
+  r = await run('fin');
+  assert.equal(r.agentPrompt, '');
+  assert.deepEqual(r.skills.map((s) => s.name), ['a']);
+});
+
+test('formatQueryCatalog：空列表为空串；超长截断', () => {
+  assert.equal(formatQueryCatalog([]), '');
+  const many = Array.from({ length: 30 }, (_, i) => Q(`q${String(i).padStart(2, '0')}`, [], { description: 'x'.repeat(300) }));
+  const s = formatQueryCatalog(many);
+  assert.ok(s.length < 6600);
+  assert.match(s, /其余查询未列出/);
 });

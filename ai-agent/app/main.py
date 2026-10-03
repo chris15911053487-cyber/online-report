@@ -33,6 +33,8 @@ class ChatRequest(BaseModel):
     skills: list[dict] = []
     user: dict = {}
     agentPrompt: str = ""   # Agent 专属附加 system prompt（来自 dbo.agents.system_prompt_extra）
+    context: dict | None = None  # 看板点击上下文（网关已规范化），注入本轮用户消息
+    mode: str | None = None      # "fast" = 用快模型（点击解读）
 
 
 @app.get("/health")
@@ -92,6 +94,8 @@ async def chat_stream(req: ChatRequest, request: Request, x_scoped_token: str | 
                 user=req.user,
                 agent_prompt=req.agentPrompt or "",
                 recorder=recorder,
+                context=req.context,
+                mode=req.mode,
             )
             emit({"type": "final", "data": result})
         except TurnCancelled:
@@ -143,6 +147,8 @@ async def chat(req: ChatRequest, request: Request, x_scoped_token: str | None = 
                 skills=req.skills,
                 user=req.user,
                 agent_prompt=req.agentPrompt or "",
+                context=req.context,
+                mode=req.mode,
             )
         )
         # 等待任务完成或客户端断开

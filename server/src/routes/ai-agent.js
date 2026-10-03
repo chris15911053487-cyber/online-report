@@ -33,6 +33,9 @@ const { listSkillsForRoles, canUseSkill, checkSqlTablesAllowed, getSkill } = req
 const { runSqlLimited } = require('../agent-sql');
 const { resolveAgentContext } = require('../agent-context');
 const { agentChatCore } = require('../agent-chat-core');
+const { normalizeBiContext, normalizeMode } = require('../bi-context');
+const { getQuery: getBiQuery, canUseQuery: canUseBiQuery } = require('../bi-queries');
+const { runNamedQuery, BiParamError } = require('../bi-exec');
 const {
   isValidConversationId,
   ensureConversation,
@@ -285,6 +288,8 @@ async function aiAgentRoutes(fastify) {
               skills,
               user: { userCode, displayName, roles: userRoles },
               agentPrompt: agentPrompt || undefined,
+              context: normalizeBiContext(body.context) || undefined,
+              mode: normalizeMode(body.mode),
             },
             scopedToken,
             { signal: clientAbort.signal }
@@ -408,6 +413,8 @@ async function aiAgentRoutes(fastify) {
           log: request.log,
           onEvent: send,
           signal: ac.signal,
+          context: body.context,
+          mode: body.mode,
         });
         if (result.status === 'cancelled') {
           // 客户端已走，无需再写
@@ -619,6 +626,47 @@ async function aiAgentRoutes(fastify) {
     } catch (err) {
       request.log.error({ err }, 'agent internal run-sql');
       return reply.code(400).send({ error: err.message || 'SQL 执行失败', code: 'AGENT_SQL_ERROR' });
+    }
+  });
+
+  /**
+   * 执行 BI 命名查询（run_named_query 工具）：与看板卡片共用同一份定义与结果缓存，保证口径一致。
+   * 门禁：按 scoped token 里的用户角色校验查询的 roles；参数只绑定定义里声明过的。
+   */
+  fastify.post('/ai/agent/internal/named-query', async (request, reply) => {
+    const auth = requireScopedToken(request, reply);
+    if (!auth) return;
+    const body = request.body || {};
+    const queryKey = String(body.queryKey || '').trim().toLowerCase();
+    if (!queryKey) return reply.code(400).send({ error: '缺少 queryKey', code: 'AGENT_BAD_REQUEST' });
+    const pool = await getPool();
+    const query = await getBiQuery(pool, queryKey);
+    if (!query || !query.enabled) {
+      return reply.code(404).send({ error: `命名查询不存在或未启用：${queryKey}`, code: 'BI_NO_QUERY' });
+    }
+    if (!canUseBiQuery(auth.user.roles, query.roles)) {
+      return reply.code(403).send({ error: '无权访问该数据', code: 'BI_FORBIDDEN' });
+    }
+    const n = Number(body.maxRows);
+    const maxRows = Number.isFinite(n) && n > 0 ? Math.min(200, Math.floor(n)) : 200;
+    try {
+      const r = await runNamedQuery({ pool, query, params: body.params, roles: auth.user.roles });
+      return {
+        queryKey: query.queryKey,
+        label: query.label,
+        caliberNote: query.caliberNote,
+        columns: r.columns,
+        rows: r.rows.slice(0, maxRows),
+        rowCount: r.rowCount,
+        truncated: r.truncated || r.rows.length > maxRows,
+        params: r.params,
+        asOf: r.asOf,
+        cached: r.cached,
+      };
+    } catch (err) {
+      if (err instanceof BiParamError) return reply.code(400).send({ error: err.message, code: err.code });
+      request.log.error({ err: err.message, queryKey }, 'agent internal named-query');
+      return reply.code(500).send({ error: `查询执行失败：${err.message}`, code: 'BI_QUERY_FAILED' });
     }
   });
 

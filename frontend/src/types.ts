@@ -116,6 +116,7 @@ export type ViewName =
   | 'agent-hub'
   | 'agent-run'
   | 'agents-admin'
+  | 'bi-admin'
   | 'messages'
   | 'settings'
   | 'owor'
@@ -153,6 +154,8 @@ export interface Agent {
   defaultPrompt?: string
   defaultEnabled?: boolean
   defaultCacheSecs?: number
+  /** 关联的 BI 看板；非空时进入 Agent 显示看板，不再自动执行 defaultPrompt */
+  dashboardKey?: string
 }
 
 /** Agent 完整配置（管理后台用，含内部字段） */

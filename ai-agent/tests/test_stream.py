@@ -281,7 +281,7 @@ class StreamEndpointTests(unittest.TestCase):
     def test_error_is_reported_as_event(self):
         orig = agent.get_graph
 
-        def boom():
+        def boom(mode=None):
             raise RuntimeError("模型不可用")
 
         agent.get_graph = boom

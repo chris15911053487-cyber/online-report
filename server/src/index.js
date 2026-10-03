@@ -25,6 +25,7 @@ const registerOworRoutes = require('./routes/owor');
 const aiRoutes = require('./routes/ai');
 const aiAgentRoutes = require('./routes/ai-agent');
 const agentsRoutes = require('./routes/agents');
+const biRoutes = require('./routes/bi');
 const filesRoutes = require('./routes/files');
 const speechRoutes = require('./routes/speech');
 const messagesRoutes = require('./routes/messages');
@@ -122,6 +123,7 @@ async function build() {
   await fastify.register(aiRoutes);
   await fastify.register(aiAgentRoutes);
   await fastify.register(agentsRoutes);
+  await fastify.register(biRoutes);
   await fastify.register(messagesRoutes);
   await fastify.register(botDingtalkRoutes);
   await fastify.register(botWecomRoutes);

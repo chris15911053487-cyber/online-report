@@ -18,6 +18,7 @@ const {
   upsertAgent,
   deleteAgent,
 } = require('../agents');
+const { getDashboard } = require('../bi-dashboards');
 
 /** 用户侧只暴露展示与交互需要的字段，不下发 system_prompt_extra / skills 等内部配置 */
 function toPublicAgent(agent) {
@@ -34,6 +35,8 @@ function toPublicAgent(agent) {
     defaultPrompt: agent.defaultEnabled ? agent.defaultPrompt : '',
     defaultEnabled: agent.defaultEnabled,
     defaultCacheSecs: agent.defaultCacheSecs,
+    // 关联了看板时，前端进入即显示看板，不再自动执行 defaultPrompt
+    dashboardKey: agent.dashboardKey || '',
   };
 }
 
@@ -119,6 +122,12 @@ async function agentsRoutes(fastify) {
       if (bad.length > 0) {
         return reply.code(400).send({ error: `未定义的角色：${bad.join('、')}` });
       }
+    }
+
+    // 关联的看板必须存在
+    if (parsed.value.dashboardKey) {
+      const d = await getDashboard(pool, parsed.value.dashboardKey);
+      if (!d) return reply.code(400).send({ error: `关联的看板不存在：${parsed.value.dashboardKey}` });
     }
 
     const saved = await upsertAgent(pool, parsed.value);

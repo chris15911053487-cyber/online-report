@@ -11,6 +11,7 @@ TOOL_LABELS = {
     "lookup_options": "查找候选项",
     "run_report": "执行报表查询",
     "run_sql": "执行 SQL 查询",
+    "run_named_query": "看板查询",
     "ask_user_to_choose": "等待用户确认",
     "save_record": "保存记录",
     "generate_document": "生成文档",
@@ -55,6 +56,14 @@ def summarize_args(tool, args):
                 except Exception:  # noqa: BLE001
                     pass
                 out.pop(key, None)
+    if tool == "run_named_query" and "params_json" in out:
+        try:
+            raw = out.get("params_json")
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+            out["params"] = parsed if isinstance(parsed, dict) else raw
+        except Exception:  # noqa: BLE001
+            pass
+        out.pop("params_json", None)
     if tool == "lookup_options" and "options_json" in out:
         out.pop("options_json", None)
     out.pop("config", None)

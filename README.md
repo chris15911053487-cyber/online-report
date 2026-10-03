@@ -142,6 +142,62 @@ npm run init-db
 | `AI_STREAM_USAGE` | ai-agent | `false` | 流式响应附带 token 用量（在执行过程里显示每次模型调用的输入 tokens，可用来判断 prompt 是否过大）。个别 OpenAI 兼容服务不支持，确认后再开 |
 | `AI_SKILL_INLINE_MAX_CHARS` | ai-agent | `12000` | 见上文「Skill 注入方式」 |
 
+### BI 看板（AI 原生）
+
+给 Agent 关联一块固定样式的看板：进入 Agent 右侧即显示（读缓存，秒开），不再自动执行 `defaultPrompt`。看到疑问可以就地下钻，或点击数字/图形让 AI 解读、继续追问。
+
+**三处分开维护**（迁移脚本 `server/sql/migrate-bi.sql`，服务启动自动执行）：
+
+| 维护处 | 表 / 入口 | 内容 |
+|------|------|------|
+| 查询库 | `bi_queries`；设置 →「BI 看板管理 · 查询库」 | 只读 SQL（`@参数` 绑定）、参数定义、可下钻维度、口径说明、缓存秒数、可见角色；可用未保存的定义试运行 |
+| 看板 | `bi_dashboards`；「BI 看板管理 · 看板」 | 全局筛选 + 卡片（`kpi` / `bar` / `line` / `pie` / `table`），卡片只引用 `queryKey`，不含 SQL |
+| Agent | `agents.dashboard_key`；「Agent 配置 · BI 看板」 | 一个 Agent 最多关联一个看板 |
+
+卡片、卡片内下钻、Agent 追问（`run_named_query`）共用同一份命名查询，看板上的数与 AI 说的数口径一致。
+
+**界面**：PC 左侧对话、右侧「📊 看板 / 当前结果」两个页签（回答出来后自动切到结果）；移动端顶部「看板 / 对话」页签。点击 KPI 数字或图表元素弹出通用浮层：
+
+- **✨ AI 解读**：直接发送，使用快模型（`AI_FAST_MODEL`）；程序自动把卡片、点中的数据、当前筛选、口径、查询参数作为上下文带给 AI（注入本轮用户消息，不进 system prompt，不影响前缀缓存）；AI 优先用同一命名查询 + 参数复查
+- **⤵ 下钻到 xx**：按卡片配置的 `drill` 逐级展开（不经 AI），面包屑返回
+- **问点别的…**：上下文以胶囊挂在输入框上方，用户补一句话再发（主模型）
+
+**卡片配置示例**（`cards` 数组中的一项）：
+
+```json
+{
+  "id": "ar_by_customer", "type": "bar", "title": "应收 · 按客户",
+  "queryKey": "fin_ar_by_customer", "params": { "period": "$filter.period" },
+  "encoding": { "dimension": "CardName", "value": "Balance", "scale": 10000, "unit": "万", "horizontal": true, "topN": 10 },
+  "drill": [{ "queryKey": "fin_ar_docs", "label": "单据", "bind": { "cardCode": "CardCode" },
+              "params": { "period": "$filter.period" }, "type": "table" }],
+  "layout": { "w": 8, "h": 2 }
+}
+```
+
+`encoding` 还支持 `values`（多系列）、`series`（长表透视）、`compare`（KPI 对比列，显示环比）、`columns`（表格列与格式）、`format`（`number` / `money` / `percent` / `integer`）。筛选默认值可用 `$today` `$yesterday` `$thisMonth` `$lastMonth` `$monthStart` `$yearStart`。
+
+**安全与缓存**：
+
+- 查询只允许单条 `SELECT` / `WITH`，拒绝写操作、多语句、`SELECT INTO`、`EXEC`、`OPENQUERY` 等与链接服务器四段名；参数一律 `.input()` 绑定，未声明的入参忽略
+- 看板经 Agent 门禁（`canUseAgent`）进入；每张卡片、每级下钻再按查询的角色过滤，无权的卡片不下发；接口不下发 SQL
+- 结果缓存 key = 查询 + 参数 + **角色集合**（例如有无 `cost-viewer` 的用户不共享结果）；同 key 并发合并为一次；过期后先返回旧数据并后台刷新；修改查询定义立即失效
+- 普通用户看不到 SQL 报错详情（管理员可见）
+
+| 变量 | 服务 | 默认 | 说明 |
+|------|------|------|------|
+| `BI_MAX_ROWS` | server | `2000` | 命名查询单次最多读取行数 |
+| `BI_QUERY_TIMEOUT_MS` | server | `30000` | 命名查询超时 |
+| `BI_CACHE_MAX_ENTRIES` | server | `500` | 结果缓存条目上限 |
+| `BI_CACHE_STALE_SECS` | server | `3600` | 过期后仍可先返回旧数据的时长 |
+| `BI_QUERY_DEF_CACHE_TTL_MS` | server | `30000` | 查询定义的进程内缓存 |
+| `AI_FAST_MODEL` | ai-agent | 空（= 主模型） | 「AI 解读」用的快模型，同一 provider，如主模型 `deepseek-reasoner`、快模型 `deepseek-chat` |
+| `AI_FAST_MAX_TOKENS` | ai-agent | `1024` | 快模型单次最大输出 |
+
+快模型与主模型共用同一会话线程，先点「AI 解读」再追问时，主模型能看到前面的解读。执行过程里每次模型调用显示实际使用的模型名。
+
+**前端单元测试**：`cd frontend && npm test`（vitest，覆盖图表 option 生成、下钻栈、点击上下文等纯逻辑）。
+
 **写入目标**：AI 写入数据须经白名单控制（`agent_write_targets` 表），支持两种类型：
 - `table`：参数化 INSERT（前台配置字段白名单）
 - `action`：调用代码注册的 API 动作

@@ -11,6 +11,11 @@
  *   - 左栏 420px：对话流 + 输入栏（可收起，宽度过渡到 0）
  *   - 右栏 flex-1：画布输出区（4 列 KPI、大图表、无横滚动表格）
  *   - 左栏折叠时右栏全屏，左上角展开按钮
+ *
+ * 关联了 BI 看板（agent.dashboardKey）时：
+ *   - 进入即显示看板（读缓存，秒开），不再自动执行 defaultPrompt
+ *   - PC 右栏为「看板 / 当前结果」两个页签，回答出来后自动切到「当前结果」
+ *   - 移动端顶部为「看板 / 对话」页签，提问后自动切到「对话」
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
@@ -23,6 +28,10 @@ import ChartRenderer from '../components/ChartRenderer'
 import AgentLiveTrace, { AgentLiveStatus } from '../components/AgentLiveTrace'
 import AgentTracePanel, { parseAgentTrace, type AgentTimings, type AgentToolStep } from '../components/AgentTracePanel'
 import ChatMarkdown from '../components/ChatMarkdown'
+import DashboardPanel from '../components/bi/DashboardPanel'
+import BiPickPopover from '../components/bi/BiPickPopover'
+import { buildBiContext, explainPrompt, toWireContext, type BiContextPayload, type BiPick } from '../utils/biContext'
+import type { BiDashboard, BiFilterValues } from '../utils/bi'
 import type { Agent, AgentQuickPrompt } from '../types'
 
 // ─── 类型 ─────────────────────────────────────────────────────────────────────
@@ -77,6 +86,8 @@ interface ChatItem {
   clarification?: ClarificationData
   clarificationResolved?: boolean
   loading?: boolean
+  /** 用户消息带的看板上下文（显示为气泡上方的小胶囊） */
+  contextCaption?: string
   /** 本轮执行过程快照（每步耗时）；完成后仍保留在对话里 */
   trace?: LiveState
   timings?: AgentTimings
@@ -451,6 +462,25 @@ function CanvasPanel({
   )
 }
 
+/** PC 右栏页签按钮 */
+function RightTabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className="flex items-center gap-1.5 px-3.5 py-2 text-[13px] rounded-t-lg -mb-px transition-colors"
+      style={
+        active
+          ? { background: '#fff', color: '#1a1a2e', fontWeight: 600, border: '1px solid #e8eaed', borderBottomColor: '#fff' }
+          : { color: '#6b7089', border: '1px solid transparent' }
+      }
+    >
+      {children}
+    </button>
+  )
+}
+
 /** 历史轮切换 chip */
 function TurnChip({
   turn, isCurrent, onClick,
@@ -551,6 +581,16 @@ export default function AgentRunView() {
 
   const [pcInput, setPcInput] = useState('')
 
+  // 关联看板时的页签：PC 右栏「看板 / 当前结果」；移动端「看板 / 对话」
+  const [rightTab, setRightTab] = useState<'dashboard' | 'result'>('dashboard')
+  const [mobileTab, setMobileTab] = useState<'dashboard' | 'chat'>('dashboard')
+
+  // 看板点击：浮层 + 「问点别的」时挂在输入框上方的上下文胶囊
+  const [biPopover, setBiPopover] = useState<{ pick: BiPick; dashboard: BiDashboard; filters: BiFilterValues } | null>(null)
+  const [pendingContext, setPendingContext] = useState<BiContextPayload | null>(null)
+  const pcInputRef = useRef<HTMLInputElement>(null)
+  const mobileInputRef = useRef<HTMLInputElement>(null)
+
   const chatEndRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
 
@@ -568,9 +608,9 @@ export default function AgentRunView() {
       .finally(() => setAgentLoading(false))
   }, [currentAgentKey])
 
-  // defaultEnabled → 自动发第一轮
+  // defaultEnabled → 自动发第一轮（关联了看板时以看板为默认内容，不再跑）
   useEffect(() => {
-    if (!agent?.defaultEnabled || !agent.defaultPrompt) return
+    if (!agent?.defaultEnabled || !agent.defaultPrompt || agent.dashboardKey) return
     if (turns.length > 0) return
     void doSend(agent.defaultPrompt)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -595,16 +635,23 @@ export default function AgentRunView() {
   }, [])
 
   const doSend = useCallback(
-    async (text: string) => {
+    /**
+     * @param opts.context 看板上下文；未传时使用输入框上方挂着的胶囊（pendingContext）
+     * @param opts.mode    'fast' = 快模型（点击「AI 解读」）
+     */
+    async (text: string, opts: { context?: BiContextPayload | null; mode?: 'fast' } = {}) => {
       const trimmed = text.trim()
       if (!trimmed || sending) return
+      const ctx = opts.context !== undefined ? opts.context : pendingContext
+      setPendingContext(null)
       setMobileInput('')
       setPcInput('')
       setSending(true)
       setPendingQuery(trimmed)
+      setMobileTab('chat')
 
       const tempId = uid()
-      const userItem: ChatItem = { id: uid(), role: 'user', content: trimmed }
+      const userItem: ChatItem = { id: uid(), role: 'user', content: trimmed, contextCaption: ctx?.caption }
       const loadingItem: ChatItem = { id: tempId, role: 'assistant', content: '', loading: true }
       setChatItems((prev) => [...prev, userItem, loadingItem])
 
@@ -613,7 +660,13 @@ export default function AgentRunView() {
 
       try {
         const data = await runAgent(
-          { conversationId, agentKey: currentAgentKey ?? undefined, message: trimmed },
+          {
+            conversationId,
+            agentKey: currentAgentKey ?? undefined,
+            message: trimmed,
+            context: ctx ? toWireContext(ctx) : undefined,
+            mode: opts.mode,
+          },
           ctrl.signal,
         )
         // 在 setState 回调之外取快照：回调可能稍后才执行，届时 ref 已可能被下一轮覆盖
@@ -651,6 +704,7 @@ export default function AgentRunView() {
         }
         setTurns((prev) => [...prev, newTurn])
         setCurrentTurnId(newTurn.id)
+        setRightTab('result')
 
         // 从 actions 提取追问建议
         const followups = Array.isArray(data?.actions)
@@ -692,7 +746,7 @@ export default function AgentRunView() {
         setPendingQuery('')
       }
     },
-    [sending, conversationId, currentAgentKey, showToast, runAgent],
+    [sending, conversationId, currentAgentKey, showToast, runAgent, pendingContext],
   )
 
   const resumeWith = useCallback(
@@ -725,6 +779,7 @@ export default function AgentRunView() {
         }
         setTurns((prev) => [...prev, newTurn])
         setCurrentTurnId(newTurn.id)
+        setRightTab('result')
         setChatItems((prev) =>
           prev.map((it) =>
             it.id === tempId
@@ -753,7 +808,87 @@ export default function AgentRunView() {
     setMobileInput('')
     setPcInput('')
     setPendingQuery('')
+    setRightTab('dashboard')
   }, [sending])
+
+  /** 看板上点中元素 → 通用点击浮层 */
+  const handleBiPick = useCallback(
+    (pick: BiPick, ctx: { dashboard: BiDashboard; filters: BiFilterValues }) => {
+      setBiPopover({ pick, dashboard: ctx.dashboard, filters: ctx.filters })
+    },
+    [],
+  )
+  const closeBiPopover = useCallback(() => setBiPopover(null), [])
+
+  const isPcNow = () => typeof window !== 'undefined' && window.innerWidth >= 900
+
+  /** ✨ AI 解读：直接发送，快模型；回答出来后右栏自动切到「当前结果」 */
+  const biExplain = () => {
+    if (!biPopover) return
+    const ctx = buildBiContext(biPopover.pick, biPopover.dashboard, biPopover.filters, 'explain')
+    setBiPopover(null)
+    if (sending) {
+      showToast('上一个问题还在分析中，请稍候')
+      return
+    }
+    if (isPcNow()) setPcLeftCollapsed(false)
+    void doSend(explainPrompt(ctx), { context: ctx, mode: 'fast' })
+  }
+
+  /** 问点别的：上下文挂到输入框上方，用户自己补一句 */
+  const biAsk = () => {
+    if (!biPopover) return
+    const ctx = buildBiContext(biPopover.pick, biPopover.dashboard, biPopover.filters, 'ask')
+    setBiPopover(null)
+    setPendingContext(ctx)
+    if (isPcNow()) {
+      setPcLeftCollapsed(false)
+      setTimeout(() => pcInputRef.current?.focus(), 50)
+    } else {
+      setMobileTab('chat')
+      setTimeout(() => mobileInputRef.current?.focus(), 50)
+    }
+  }
+
+  const biDrill = () => {
+    biPopover?.pick.drill()
+    setBiPopover(null)
+  }
+
+  /** 输入框上方的上下文胶囊 */
+  const contextChip = pendingContext ? (
+    <div className="flex items-center gap-1.5 mb-2 text-[12px]">
+      <span
+        className="inline-flex items-center gap-1 max-w-full px-2.5 py-1 rounded-full"
+        style={{ background: '#eef2ff', color: '#4f6ef7' }}
+        title={`将带上看板上下文：${pendingContext.caption}`}
+      >
+        <span aria-hidden>📎</span>
+        <span className="truncate">{pendingContext.caption}</span>
+        <button
+          type="button"
+          onClick={() => setPendingContext(null)}
+          className="ml-0.5 rounded-full w-4 h-4 inline-flex items-center justify-center hover:bg-white/70"
+          aria-label="移除看板上下文"
+        >
+          ×
+        </button>
+      </span>
+    </div>
+  ) : null
+
+  const popoverEl = biPopover ? (
+    <BiPickPopover
+      x={biPopover.pick.x}
+      y={biPopover.pick.y}
+      title={buildBiContext(biPopover.pick, biPopover.dashboard, biPopover.filters, 'ask').caption}
+      drillLabel={biPopover.pick.drillLabel}
+      onExplain={biExplain}
+      onDrill={biDrill}
+      onAsk={biAsk}
+      onClose={closeBiPopover}
+    />
+  ) : null
 
   const quickPrompts: AgentQuickPrompt[] = agent?.quickPrompts ?? []
 
@@ -769,12 +904,14 @@ export default function AgentRunView() {
   }
 
   const showCanvas = sending || currentTurn !== null
+  const hasDashboard = !!agent?.dashboardKey
   const showWelcome = !showCanvas && turns.length === 0
 
   // ─── PC 输入框组件（复用逻辑） ─────────────────────────────────────────────
 
   const PcInputBar = (
     <div style={{ padding: '16px 24px 20px', borderTop: '1px solid #f0f1f3', flexShrink: 0, minWidth: 420 }}>
+      {contextChip}
       <div
         className="flex items-center gap-2 rounded-xl px-3.5 py-2.5 transition-colors"
         style={{ background: '#f5f6f8', border: '1px solid transparent' }}
@@ -782,12 +919,13 @@ export default function AgentRunView() {
         onBlur={(e) => (e.currentTarget.style.borderColor = 'transparent')}
       >
         <input
+          ref={pcInputRef}
           value={pcInput}
           onChange={(e) => setPcInput(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void doSend(pcInput) }
           }}
-          placeholder="问点什么…"
+          placeholder={pendingContext ? '针对这个数据，想问什么？' : '问点什么…'}
           disabled={sending}
           className="flex-1 bg-transparent outline-none disabled:opacity-50"
           style={{ fontSize: 13.5, color: '#1a1a2e' }}
@@ -833,7 +971,13 @@ export default function AgentRunView() {
       return (
         <div key={item.id} className="flex gap-2.5 flex-row-reverse max-w-full">
           <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: '#1a1a2e', color: '#fff', fontSize: 11, fontWeight: 600 }}>我</div>
-          <div style={{ maxWidth: 300 }}>
+          <div style={{ maxWidth: 300 }} className="flex flex-col items-end">
+            {item.contextCaption && (
+              <span className="mb-1 inline-flex items-center gap-1 max-w-full px-2 py-0.5 rounded-full text-[11px]" style={{ background: '#eef2ff', color: '#4f6ef7' }} title="带有看板上下文">
+                <span aria-hidden>📎</span>
+                <span className="truncate">{item.contextCaption}</span>
+              </span>
+            )}
             <div className="px-3.5 py-2.5 rounded-xl text-[13.5px] leading-relaxed" style={{ background: '#1a1a2e', color: '#fff', borderTopRightRadius: 4, wordBreak: 'break-word' }}>
               {item.content}
             </div>
@@ -877,7 +1021,7 @@ export default function AgentRunView() {
             <button
               className="w-full text-left rounded-xl rounded-tl px-3.5 py-2.5 text-[13.5px] leading-relaxed transition-colors border"
               style={{ background: item.turnRef === currentTurnId ? '#eef2ff' : '#f5f6f8', borderTopLeftRadius: 4, borderColor: 'transparent', color: '#2d3142', wordBreak: 'break-word' }}
-              onClick={() => { if (item.turnRef) setCurrentTurnId(item.turnRef) }}
+              onClick={() => { if (item.turnRef) { setCurrentTurnId(item.turnRef); setRightTab('result') } }}
             >
               <div className="flex items-start gap-1.5 flex-wrap mb-1">
                 {(item as ChatItem & { skillTag?: string }).skillTag && (
@@ -917,6 +1061,7 @@ export default function AgentRunView() {
     return (
       <>
         <style>{globalStyle}</style>
+        {popoverEl}
         <div className="flex overflow-hidden" style={{ height: 'calc(100vh - 3.5rem)', background: '#f5f6f8' }}>
 
           {/* 左栏：对话 + 输入 */}
@@ -1004,7 +1149,43 @@ export default function AgentRunView() {
               </button>
             )}
 
-            <div className="flex-1 overflow-y-auto agent-scrollbar" style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+            {/* 关联看板：页签头 */}
+            {hasDashboard && (
+              <div
+                className="flex items-center gap-1 flex-shrink-0"
+                role="tablist"
+                aria-label="右栏内容"
+                style={{ padding: pcLeftCollapsed ? '16px 28px 0 68px' : '16px 28px 0', borderBottom: '1px solid #e8eaed', background: '#f5f6f8' }}
+              >
+                <RightTabButton active={rightTab === 'dashboard'} onClick={() => setRightTab('dashboard')}>📊 看板</RightTabButton>
+                <RightTabButton active={rightTab === 'result'} onClick={() => setRightTab('result')}>
+                  当前结果
+                  {sending && <Loader2 className="w-3 h-3 animate-spin" style={{ color: '#4f6ef7' }} aria-label="分析中" />}
+                </RightTabButton>
+              </div>
+            )}
+
+            {/* 看板：切走时只隐藏不卸载，保留筛选、下钻与已加载的数据 */}
+            {hasDashboard && currentAgentKey && (
+              <div
+                className="flex-1 overflow-y-auto agent-scrollbar"
+                role="tabpanel"
+                style={{ padding: '20px 28px 28px', display: rightTab === 'dashboard' ? 'block' : 'none' }}
+              >
+                <DashboardPanel agentKey={currentAgentKey} pcMode onPick={handleBiPick} />
+              </div>
+            )}
+
+            <div
+              className="flex-1 overflow-y-auto agent-scrollbar"
+              role={hasDashboard ? 'tabpanel' : undefined}
+              style={{ padding: '24px 28px', display: !hasDashboard || rightTab === 'result' ? 'flex' : 'none', flexDirection: 'column', gap: 20 }}
+            >
+              {hasDashboard && turns.length === 0 && !sending && (
+                <div className="text-[13px] text-center py-16" style={{ color: '#8b8fa3' }}>
+                  还没有分析结果。在左侧提问，或在看板上点击数字、图表让 AI 解读。
+                </div>
+              )}
               {/* 默认报告标题行 */}
               {(turns.length > 0 || sending) && (
                 <div className="flex items-center justify-between">
@@ -1041,14 +1222,41 @@ export default function AgentRunView() {
   return (
     <>
       <style>{globalStyle}</style>
+      {popoverEl}
 
       {/* 整体：flex col，撑满视口（减去顶部 header 56px + 底部安全区） */}
       <div
         className="flex flex-col"
         style={{ height: 'calc(100dvh - 3.5rem)', background: '#f5f6f8' }}
       >
+        {/* 关联看板：顶部页签 */}
+        {hasDashboard && (
+          <div className="flex-shrink-0 flex gap-1 p-1 mx-4 mt-3 rounded-xl" role="tablist" aria-label="内容" style={{ background: '#e9ebf0' }}>
+            {(['dashboard', 'chat'] as const).map((t) => (
+              <button
+                key={t}
+                role="tab"
+                aria-selected={mobileTab === t}
+                onClick={() => setMobileTab(t)}
+                className="flex-1 py-1.5 rounded-lg text-[13px] flex items-center justify-center gap-1"
+                style={mobileTab === t ? { background: '#fff', color: '#1a1a2e', fontWeight: 600, boxShadow: '0 1px 2px rgba(0,0,0,.06)' } : { color: '#6b7089' }}
+              >
+                {t === 'dashboard' ? '📊 看板' : '对话'}
+                {t === 'chat' && sending && <Loader2 className="w-3 h-3 animate-spin" style={{ color: '#4f6ef7' }} />}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* 看板（移动端单列）；切走时只隐藏不卸载 */}
+        {hasDashboard && currentAgentKey && (
+          <div className="flex-1 min-h-0 overflow-y-auto agent-scrollbar" style={{ display: mobileTab === 'dashboard' ? 'block' : 'none', padding: 16 }}>
+            <DashboardPanel agentKey={currentAgentKey} pcMode={false} onPick={handleBiPick} />
+          </div>
+        )}
+
         {/* ── 主滚动区 ── */}
-        <div className="flex-1 min-h-0 overflow-y-auto agent-scrollbar">
+        <div className="flex-1 min-h-0 overflow-y-auto agent-scrollbar" style={{ display: !hasDashboard || mobileTab === 'chat' ? undefined : 'none' }}>
           <div style={{ padding: '16px 16px 16px' }}>
 
             {/* 历史轮切换 */}
@@ -1143,6 +1351,7 @@ export default function AgentRunView() {
           )}
 
           <div className="px-4 py-3">
+            {contextChip}
             <div
               className="flex items-center gap-2 rounded-2xl px-4 py-2.5 transition-colors"
               style={{
@@ -1151,6 +1360,7 @@ export default function AgentRunView() {
               }}
             >
               <input
+                ref={mobileInputRef}
                 type="text"
                 value={mobileInput}
                 onChange={(e) => setMobileInput(e.target.value)}

@@ -92,6 +92,7 @@ const SQL_BOT_MESSAGE_LOGS_PATH = path.join(
   'migrate-bot-message-logs.sql'
 );
 const SQL_AGENTS_PATH = path.join(__dirname, '..', 'sql', 'migrate-agents.sql');
+const SQL_BI_PATH = path.join(__dirname, '..', 'sql', 'migrate-bi.sql');
 
 /**
  * 启动时自动执行 migrate-nav-menu-items-only.sql（需账号有建表权限）。
@@ -175,7 +176,11 @@ async function ensureNavMenuSchema(getPool, log) {
     const sqlAgents = fs.readFileSync(SQL_AGENTS_PATH, 'utf8');
     await pool.request().query(sqlAgents);
 
-    log?.info?.('[nav_menu_items] 已检查/创建表结构与默认数据（含报表扩展列、X_报工批次表、AI Prompt字段、语音动作字段、返修领料日志表、生产报工SQL日志表、用户角色表、AI Agent 表、消息提醒表、Bot 用户绑定表、定时报告表、警报推送表、Bot 消息日志表、Agent 中心表）');
+    // BI 看板：查询库、看板表、agents.dashboard_key（须在 agents 表之后）
+    const sqlBi = fs.readFileSync(SQL_BI_PATH, 'utf8');
+    await pool.request().query(sqlBi);
+
+    log?.info?.('[nav_menu_items] 已检查/创建表结构与默认数据（含报表扩展列、X_报工批次表、AI Prompt字段、语音动作字段、返修领料日志表、生产报工SQL日志表、用户角色表、AI Agent 表、消息提醒表、Bot 用户绑定表、定时报告表、警报推送表、Bot 消息日志表、Agent 中心表、BI 看板表）');
   } catch (err) {
     warn(
       '[nav_menu_items] 自动建表失败：请用有 DDL 权限的账号连接，或手动依次执行 sql/ 目录下的 migrate-*.sql 文件（包含 migrate-nav-menu-ai-prompt.sql）',

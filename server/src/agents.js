@@ -21,6 +21,9 @@ function sqlErrorNumber(err) {
 function isMissingTable(err) {
   return sqlErrorNumber(err) === 208;
 }
+function isMissingColumn(err) {
+  return sqlErrorNumber(err) === 207;
+}
 
 function safeParseJson(s, fallback) {
   try {
@@ -89,20 +92,40 @@ function rowToAgent(row) {
     roles: normalizeRoleKeys(safeParseJson(row.roles_json, [])),
     enabled: !!row.enabled,
     sortOrder: Number(row.sort_order) || 100,
+    // 关联的 BI 看板（一个 Agent 最多一个）；空 = 不关联
+    dashboardKey: String(row.dashboard_key || '').trim().toLowerCase(),
   };
 }
 
-const AGENT_COLS = `id, agent_key, label, subtitle, description, icon, theme_color,
+const AGENT_COLS_V1 = `id, agent_key, label, subtitle, description, icon, theme_color,
   welcome_md, layout_mode, skills_json, quick_prompts_json,
   default_prompt, default_enabled, default_cache_secs, system_prompt_extra,
   roles_json, enabled, sort_order`;
+// V2 含 dashboard_key（migrate-bi.sql）；尚未迁移的库缺列报 207 时回退 V1，避免 Agent 页整体不可用
+const AGENT_COLS = `${AGENT_COLS_V1}, dashboard_key`;
+let hasDashboardColumn = true;
+
+async function selectAgents(pool, whereSql, bind) {
+  const run = (cols) => {
+    const req = pool.request();
+    if (bind) bind(req);
+    return req.query(`SELECT ${cols} FROM dbo.agents ${whereSql}`);
+  };
+  if (hasDashboardColumn) {
+    try {
+      return await run(AGENT_COLS);
+    } catch (err) {
+      if (!isMissingColumn(err)) throw err;
+      hasDashboardColumn = false;
+    }
+  }
+  return run(AGENT_COLS_V1);
+}
 
 /** 列出全部 agent（管理后台用）。表不存在时返回空数组，避免未跑迁移导致 500。 */
 async function listAllAgents(pool) {
   try {
-    const rs = await pool.request().query(
-      `SELECT ${AGENT_COLS} FROM dbo.agents ORDER BY sort_order ASC, agent_key ASC`
-    );
+    const rs = await selectAgents(pool, 'ORDER BY sort_order ASC, agent_key ASC');
     return (rs.recordset || []).map(rowToAgent);
   } catch (err) {
     if (isMissingTable(err)) return [];
@@ -130,10 +153,7 @@ async function listAgentsForRoles(pool, userRoles) {
 async function getAgent(pool, agentKey) {
   const k = String(agentKey || '').toLowerCase();
   try {
-    const rs = await pool
-      .request()
-      .input('k', sql.NVarChar(64), k)
-      .query(`SELECT ${AGENT_COLS} FROM dbo.agents WHERE agent_key = @k`);
+    const rs = await selectAgents(pool, 'WHERE agent_key = @k', (req) => req.input('k', sql.NVarChar(64), k));
     const row = rs.recordset && rs.recordset[0];
     return row ? rowToAgent(row) : null;
   } catch (err) {
@@ -182,6 +202,11 @@ function validateAgentInput(input) {
 
   const sortOrder = Number.isFinite(Number(input?.sortOrder)) ? Number(input.sortOrder) : 100;
 
+  const dashboardKey = String(input?.dashboardKey || '').trim().toLowerCase();
+  if (dashboardKey && !/^[a-z][a-z0-9_-]{0,63}$/.test(dashboardKey)) {
+    return { ok: false, error: '关联看板标识非法' };
+  }
+
   return {
     ok: true,
     value: {
@@ -202,14 +227,26 @@ function validateAgentInput(input) {
       roles: normalizeRoleKeys(Array.isArray(input?.roles) ? input.roles : []),
       enabled: input?.enabled !== false,
       sortOrder,
+      dashboardKey,
     },
   };
 }
 
 const { SQL_CHINA_LOCAL_NOW_EXPR } = require('./china-datetime');
 
-/** 新增或更新（按 agent_key 幂等） */
+/** 新增或更新（按 agent_key 幂等）；dashboard_key 列缺失（未迁移）时自动回退为不写该列 */
 async function upsertAgent(pool, value) {
+  try {
+    await mergeAgent(pool, value, hasDashboardColumn);
+  } catch (err) {
+    if (!hasDashboardColumn || !isMissingColumn(err)) throw err;
+    hasDashboardColumn = false;
+    await mergeAgent(pool, value, false);
+  }
+  return getAgent(pool, value.agentKey);
+}
+
+async function mergeAgent(pool, value, withDashboard) {
   await pool
     .request()
     .input('agent_key', sql.NVarChar(64), value.agentKey)
@@ -229,6 +266,7 @@ async function upsertAgent(pool, value) {
     .input('roles_json', sql.NVarChar(sql.MAX), JSON.stringify(value.roles))
     .input('enabled', sql.Bit, value.enabled)
     .input('sort_order', sql.Int, value.sortOrder)
+    .input('dashboard_key', sql.NVarChar(64), value.dashboardKey || null)
     .query(`
       MERGE dbo.agents AS t
       USING (SELECT @agent_key AS agent_key) AS s ON t.agent_key = s.agent_key
@@ -239,19 +277,18 @@ async function upsertAgent(pool, value) {
         quick_prompts_json = @quick_prompts_json, default_prompt = @default_prompt,
         default_enabled = @default_enabled, default_cache_secs = @default_cache_secs,
         system_prompt_extra = @system_prompt_extra, roles_json = @roles_json,
-        enabled = @enabled, sort_order = @sort_order,
+        enabled = @enabled, sort_order = @sort_order,${withDashboard ? ' dashboard_key = @dashboard_key,' : ''}
         updated_at = ${SQL_CHINA_LOCAL_NOW_EXPR}
       WHEN NOT MATCHED THEN
         INSERT (agent_key, label, subtitle, description, icon, theme_color,
                 welcome_md, layout_mode, skills_json, quick_prompts_json,
                 default_prompt, default_enabled, default_cache_secs,
-                system_prompt_extra, roles_json, enabled, sort_order)
+                system_prompt_extra, roles_json, enabled, sort_order${withDashboard ? ', dashboard_key' : ''})
         VALUES (@agent_key, @label, @subtitle, @description, @icon, @theme_color,
                 @welcome_md, @layout_mode, @skills_json, @quick_prompts_json,
                 @default_prompt, @default_enabled, @default_cache_secs,
-                @system_prompt_extra, @roles_json, @enabled, @sort_order);
+                @system_prompt_extra, @roles_json, @enabled, @sort_order${withDashboard ? ', @dashboard_key' : ''});
     `);
-  return getAgent(pool, value.agentKey);
 }
 
 async function deleteAgent(pool, agentKey) {

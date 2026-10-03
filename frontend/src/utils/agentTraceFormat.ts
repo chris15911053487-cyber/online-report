@@ -29,6 +29,9 @@ export function formatStepArgs(step: { tool: string; args?: Record<string, unkno
   } else if (tool === 'run_report') {
     if (args.route_key) lines.push(`报表：${formatArgValue(args.route_key)}`)
     if (args.params) lines.push(`参数：${formatArgValue(args.params)}`)
+  } else if (tool === 'run_named_query') {
+    if (args.query_key) lines.push(`查询：${formatArgValue(args.query_key)}`)
+    if (args.params) lines.push(`参数：${formatArgValue(args.params)}`)
   } else if (tool === 'run_sql') {
     if (args.skill_name) lines.push(`Skill：${formatArgValue(args.skill_name)}`)
     if (args.sql_query) lines.push(`sql_query：${formatArgValue(args.sql_query)}`)

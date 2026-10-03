@@ -56,6 +56,12 @@ class BackendClient:
             {"sql": sql, "skillName": skill_name or ""},
         )
 
+    def named_query(self, query_key: str, params: dict, max_rows: int = 200) -> dict:
+        return self._post(
+            "/ai/agent/internal/named-query",
+            {"queryKey": query_key, "params": params or {}, "maxRows": max_rows},
+        )
+
     def skill_resource(self, skill_name: str, path: str) -> dict:
         return self._post(
             "/ai/agent/internal/skill-resource",

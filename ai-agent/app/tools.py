@@ -180,6 +180,44 @@ def run_sql(sql_query: str, skill_name: str, config: RunnableConfig) -> str:
 
 
 @tool
+def run_named_query(query_key: str, params_json: str, config: RunnableConfig) -> str:
+    """执行看板查询库里的命名查询（与看板卡片同一份 SQL 与口径，数字与看板一致）。
+    query_key：查询标识（见系统提示「可用命名查询」或看板上下文里的「数据来源」）；
+    params_json：参数 JSON 对象，如 {"period": "2026-09", "cardCode": "C001"}；看板上下文里的「查询参数」可原样复用，
+    只改需要变化的参数（如换期间做对比）。
+    有合适的命名查询时优先用它，而不是自己写 run_sql；返回列名与数据行（只返回前 50 行）。"""
+    params = _lenient_json_parse(params_json, {})
+    if params is None or not isinstance(params, dict):
+        return json.dumps({"success": False, "error": "params_json 须为 JSON 对象"}, ensure_ascii=False)
+    try:
+        data = _client(config).named_query(query_key, params)
+    except RuntimeError as e:
+        return _tool_error("run_named_query", e)
+    rows = data.get("rows", []) or []
+    limit = settings.SQL_LLM_MAX_ROWS
+    truncated = bool(data.get("truncated", False))
+    total = data.get("rowCount", len(rows))
+    if limit > 0 and len(rows) > limit:
+        rows = rows[:limit]
+        truncated = True
+    out = {
+        "success": True,
+        "queryKey": data.get("queryKey", query_key),
+        "label": data.get("label", ""),
+        "caliberNote": data.get("caliberNote", ""),
+        "params": data.get("params", params),
+        "columns": data.get("columns", []),
+        "rows": rows,
+        "rowCount": total,
+        "truncated": truncated,
+        "asOf": data.get("asOf"),
+    }
+    if truncated:
+        out["note"] = f"仅返回前 {len(rows)} 行。需要汇总或排名请换用合适的命名查询，或在 run_sql 中聚合。"
+    return json.dumps(out, ensure_ascii=False, default=str)
+
+
+@tool
 def ask_user_to_choose(field: str, question: str, options_json: str) -> str:
     """当需要用户确认（如多个同名客户、保存前最终确认）时调用。会暂停并向用户出示结构化选项。
     field：要确认的字段名（如 customer_code）；question：给用户看的问题；
@@ -457,6 +495,7 @@ ALL_TOOLS = [
     knowledge_search,
     read_skill_resource,
     load_skill,
+    run_named_query,
     run_sql,
     ask_user_to_choose,
     save_record,

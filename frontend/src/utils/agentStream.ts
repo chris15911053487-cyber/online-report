@@ -21,6 +21,8 @@ export type AgentStreamEvent =
       toolCalls?: number
       inputTokens?: number
       outputTokens?: number
+      /** 实际使用的模型名（快模型 / 主模型） */
+      model?: string
       error?: string
     }
   | { type: 'tool_call'; id: string; tool: string; label?: string; args?: Record<string, unknown> }
@@ -55,6 +57,8 @@ export interface LiveStep {
   toolCalls?: number
   inputTokens?: number
   outputTokens?: number
+  /** llm：实际使用的模型名 */
+  model?: string
   /** llm：这一轮模型输出的文本（工具调用前的旁白，或最终回答）；用于点开查看 */
   output?: string
   /** tool：发起这次调用的 llm 步骤 id，用于在模型行下列出它决定调用的工具 */
@@ -131,6 +135,7 @@ export function reduceLive(state: LiveState, ev: AgentStreamEvent, now: number):
           toolCalls: n,
           inputTokens: ev.inputTokens,
           outputTokens: ev.outputTokens,
+          model: ev.model,
           preview: ev.error,
         }),
         // 以工具调用收尾的那次输出只是过程旁白，丢弃，避免闪现后消失

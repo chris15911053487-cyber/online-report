@@ -76,6 +76,12 @@ export default function SettingsView() {
             Agent 配置管理
           </button>
           <button
+            onClick={() => navigateTo('bi-admin')}
+            className="w-full py-3 bg-sky-600 text-white rounded-lg font-medium hover:bg-sky-700 transition-colors mb-4"
+          >
+            BI 看板管理
+          </button>
+          <button
             onClick={() => navigateTo('ai-skills')}
             className="w-full py-3 bg-violet-500 text-white rounded-lg font-medium hover:bg-violet-600 transition-colors mb-4"
           >

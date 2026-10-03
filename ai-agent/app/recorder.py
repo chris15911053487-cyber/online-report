@@ -24,6 +24,27 @@ class TurnCancelled(Exception):
     """客户端已断开，回合在 LLM 调用边界被终止。"""
 
 
+def _model_name(serialized, kwargs) -> str:
+    """从回调参数里取模型名（ChatOpenAI 放在 invocation_params / metadata 里）。"""
+    try:
+        inv = kwargs.get("invocation_params") or {}
+        name = inv.get("model") or inv.get("model_name")
+        if not name:
+            name = (kwargs.get("metadata") or {}).get("ls_model_name")
+        if not name:
+            name = ((serialized or {}).get("kwargs") or {}).get("model_name") or ((serialized or {}).get("kwargs") or {}).get("model")
+        return str(name or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _response_model(response) -> str:
+    try:
+        return str((response.llm_output or {}).get("model_name") or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def _ms(t0: float) -> int:
     return int(round((time.perf_counter() - t0) * 1000))
 
@@ -60,7 +81,7 @@ class TurnRecorder(BaseCallbackHandler):
             with self._lock:
                 self._round += 1
                 n = self._round
-                self._llm_runs[run_id] = {"t0": time.perf_counter(), "n": n}
+                self._llm_runs[run_id] = {"t0": time.perf_counter(), "n": n, "model": _model_name(serialized, kwargs)}
             self._emit({"type": "llm_start", "id": str(run_id), "round": n})
         except Exception:  # noqa: BLE001
             pass
@@ -86,6 +107,9 @@ class TurnRecorder(BaseCallbackHandler):
             except Exception:  # noqa: BLE001
                 pass
             call = {"durationMs": dur, "toolCalls": n_tool_calls, **usage}
+            model = (run or {}).get("model") or _response_model(response)
+            if model:
+                call["model"] = model
             with self._lock:
                 self.llm_calls.append(call)
             self._emit({"type": "llm_end", "id": str(run_id), "round": run["n"] if run else None, **call})
