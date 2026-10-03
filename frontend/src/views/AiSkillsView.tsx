@@ -38,7 +38,7 @@ function resourceCount(s: AgentSkill): number {
 }
 
 export default function AiSkillsView() {
-  const { showToast, goBack, openAiChatWithSkill } = useStore()
+  const { showToast, openAiChatWithSkill } = useStore()
   const [skills, setSkills] = useState<AgentSkill[]>([])
   const [roles, setRoles] = useState<AppRole[]>([])
   const [editing, setEditing] = useState<AgentSkill | null>(null)
@@ -194,53 +194,53 @@ export default function AiSkillsView() {
           <button
             onClick={() => setShowAIDialog(true)}
             disabled={aiGenerating}
-            className="text-xs px-3 py-1.5 border border-purple-400 text-purple-600 rounded-lg hover:bg-purple-50 disabled:opacity-50"
+            className="text-xs px-3 py-1.5 border border-accent/60 text-accent rounded-lg hover:bg-accent-soft disabled:opacity-50"
           >
             {aiGenerating ? '生成中…' : '🤖 AI 辅助生成'}
           </button>
         </div>
-        <div className="space-y-3 bg-white rounded-lg shadow p-4">
+        <div className="space-y-3 bg-surface rounded-lg shadow p-4">
           <div>
-            <label className="block text-sm text-slate-600 mb-1">名称（小写连字符，唯一）</label>
+            <label className="block text-sm text-fg-2 mb-1">名称（小写连字符，唯一）</label>
             <input
               value={editing.name}
               disabled={!isNew}
               onChange={(e) => setEditing({ ...editing, name: e.target.value.toLowerCase() })}
               placeholder="report-query"
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm disabled:bg-slate-100"
+              className="w-full px-3 py-2 border border-line-strong rounded-lg text-sm disabled:bg-surface-2"
             />
           </div>
           <div>
-            <label className="block text-sm text-slate-600 mb-1">描述（决定何时触发，注入 AI 提示）</label>
+            <label className="block text-sm text-fg-2 mb-1">描述（决定何时触发，注入 AI 提示）</label>
             <textarea
               value={editing.description}
               onChange={(e) => setEditing({ ...editing, description: e.target.value })}
               rows={2}
               maxLength={1024}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+              className="w-full px-3 py-2 border border-line-strong rounded-lg text-sm"
             />
           </div>
           <div>
-            <label className="block text-sm text-slate-600 mb-1">
+            <label className="block text-sm text-fg-2 mb-1">
               正文（SKILL.md 工作流/规范，不可含可执行脚本）
             </label>
             <textarea
               value={editing.bodyMd}
               onChange={(e) => setEditing({ ...editing, bodyMd: e.target.value })}
               rows={12}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
+              className="w-full px-3 py-2 border border-line-strong rounded-lg text-sm font-mono"
             />
           </div>
           <div>
-            <label className="block text-sm text-slate-600 mb-1">Skill 包文件结构</label>
-            <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono text-slate-600 leading-relaxed">
+            <label className="block text-sm text-fg-2 mb-1">Skill 包文件结构</label>
+            <div className="bg-surface-2 border border-line rounded-lg px-3 py-2 text-xs font-mono text-fg-2 leading-relaxed">
               <div>{editing.name || 'skill-name'}/</div>
               {(() => {
                 const paths = Object.keys(editing.resources || {}).sort()
                 if (!paths.length) return (
                   <>
                     <div className="pl-4">├── SKILL.md</div>
-                    <div className="pl-4 text-slate-400">└── (无资源文件)</div>
+                    <div className="pl-4 text-subtle">└── (无资源文件)</div>
                   </>
                 )
                 // Group files by directory
@@ -277,19 +277,19 @@ export default function AiSkillsView() {
                 return lines
               })()}
             </div>
-            <p className="text-[11px] text-slate-400 mt-1">资源文件通过「导入 Skill 包 (.zip)」添加或更新，编辑页无法手动增删。</p>
+            <p className="text-[11px] text-subtle mt-1">资源文件通过「导入 Skill 包 (.zip)」添加或更新，编辑页无法手动增删。</p>
           </div>
           <div>
-            <label className="block text-sm text-slate-600 mb-1">
+            <label className="block text-sm text-fg-2 mb-1">
               允许的表（run_sql 表白名单，硬约束）
             </label>
             <input
               value={allowedTablesInput}
               onChange={(e) => setAllowedTablesInput(e.target.value)}
               placeholder="OJDT, JDT1, OACT"
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono"
+              className="w-full px-3 py-2 border border-line-strong rounded-lg text-sm font-mono"
             />
-            <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+            <p className="text-[11px] text-subtle mt-1 leading-relaxed">
               用逗号或空格分隔多个表名。<b>留空 = 不限制表</b>（仅限 SELECT）；填写后，本 Skill 通过
               run_sql 执行的 SQL 只能引用这些表，引用白名单外的表会被后端拒绝。配合正文里的「骨架 +
               字段词典 + 组装规则」，即可实现"标准模板 + 受控扩展"。
@@ -297,24 +297,24 @@ export default function AiSkillsView() {
           </div>
           {resourceCount(editing) > 0 && (
             <div>
-              <label className="block text-sm text-slate-600 mb-1">
+              <label className="block text-sm text-fg-2 mb-1">
                 包内资源文件（随压缩包导入，只读；重新导入同名包可更新）
               </label>
               <div className="space-y-1">
                 {Object.entries(editing.resources || {}).map(([p, r]) => (
-                  <div key={p} className="border border-slate-200 rounded-lg">
+                  <div key={p} className="border border-line rounded-lg">
                     <button
                       type="button"
                       onClick={() => setPreviewPath(previewPath === p ? null : p)}
                       className="w-full flex items-center justify-between px-3 py-2 text-left"
                     >
-                      <span className="text-xs font-mono text-slate-700">{p}</span>
-                      <span className="text-[10px] text-slate-400">
+                      <span className="text-xs font-mono text-fg-2">{p}</span>
+                      <span className="text-[10px] text-subtle">
                         {((r?.size ?? 0) / 1024).toFixed(1)} KB {previewPath === p ? '▲' : '▼'}
                       </span>
                     </button>
                     {previewPath === p && (
-                      <pre className="px-3 pb-2 text-[11px] text-slate-600 whitespace-pre-wrap break-all max-h-60 overflow-y-auto">
+                      <pre className="px-3 pb-2 text-[11px] text-fg-2 whitespace-pre-wrap break-all max-h-60 overflow-y-auto">
                         {r?.content || ''}
                       </pre>
                     )}
@@ -324,7 +324,7 @@ export default function AiSkillsView() {
             </div>
           )}
           <div>
-            <label className="block text-sm text-slate-600 mb-1">可使用此 Skill 的角色（不选=仅管理员）</label>
+            <label className="block text-sm text-fg-2 mb-1">可使用此 Skill 的角色（不选=仅管理员）</label>
             <div className="flex flex-wrap gap-2">
               {roles.map((r) => (
                 <button
@@ -333,8 +333,8 @@ export default function AiSkillsView() {
                   onClick={() => toggleRole(r.roleKey)}
                   className={`text-xs px-3 py-1.5 rounded-full border ${
                     editing.roles.includes(r.roleKey)
-                      ? 'border-sky-500 bg-sky-50 text-sky-700'
-                      : 'border-slate-200 text-slate-500'
+                      ? 'border-primary bg-primary-soft text-primary'
+                      : 'border-line text-muted'
                   }`}
                 >
                   {r.label}
@@ -343,7 +343,7 @@ export default function AiSkillsView() {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-sm text-slate-600">
+            <label className="flex items-center gap-2 text-sm text-fg-2">
               <input
                 type="checkbox"
                 checked={editing.enabled}
@@ -351,7 +351,7 @@ export default function AiSkillsView() {
               />
               启用
             </label>
-            <label className="flex items-center gap-2 text-sm text-slate-600">
+            <label className="flex items-center gap-2 text-sm text-fg-2">
               <input
                 type="checkbox"
                 checked={editing.producesDocument}
@@ -359,13 +359,13 @@ export default function AiSkillsView() {
               />
               产出文档
             </label>
-            <label className="flex items-center gap-2 text-sm text-slate-600">
+            <label className="flex items-center gap-2 text-sm text-fg-2">
               排序
               <input
                 type="number"
                 value={editing.sortOrder}
                 onChange={(e) => setEditing({ ...editing, sortOrder: Number(e.target.value) || 100 })}
-                className="w-20 px-2 py-1 border border-slate-300 rounded text-sm"
+                className="w-20 px-2 py-1 border border-line-strong rounded text-sm"
               />
             </label>
           </div>
@@ -373,14 +373,14 @@ export default function AiSkillsView() {
         <div className="flex gap-3 mt-4">
           <button
             onClick={() => setEditing(null)}
-            className="flex-1 py-2 border border-slate-300 text-slate-600 rounded-lg text-sm"
+            className="flex-1 py-2 border border-line-strong text-fg-2 rounded-lg text-sm"
           >
             取消
           </button>
           <button
             onClick={() => void save()}
             disabled={saving}
-            className="flex-1 py-2 bg-sky-500 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+            className="flex-1 py-2 bg-primary text-primary-fg rounded-lg text-sm font-medium disabled:opacity-50"
           >
             {saving ? '保存中…' : '保存'}
           </button>
@@ -390,29 +390,29 @@ export default function AiSkillsView() {
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
             onClick={(e) => { if (e.target === e.currentTarget) setShowAIDialog(false) }}
           >
-            <div className="bg-white rounded-xl shadow-xl w-[90%] max-w-lg p-5">
-              <p className="font-semibold text-slate-800 mb-3">描述你想要的 Skill 功能：</p>
-              <div className="text-xs text-slate-500 mb-1">示例：</div>
-              <div className="text-xs text-slate-600 bg-slate-50 rounded p-2 mb-3 leading-relaxed">
+            <div className="bg-surface rounded-xl shadow-xl w-[90%] max-w-lg p-5">
+              <p className="font-semibold text-fg mb-3">描述你想要的 Skill 功能：</p>
+              <div className="text-xs text-muted mb-1">示例：</div>
+              <div className="text-xs text-fg-2 bg-surface-2 rounded p-2 mb-3 leading-relaxed">
                 帮我创建一个 Skill，用于分析生产报工数据，统计每个工序的效率和异常情况，给出改进建议。
               </div>
               <textarea
                 id="ai-skill-requirement"
-                className="w-full border border-slate-300 rounded-lg p-2 text-sm min-h-[100px] focus:ring-2 focus:ring-sky-300 focus:border-sky-400 outline-none"
+                className="w-full border border-line-strong rounded-lg p-2 text-sm min-h-[100px] focus:ring-2 focus:ring-primary/25 focus:border-primary/60 outline-none"
                 autoFocus
                 placeholder="描述 Skill 的用途、工作流程和期望输出…"
               />
               <div className="flex justify-end gap-2 mt-4">
                 <button
                   type="button"
-                  className="px-4 py-2 text-sm rounded-lg border border-slate-300 text-slate-600"
+                  className="px-4 py-2 text-sm rounded-lg border border-line-strong text-fg-2"
                   onClick={() => setShowAIDialog(false)}
                 >
                   取消
                 </button>
                 <button
                   type="button"
-                  className="px-4 py-2 text-sm rounded-lg bg-purple-500 text-white disabled:opacity-50"
+                  className="px-4 py-2 text-sm rounded-lg bg-accent text-white disabled:opacity-50"
                   onClick={() => {
                     const el = document.getElementById('ai-skill-requirement') as HTMLTextAreaElement | null
                     const v = el?.value.trim()
@@ -431,8 +431,7 @@ export default function AiSkillsView() {
 
   return (
     <div className="p-4 max-w-2xl mx-auto">
-      <div className="flex items-center justify-between mb-3">
-        <button onClick={goBack} className="text-sm text-sky-600">← 返回</button>
+      <div className="flex items-center justify-end mb-3">
         {tab === 'skills' && (
           <div className="flex gap-2">
             <input
@@ -448,18 +447,18 @@ export default function AiSkillsView() {
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={importing}
-              className="text-sm px-3 py-1.5 border border-violet-400 text-violet-600 rounded-lg disabled:opacity-50"
+              className="text-sm px-3 py-1.5 border border-accent/60 text-accent rounded-lg disabled:opacity-50"
             >
               {importing ? '导入中…' : '导入 Skill 包 (.zip)'}
             </button>
             <button
               onClick={() => { startNew(); setShowAIDialog(true) }}
               disabled={aiGenerating}
-              className="text-sm px-3 py-1.5 border border-purple-400 text-purple-600 rounded-lg disabled:opacity-50"
+              className="text-sm px-3 py-1.5 border border-accent/60 text-accent rounded-lg disabled:opacity-50"
             >
               {aiGenerating ? '生成中…' : '🤖 AI 新建'}
             </button>
-            <button onClick={startNew} className="text-sm px-3 py-1.5 bg-sky-500 text-white rounded-lg">
+            <button onClick={startNew} className="text-sm px-3 py-1.5 bg-primary text-primary-fg rounded-lg">
               + 新建 Skill
             </button>
           </div>
@@ -469,13 +468,13 @@ export default function AiSkillsView() {
       <div className="flex gap-2 mb-3">
         <button
           onClick={() => setTab('skills')}
-          className={`text-sm px-3 py-1.5 rounded-lg ${tab === 'skills' ? 'bg-sky-100 text-sky-700' : 'text-slate-500'}`}
+          className={`text-sm px-3 py-1.5 rounded-lg ${tab === 'skills' ? 'bg-primary-soft text-primary' : 'text-muted'}`}
         >
           Skills
         </button>
         <button
           onClick={() => setTab('write')}
-          className={`text-sm px-3 py-1.5 rounded-lg ${tab === 'write' ? 'bg-sky-100 text-sky-700' : 'text-slate-500'}`}
+          className={`text-sm px-3 py-1.5 rounded-lg ${tab === 'write' ? 'bg-primary-soft text-primary' : 'text-muted'}`}
         >
           写入目标
         </button>
@@ -485,42 +484,42 @@ export default function AiSkillsView() {
 
       {tab === 'skills' && (
         <>
-      <p className="text-xs text-slate-500 mb-3">
+      <p className="text-xs text-muted mb-3">
         Skill 为纯指令型（描述工作流，执行落到白名单工具）。出于安全考虑，正文不接受可执行脚本。
       </p>
-      {loading && <p className="text-sm text-slate-400 py-6 text-center">加载中…</p>}
+      {loading && <p className="text-sm text-subtle py-6 text-center">加载中…</p>}
       {!loading && skills.length === 0 && (
-        <p className="text-sm text-slate-400 py-6 text-center">暂无 Skill，点击右上角新建</p>
+        <p className="text-sm text-subtle py-6 text-center">暂无 Skill，点击右上角新建</p>
       )}
       <div className="space-y-2">
         {skills.map((s) => (
-          <div key={s.name} className="bg-white rounded-lg shadow p-3">
+          <div key={s.name} className="bg-surface rounded-lg shadow p-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="font-medium text-slate-800">{s.name}</span>
-                {!s.enabled && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-400">停用</span>}
+                <span className="font-medium text-fg">{s.name}</span>
+                {!s.enabled && <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-2 text-subtle">停用</span>}
                 {s.producesDocument && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-600">文档</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent-soft text-accent">文档</span>
                 )}
                 {resourceCount(s) > 0 && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-600">
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-success-soft text-success">
                     {resourceCount(s)} 资源
                   </span>
                 )}
                 {(s.allowedTables?.length ?? 0) > 0 && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600">
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-warning-soft text-warning">
                     {s.allowedTables.length} 表白名单
                   </span>
                 )}
               </div>
               <div className="flex gap-3">
-                <button onClick={() => openAiChatWithSkill(s.name)} className="text-xs text-violet-600">对话</button>
-                <button onClick={() => startEdit(s)} className="text-xs text-sky-600">编辑</button>
-                <button onClick={() => void remove(s.name)} className="text-xs text-red-500">删除</button>
+                <button onClick={() => openAiChatWithSkill(s.name)} className="text-xs text-accent">对话</button>
+                <button onClick={() => startEdit(s)} className="text-xs text-primary">编辑</button>
+                <button onClick={() => void remove(s.name)} className="text-xs text-danger">删除</button>
               </div>
             </div>
-            <p className="text-xs text-slate-500 mt-1 line-clamp-2">{s.description}</p>
-            <p className="text-[10px] text-slate-400 mt-1">
+            <p className="text-xs text-muted mt-1 line-clamp-2">{s.description}</p>
+            <p className="text-[10px] text-subtle mt-1">
               角色：{s.roles.length > 0 ? s.roles.join('、') : '仅管理员'}
             </p>
           </div>

@@ -1014,7 +1014,7 @@ export default function DynamicReportView() {
     <div className="flex flex-col h-full">
       {/* Title */}
       <div className="px-4 pt-3 pb-2">
-        <h1 className="text-lg font-semibold text-gray-900">
+        <h1 className="font-display text-lg font-semibold text-fg">
           {activeMenu?.label ?? '报表'}
         </h1>
       </div>
@@ -1022,8 +1022,10 @@ export default function DynamicReportView() {
       {/* Filter form */}
       {schema.length > 0 && (
         <div className="px-4 pb-3">
-          <div className="space-y-3">
+          {/* PC：状态分段独占一行（限宽），其余筛选项多列排布；手机单列 */}
+          <div className="grid gap-3 lg:grid-cols-3 xl:grid-cols-4 lg:items-end">
             {proSignStatusField && (
+              <div className="lg:col-span-full lg:max-w-xl">
               <ProSignStatusSegment
                 field={proSignStatusField}
                 value={getFormFieldValue(formValues, proSignStatusField.name) ?? ''}
@@ -1032,6 +1034,7 @@ export default function DynamicReportView() {
                 queryLoading={loading}
                 onSelect={handleProSignStatusPick}
               />
+              </div>
             )}
             {schema.map((f) => {
               if (proSignMode && isProSignStatusFieldName(f.name)) return null
@@ -1054,7 +1057,7 @@ export default function DynamicReportView() {
           </div>
           <div className="mt-3 flex gap-2">
             <button
-              className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white active:bg-blue-700 disabled:opacity-50"
+              className="rounded-lg bg-primary px-5 py-2 text-sm font-medium text-primary-fg active:bg-primary-hover disabled:opacity-50"
               onClick={handleSubmit}
               disabled={loading}
               data-voice-label="查询" data-voice-action="click"
@@ -1063,7 +1066,7 @@ export default function DynamicReportView() {
             </button>
             {activeMenu?.aiPrompt?.trim() && (
               <button
-                className="rounded-lg bg-emerald-600 px-5 py-2 text-sm font-medium text-white active:bg-emerald-700 disabled:opacity-50"
+                className="rounded-lg bg-success px-5 py-2 text-sm font-medium text-white active:bg-success disabled:opacity-50"
                 onClick={handleAI}
                 disabled={aiLoading}
                 data-voice-label="AI分析" data-voice-action="click"
@@ -1077,24 +1080,24 @@ export default function DynamicReportView() {
 
       {/* Error display */}
       {error && (
-        <div className="mx-4 mb-3 rounded-xl border border-red-200 bg-red-50 p-3">
-          <pre className="whitespace-pre-wrap text-sm text-red-700">{error}</pre>
+        <div className="mx-4 mb-3 rounded-xl border border-danger/25 bg-danger-soft p-3">
+          <pre className="whitespace-pre-wrap text-sm text-danger">{error}</pre>
         </div>
       )}
 
       {/* Loading indicator */}
       {loading && (
-        <div className="py-10 text-center text-sm text-gray-400">加载中…</div>
+        <div className="py-10 text-center text-sm text-subtle">加载中…</div>
       )}
 
       {/* Empty state */}
       {!loading && hasQueried.current && totalRowCount === 0 && visibleRows.length === 0 && (
-        <div className="py-10 text-center text-sm text-gray-400">无数据</div>
+        <div className="py-10 text-center text-sm text-subtle">无数据</div>
       )}
 
       {/* Current page empty but data exists */}
       {!loading && visibleRows.length === 0 && totalRowCount > 0 && (
-        <div className="py-10 text-center text-sm text-gray-400">当前页无数据</div>
+        <div className="py-10 text-center text-sm text-subtle">当前页无数据</div>
       )}
 
       {/* Table */}
@@ -1102,7 +1105,7 @@ export default function DynamicReportView() {
         <div className="flex-1 overflow-x-auto px-4">
           <table className="w-full min-w-[600px] border-collapse text-sm">
             <thead>
-              <tr className="border-b border-gray-200 bg-gray-50">
+              <tr className="border-b border-line bg-surface-2">
                 {proSignMode && (
                   <th className="w-10 px-2 py-2 text-center">
                     <input
@@ -1110,14 +1113,14 @@ export default function DynamicReportView() {
                       checked={allSelected}
                       onChange={toggleSelectAll}
                       aria-label="全选本页"
-                      className="h-4 w-4 rounded border-gray-300"
+                      className="h-4 w-4 rounded border-line-strong"
                     />
                   </th>
                 )}
                 {displayCols.map((col) => (
                   <th
                     key={col}
-                    className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold text-gray-600"
+                    className="whitespace-nowrap px-3 py-2 text-left text-xs font-semibold text-fg-2"
                   >
                     {reportColumnHeaderText(col, columnLabels)}
                   </th>
@@ -1129,11 +1132,11 @@ export default function DynamicReportView() {
                 <tr
                   key={rowIdx}
                   className={
-                    'border-b border-gray-100' +
+                    'border-b border-line' +
                     (rowDetailOn || proSignOrderDetailOn
-                      ? ' cursor-pointer hover:bg-blue-50 active:bg-blue-100'
+                      ? ' cursor-pointer hover:bg-primary-soft active:bg-primary-soft'
                       : '') +
-                    (rowIdx % 2 === 0 ? ' bg-white' : ' bg-gray-50/50')
+                    (rowIdx % 2 === 0 ? ' bg-surface' : ' bg-surface-2/50')
                   }
                   onClick={() => {
                     if (rowDetailOn) return handleRowClick(row)
@@ -1148,7 +1151,7 @@ export default function DynamicReportView() {
                         checked={selectedRows.has(rowIdx)}
                         onChange={() => toggleRow(rowIdx)}
                         onClick={(e) => e.stopPropagation()}
-                        className="h-4 w-4 rounded border-gray-300"
+                        className="h-4 w-4 rounded border-line-strong"
                       />
                     </td>
                   )}
@@ -1170,11 +1173,11 @@ export default function DynamicReportView() {
 
       {/* Pager */}
       {!loading && totalRowCount > 0 && (
-        <div className="border-t border-gray-100 px-4 py-3">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-gray-600">
+        <div className="border-t border-line px-4 py-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-fg-2">
             {mp > 1 && (
               <button
-                className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs disabled:opacity-40"
+                className="rounded-lg border border-line px-3 py-1.5 text-xs disabled:opacity-40"
                 disabled={page <= 1}
                 onClick={() => changePage(-1)}
                 data-voice-label="上一页" data-voice-action="click"
@@ -1187,12 +1190,12 @@ export default function DynamicReportView() {
                 ? `第 ${page} / ${mp} 页，共 ${totalRowCount} 条`
                 : `共 ${totalRowCount} 条`}
               {truncated && (
-                <span className="text-amber-600">（结果已截断）</span>
+                <span className="text-warning">（结果已截断）</span>
               )}
             </span>
             {mp > 1 && (
               <button
-                className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs disabled:opacity-40"
+                className="rounded-lg border border-line px-3 py-1.5 text-xs disabled:opacity-40"
                 disabled={page >= mp}
                 onClick={() => changePage(1)}
                 data-voice-label="下一页" data-voice-action="click"
@@ -1203,10 +1206,10 @@ export default function DynamicReportView() {
           </div>
 
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
-            <label className="flex items-center gap-1 text-xs text-gray-500">
+            <label className="flex items-center gap-1 text-xs text-muted">
               每页
               <select
-                className="rounded border border-gray-200 px-2 py-1 text-xs"
+                className="rounded border border-line px-2 py-1 text-xs"
                 value={pageSize}
                 onChange={(e) => changePageSize(Number(e.target.value))}
                 aria-label="每页条数"
@@ -1219,11 +1222,11 @@ export default function DynamicReportView() {
               </select>
             </label>
             {mp > 1 && (
-              <label className="flex items-center gap-1 text-xs text-gray-500">
+              <label className="flex items-center gap-1 text-xs text-muted">
                 跳转
                 <input
                   type="number"
-                  className="w-16 rounded border border-gray-200 px-2 py-1 text-xs"
+                  className="w-16 rounded border border-line px-2 py-1 text-xs"
                   min={1}
                   max={mp}
                   value={jumpInput}
@@ -1239,7 +1242,7 @@ export default function DynamicReportView() {
                   aria-label="跳转到页码"
                 />
                 <button
-                  className="rounded border border-gray-200 px-2 py-1 text-xs"
+                  className="rounded border border-line px-2 py-1 text-xs"
                   onClick={() => {
                     goToPage(jumpInput)
                     setJumpInput('')
@@ -1251,7 +1254,7 @@ export default function DynamicReportView() {
             )}
             {canExportExcel && !proSignMode && (
               <button
-                className="ml-auto rounded-lg border border-green-600 px-3 py-1.5 text-xs font-medium text-green-700 active:bg-green-50 disabled:opacity-50"
+                className="ml-auto rounded-lg border border-success px-3 py-1.5 text-xs font-medium text-success active:bg-success-soft disabled:opacity-50"
                 onClick={handleExportExcel}
                 disabled={exporting}
               >
@@ -1266,7 +1269,7 @@ export default function DynamicReportView() {
       {proSignMode && (
         <div
           className={
-            'sticky bottom-0 border-t border-gray-200 bg-white px-4 shadow-[0_-2px_8px_rgba(0,0,0,0.06)] transition-[max-height,opacity,padding,box-shadow,border-color] duration-200 ease-out ' +
+            'sticky bottom-0 border-t border-line bg-surface px-4 shadow-[0_-2px_8px_rgba(0,0,0,0.06)] transition-[max-height,opacity,padding,box-shadow,border-color] duration-200 ease-out ' +
             (mergeBarHiddenForKeyboard
               ? 'max-h-0 overflow-hidden border-t-transparent py-0 opacity-0 shadow-none pointer-events-none'
               : 'py-3 opacity-100')
@@ -1274,7 +1277,7 @@ export default function DynamicReportView() {
           aria-hidden={mergeBarHiddenForKeyboard}
         >
           <button
-            className="w-full rounded-xl bg-indigo-600 py-3 text-sm font-semibold text-white active:bg-indigo-700 disabled:opacity-50"
+            className="w-full rounded-xl bg-primary py-3 text-sm font-semibold text-primary-fg active:bg-primary-hover disabled:opacity-50"
             onClick={handleMerge}
             disabled={mergeLoading || selectedRows.size === 0}
             data-voice-label={stickyMergeButtonLabel} data-voice-action="click"
@@ -1321,7 +1324,7 @@ function ScanFieldWrap({
       <div className="min-w-0 flex-1">{children}</div>
       <button
         type="button"
-        className="flex shrink-0 items-center justify-center self-stretch rounded-lg border border-gray-200 bg-gray-50 px-3 text-gray-700 active:bg-gray-100"
+        className="flex shrink-0 items-center justify-center self-stretch rounded-lg border border-line bg-surface-2 px-3 text-fg-2 active:bg-surface-2"
         aria-label="扫码"
         title="扫码：点击直接启动摄像头；摄像头不可用时可选相册照片识别。外接扫码枪可直接扫入。"
         onClick={(ev) => {
@@ -1381,8 +1384,8 @@ function ProSignStatusSegment({
 
   return (
     <div className="block" role="group" aria-label={label}>
-      <span className="mb-1.5 block text-xs font-medium text-slate-500">{label}</span>
-      <div className="flex w-full gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1">
+      <span className="mb-1.5 block text-xs font-medium text-muted">{label}</span>
+      <div className="flex w-full gap-1 rounded-lg border border-line bg-surface-2 p-1">
         {items.map((item) => {
           const selected = isSelected(item.code)
           return (
@@ -1395,8 +1398,8 @@ function ProSignStatusSegment({
               className={
                 'flex min-h-[36px] min-w-0 flex-1 items-center justify-center rounded-md px-0.5 py-1.5 text-center text-[11px] font-medium leading-tight transition-all duration-150 sm:min-h-[40px] sm:px-1 sm:text-xs ' +
                 (selected
-                  ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200/90'
-                  : 'text-slate-600 active:bg-slate-100/90') +
+                  ? 'bg-surface text-primary shadow-sm ring-1 ring-line/90'
+                  : 'text-fg-2 active:bg-surface-2/90') +
                 (loading || queryLoading ? ' pointer-events-none opacity-60' : '')
               }
               onClick={() => onSelect(item.code)}
@@ -1447,14 +1450,14 @@ function FilterFieldInput({
     f.scan === true && (t === 'string' || t === 'int' || t === 'decimal')
 
   const labelEl = (
-    <span className="mb-1 block text-xs font-medium text-gray-600">
+    <span className="mb-1 block text-xs font-medium text-fg-2">
       {f.label || f.name}
-      {f.required && <span className="ml-0.5 text-red-500">*</span>}
+      {f.required && <span className="ml-0.5 text-danger">*</span>}
     </span>
   )
 
   const inputCls =
-    'w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400'
+    'w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-fg focus:border-primary/60 focus:outline-none focus:ring-1 focus:ring-primary'
 
   const fireComplete = (patch?: { name: string; value: unknown }) => {
     if (autoQueryOnComplete) onFieldComplete?.(patch)
@@ -1551,10 +1554,10 @@ function FilterFieldInput({
           type="checkbox"
           checked={!!value}
           onChange={(e) => notifyChange(e.target.checked, true)}
-          className="h-4 w-4 rounded border-gray-300"
+          className="h-4 w-4 rounded border-line-strong"
           data-voice-label={f.label || f.name} data-voice-action="click" data-voice-field={f.name}
         />
-        <span className="text-sm text-gray-700">{f.label || f.name}</span>
+        <span className="text-sm text-fg-2">{f.label || f.name}</span>
       </label>
     )
   }
@@ -1651,7 +1654,7 @@ function ReportCell({ col, row, onImageClick, onExpandText }: ReportCellProps) {
     return (
       <td className="px-3 py-2">
         {imgError ? (
-          <span className="text-xs text-gray-400">加载失败</span>
+          <span className="text-xs text-subtle">加载失败</span>
         ) : (
           <img
             src={src}
@@ -1678,7 +1681,7 @@ function ReportCell({ col, row, onImageClick, onExpandText }: ReportCellProps) {
         </span>
         {display !== '—' && display.length > 36 && (
           <button
-            className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500 hover:bg-gray-200"
+            className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-xs text-muted hover:bg-surface-3"
             onClick={(e) => {
               e.stopPropagation()
               onExpandText(col, display)

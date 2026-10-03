@@ -45,16 +45,16 @@ export default function LoginView() {
         </div>
 
         <div className="text-center mb-8">
-          <h1 className="bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 bg-clip-text text-3xl font-bold tracking-wide text-transparent">
+          <h1 className="bg-gradient-to-r from-info via-primary to-accent bg-clip-text text-3xl font-bold tracking-wide text-transparent">
             {BRAND_NAME}
           </h1>
-          <p className="mt-2 text-sm text-slate-500">{BRAND_SUBTITLE}</p>
+          <p className="mt-2 text-sm text-muted">{BRAND_SUBTITLE}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="login-card">
           <div className="space-y-6">
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">用户名</label>
+              <label className="mb-1.5 block text-sm font-medium text-fg-2">用户名</label>
               <input
                 type="text"
                 value={username}
@@ -66,7 +66,7 @@ export default function LoginView() {
             </div>
 
             <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">密码</label>
+              <label className="mb-1.5 block text-sm font-medium text-fg-2">密码</label>
               <input
                 type="password"
                 value={password}
@@ -78,7 +78,7 @@ export default function LoginView() {
             </div>
 
             {error && (
-              <div className="flex items-center gap-2 rounded-2xl bg-red-50 p-3 text-sm text-red-600 ring-1 ring-red-200">
+              <div className="flex items-center gap-2 rounded-2xl bg-danger-soft p-3 text-sm text-danger ring-1 ring-danger/25">
                 <AlertCircle className="h-4 w-4" />
                 {error}
               </div>
@@ -90,8 +90,8 @@ export default function LoginView() {
           </div>
         </form>
 
-        <div className="mt-8 text-center text-sm text-slate-500">
-          <a href="/download/android-app.apk" className="text-indigo-600 hover:text-indigo-700 hover:underline">
+        <div className="mt-8 text-center text-sm text-muted">
+          <a href="/download/android-app.apk" className="text-primary hover:text-primary hover:underline">
             下载安卓客户端
           </a>
         </div>

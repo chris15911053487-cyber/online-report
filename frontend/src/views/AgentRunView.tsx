@@ -22,6 +22,8 @@ import {
   Bot, Plus, ChevronRight, Loader2, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react'
 import { useStore } from '../store'
+import { tv } from '../theme'
+import { useIsPc } from '../hooks/useMediaQuery'
 import { apiFetch } from '../utils/api'
 import { attachToolResults, createLiveFeed, streamAgentChat, type LiveState } from '../utils/agentStream'
 import ChartRenderer from '../components/ChartRenderer'
@@ -139,10 +141,10 @@ function extractCanvas(text: string): { cleaned: string; canvas: CanvasData } {
 }
 
 const INTENT_CFG: Record<string, { text: string; bg: string; color: string }> = {
-  report:  { text: '预置报表', bg: '#e0f2fe', color: '#0369a1' },
-  explore: { text: '探索分析', bg: '#fef3c7', color: '#b45309' },
-  insight: { text: '趋势洞察', bg: '#ede9fe', color: '#6d28d9' },
-  explain: { text: '智能解答', bg: '#dcfce7', color: '#15803d' },
+  report:  { text: '预置报表', bg: tv('info-soft'), color: tv('info') },
+  explore: { text: '探索分析', bg: tv('warning-soft'), color: tv('warning') },
+  insight: { text: '趋势洞察', bg: tv('accent-soft'), color: tv('accent') },
+  explain: { text: '智能解答', bg: tv('success-soft'), color: tv('success') },
 }
 
 // ─── 子组件 ───────────────────────────────────────────────────────────────────
@@ -169,19 +171,19 @@ function MetricsGrid({ metrics, pcMode }: { metrics: MetricItem[]; pcMode?: bool
         <div
           key={i}
           className="rounded-xl p-3 border"
-          style={{ background: '#fafbfc', borderColor: '#f0f1f3' }}
+          style={{ background: tv('surface-2'), borderColor: tv('surface-2') }}
         >
-          <div className="text-[11.5px]" style={{ color: '#8b8fa3' }}>{m.label}</div>
+          <div className="text-[11.5px]" style={{ color: tv('subtle') }}>{m.label}</div>
           <div
             className="font-bold mt-1 leading-tight"
-            style={{ fontSize: pcMode ? 22 : 19, color: '#1a1a2e', letterSpacing: '-0.3px' }}
+            style={{ fontSize: pcMode ? 22 : 19, color: tv('fg'), letterSpacing: '-0.3px' }}
           >
             {m.value}
           </div>
           {m.delta && (
             <div
               className="text-[11.5px] mt-1 font-medium"
-              style={{ color: m.deltaUp ? '#16a34a' : '#dc2626' }}
+              style={{ color: m.deltaUp ? tv('success') : tv('danger') }}
             >
               {m.delta}
             </div>
@@ -222,9 +224,9 @@ function DataTable({ table, pcMode }: { table: TableData; pcMode?: boolean }) {
                 style={{
                   padding: '9px 10px',
                   fontWeight: 500,
-                  color: '#8b8fa3',
+                  color: tv('subtle'),
                   fontSize: 11.5,
-                  borderBottom: '1px solid #f0f1f3',
+                  borderBottom: '1px solid rgb(var(--c-surface-2))',
                   whiteSpace: 'nowrap',
                   textAlign: i > 0 ? 'right' : 'left',
                 }}
@@ -236,7 +238,7 @@ function DataTable({ table, pcMode }: { table: TableData; pcMode?: boolean }) {
         </thead>
         <tbody>
           {table.rows.map((row, ri) => (
-            <tr key={ri} style={{ borderBottom: '1px solid #f5f6f8' }}>
+            <tr key={ri} style={{ borderBottom: '1px solid rgb(var(--c-bg))' }}>
               {table.columns.map((c, ci) => {
                 const val = row[c] ?? ''
                 const right = ci > 0 && isNumeric(val)
@@ -246,7 +248,7 @@ function DataTable({ table, pcMode }: { table: TableData; pcMode?: boolean }) {
                     key={ci}
                     style={{
                       padding: '10px',
-                      color: '#2d3142',
+                      color: tv('fg'),
                       whiteSpace: 'nowrap',
                       textAlign: right ? 'right' : 'left',
                       fontVariantNumeric: right ? 'tabular-nums' : undefined,
@@ -255,7 +257,7 @@ function DataTable({ table, pcMode }: { table: TableData; pcMode?: boolean }) {
                     {down ? (
                       <span
                         className="inline-block text-[10.5px] px-1.5 py-0.5 rounded"
-                        style={{ background: '#fef2f2', color: '#dc2626', fontWeight: 500 }}
+                        style={{ background: tv('danger-soft'), color: tv('danger'), fontWeight: 500 }}
                       >
                         {String(val)}
                       </span>
@@ -304,17 +306,17 @@ function CanvasCard({
       <div
         className="rounded-2xl overflow-hidden"
         style={{
-          background: '#fff',
-          border: '1px solid #eef0f4',
+          background: tv('surface'),
+          border: '1px solid rgb(var(--c-surface-2))',
           boxShadow: '0 1px 3px rgba(0,0,0,.03)',
         }}
       >
         {title && (
           <div
             className="flex items-center justify-between px-4 pt-3.5 pb-2.5"
-            style={{ borderBottom: '1px solid #f5f6f8' }}
+            style={{ borderBottom: '1px solid rgb(var(--c-bg))' }}
           >
-            <span className="text-[13px] font-semibold" style={{ color: '#1a1a2e' }}>
+            <span className="text-[13px] font-semibold" style={{ color: tv('fg') }}>
               {title}
             </span>
             {badge && <IntentBadge intent={badge} />}
@@ -349,8 +351,8 @@ function CanvasPanel({
           <div
             className="flex items-center gap-2 px-4 py-3 rounded-xl text-[13px] font-medium"
             style={{
-              background: 'linear-gradient(135deg,#eef2ff,#f5f3ff)',
-              color: '#4f6ef7',
+              background: 'linear-gradient(135deg,rgb(var(--c-primary-soft)),rgb(var(--c-accent-soft)))',
+              color: tv('primary'),
             }}
           >
             <svg
@@ -373,7 +375,7 @@ function CanvasPanel({
             <div
               key={i}
               className="h-36 rounded-2xl animate-pulse"
-              style={{ background: '#eef0f4', animationDelay: `${i * 150}ms` }}
+              style={{ background: tv('surface-2'), animationDelay: `${i * 150}ms` }}
             />
           ))
         )}
@@ -409,12 +411,12 @@ function CanvasPanel({
             <div
               className="mt-3 text-[12.5px] leading-relaxed rounded-r-lg py-2.5 px-3.5"
               style={{
-                borderLeft: '3px solid #4f6ef7',
-                background: '#f8f9ff',
-                color: '#3a3f55',
+                borderLeft: '3px solid rgb(var(--c-primary))',
+                background: tv('surface-2'),
+                color: tv('fg-2'),
               }}
             >
-              <strong style={{ color: '#1a1a2e' }}>AI 洞察：</strong>
+              <strong style={{ color: tv('fg') }}>AI 洞察：</strong>
               {canvas.insight}
             </div>
           )}
@@ -427,12 +429,12 @@ function CanvasPanel({
           <div
             className="text-[12.5px] leading-relaxed rounded-r-lg py-2.5 px-3.5"
             style={{
-              borderLeft: '3px solid #4f6ef7',
-              background: '#f8f9ff',
-              color: '#3a3f55',
+              borderLeft: '3px solid rgb(var(--c-primary))',
+              background: tv('surface-2'),
+              color: tv('fg-2'),
             }}
           >
-            <strong style={{ color: '#1a1a2e' }}>AI 洞察：</strong>
+            <strong style={{ color: tv('fg') }}>AI 洞察：</strong>
             {canvas.insight}
           </div>
         </CanvasCard>
@@ -448,7 +450,7 @@ function CanvasPanel({
       {/* 叙述文字 */}
       {message && (
         <CanvasCard delay={140}>
-          <div className="text-[13px] leading-relaxed" style={{ color: '#4a4f63' }}>
+          <div className="text-[13px] leading-relaxed" style={{ color: tv('fg-2') }}>
             <ChatMarkdown content={message} />
           </div>
           {((toolSteps && toolSteps.length > 0) || timings) && (
@@ -472,8 +474,8 @@ function RightTabButton({ active, onClick, children }: { active: boolean; onClic
       className="flex items-center gap-1.5 px-3.5 py-2 text-[13px] rounded-t-lg -mb-px transition-colors"
       style={
         active
-          ? { background: '#fff', color: '#1a1a2e', fontWeight: 600, border: '1px solid #e8eaed', borderBottomColor: '#fff' }
-          : { color: '#6b7089', border: '1px solid transparent' }
+          ? { background: tv('surface'), color: tv('fg'), fontWeight: 600, border: '1px solid rgb(var(--c-line))', borderBottomColor: tv('surface') }
+          : { color: tv('muted'), border: '1px solid transparent' }
       }
     >
       {children}
@@ -492,8 +494,8 @@ function TurnChip({
       className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[12px] border transition-colors flex-shrink-0"
       style={
         isCurrent
-          ? { borderColor: '#4f6ef7', background: '#eef2ff', color: '#4f6ef7' }
-          : { borderColor: '#e8eaf0', background: '#fff', color: '#3a3f55' }
+          ? { borderColor: tv('primary'), background: tv('primary-soft'), color: tv('primary') }
+          : { borderColor: tv('line'), background: tv('surface'), color: tv('fg-2') }
       }
     >
       <span className="truncate max-w-[100px]">{turn.query}</span>
@@ -506,7 +508,7 @@ function TurnChip({
         </span>
       )}
       {isCurrent && (
-        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: '#4f6ef7' }} />
+        <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: tv('primary') }} />
       )}
     </button>
   )
@@ -522,7 +524,7 @@ function Suggestions({
       <div className="space-y-1.5">
         <div
           className="flex items-center gap-1 text-[11.5px] pl-0.5"
-          style={{ color: '#a0a4b8' }}
+          style={{ color: tv('subtle') }}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ width: 12, height: 12 }}>
             <circle cx="12" cy="12" r="10" />
@@ -536,18 +538,18 @@ function Suggestions({
             key={i}
             onClick={() => onSend(text)}
             className="w-full flex items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-left text-[13px] transition-all border"
-            style={{ background: '#fff', borderColor: '#e8eaf0', color: '#3a3f55' }}
+            style={{ background: tv('surface'), borderColor: tv('line'), color: tv('fg-2') }}
             onMouseEnter={e => {
-              ;(e.currentTarget as HTMLButtonElement).style.borderColor = '#4f6ef7'
-              ;(e.currentTarget as HTMLButtonElement).style.color = '#4f6ef7'
+              ;(e.currentTarget as HTMLButtonElement).style.borderColor = tv('primary')
+              ;(e.currentTarget as HTMLButtonElement).style.color = tv('primary')
             }}
             onMouseLeave={e => {
-              ;(e.currentTarget as HTMLButtonElement).style.borderColor = '#e8eaf0'
-              ;(e.currentTarget as HTMLButtonElement).style.color = '#3a3f55'
+              ;(e.currentTarget as HTMLButtonElement).style.borderColor = tv('line')
+              ;(e.currentTarget as HTMLButtonElement).style.color = tv('fg-2')
             }}
           >
             <span>{text}</span>
-            <span style={{ color: '#c0c3d4', flexShrink: 0 }}>›</span>
+            <span style={{ color: tv('line-strong'), flexShrink: 0 }}>›</span>
           </button>
         ))}
       </div>
@@ -558,6 +560,8 @@ function Suggestions({
 // ─── 主组件 ───────────────────────────────────────────────────────────────────
 
 export default function AgentRunView() {
+  // PC 双栏 / 手机单栏：随窗口宽度实时切换（断点与外壳侧栏一致）
+  const isPc = useIsPc()
   const { currentAgentKey, showToast } = useStore()
 
   const [agent, setAgent] = useState<Agent | null>(null)
@@ -603,7 +607,10 @@ export default function AgentRunView() {
     if (!currentAgentKey) { setAgentLoading(false); return }
     setAgentLoading(true)
     apiFetch(`/agents/${encodeURIComponent(currentAgentKey)}`)
-      .then((d) => setAgent(d.agent as Agent))
+      .then((d) => {
+        setAgent(d.agent as Agent)
+        useStore.setState({ currentAgentLabel: (d.agent as Agent)?.label || null })
+      })
       .catch(() => { /* 无配置也能用 */ })
       .finally(() => setAgentLoading(false))
   }, [currentAgentKey])
@@ -820,8 +827,6 @@ export default function AgentRunView() {
   )
   const closeBiPopover = useCallback(() => setBiPopover(null), [])
 
-  const isPcNow = () => typeof window !== 'undefined' && window.innerWidth >= 900
-
   /** ✨ AI 解读：直接发送，快模型；回答出来后右栏自动切到「当前结果」 */
   const biExplain = () => {
     if (!biPopover) return
@@ -831,7 +836,7 @@ export default function AgentRunView() {
       showToast('上一个问题还在分析中，请稍候')
       return
     }
-    if (isPcNow()) setPcLeftCollapsed(false)
+    if (isPc) setPcLeftCollapsed(false)
     void doSend(explainPrompt(ctx), { context: ctx, mode: 'fast' })
   }
 
@@ -841,7 +846,7 @@ export default function AgentRunView() {
     const ctx = buildBiContext(biPopover.pick, biPopover.dashboard, biPopover.filters, 'ask')
     setBiPopover(null)
     setPendingContext(ctx)
-    if (isPcNow()) {
+    if (isPc) {
       setPcLeftCollapsed(false)
       setTimeout(() => pcInputRef.current?.focus(), 50)
     } else {
@@ -860,7 +865,7 @@ export default function AgentRunView() {
     <div className="flex items-center gap-1.5 mb-2 text-[12px]">
       <span
         className="inline-flex items-center gap-1 max-w-full px-2.5 py-1 rounded-full"
-        style={{ background: '#eef2ff', color: '#4f6ef7' }}
+        style={{ background: tv('primary-soft'), color: tv('primary') }}
         title={`将带上看板上下文：${pendingContext.caption}`}
       >
         <span aria-hidden>📎</span>
@@ -868,7 +873,7 @@ export default function AgentRunView() {
         <button
           type="button"
           onClick={() => setPendingContext(null)}
-          className="ml-0.5 rounded-full w-4 h-4 inline-flex items-center justify-center hover:bg-white/70"
+          className="ml-0.5 rounded-full w-4 h-4 inline-flex items-center justify-center hover:bg-surface/70"
           aria-label="移除看板上下文"
         >
           ×
@@ -896,7 +901,7 @@ export default function AgentRunView() {
 
   if (agentLoading) {
     return (
-      <div className="flex items-center justify-center h-48 text-sm gap-2" style={{ color: '#8b8fa3' }}>
+      <div className="flex items-center justify-center h-48 text-sm gap-2" style={{ color: tv('subtle') }}>
         <Loader2 className="w-4 h-4 animate-spin" />
         加载中…
       </div>
@@ -910,12 +915,12 @@ export default function AgentRunView() {
   // ─── PC 输入框组件（复用逻辑） ─────────────────────────────────────────────
 
   const PcInputBar = (
-    <div style={{ padding: '16px 24px 20px', borderTop: '1px solid #f0f1f3', flexShrink: 0, minWidth: 420 }}>
+    <div style={{ padding: '16px 24px 20px', borderTop: '1px solid rgb(var(--c-surface-2))', flexShrink: 0, minWidth: 420 }}>
       {contextChip}
       <div
         className="flex items-center gap-2 rounded-xl px-3.5 py-2.5 transition-colors"
-        style={{ background: '#f5f6f8', border: '1px solid transparent' }}
-        onFocus={(e) => (e.currentTarget.style.borderColor = '#4f6ef7')}
+        style={{ background: tv('bg'), border: '1px solid transparent' }}
+        onFocus={(e) => (e.currentTarget.style.borderColor = tv('primary'))}
         onBlur={(e) => (e.currentTarget.style.borderColor = 'transparent')}
       >
         <input
@@ -928,14 +933,14 @@ export default function AgentRunView() {
           placeholder={pendingContext ? '针对这个数据，想问什么？' : '问点什么…'}
           disabled={sending}
           className="flex-1 bg-transparent outline-none disabled:opacity-50"
-          style={{ fontSize: 13.5, color: '#1a1a2e' }}
+          style={{ fontSize: 13.5, color: tv('fg') }}
         />
         <button
           onClick={() => sending ? abortRef.current?.abort() : void doSend(pcInput)}
           className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors"
           style={{
-            background: sending ? '#fee2e2' : pcInput.trim() ? '#4f6ef7' : '#e2e8f0',
-            color: sending ? '#dc2626' : pcInput.trim() ? '#fff' : '#94a3b8',
+            background: sending ? tv('danger-soft') : pcInput.trim() ? tv('primary') : tv('line'),
+            color: sending ? tv('danger') : pcInput.trim() ? tv('surface') : tv('subtle'),
           }}
         >
           {sending ? (
@@ -959,7 +964,7 @@ export default function AgentRunView() {
       const labels = item.content.replace('__followups__:', '').split('|').filter(Boolean)
       return (
         <div key={item.id} className="flex gap-2.5 max-w-full">
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: '#eef2ff', color: '#4f6ef7', fontSize: 11, fontWeight: 600 }}>AI</div>
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: tv('primary-soft'), color: tv('primary'), fontSize: 11, fontWeight: 600 }}>AI</div>
           <div className="flex-1 min-w-0">
             <Suggestions items={labels} onSend={(t) => void doSend(t)} />
           </div>
@@ -970,15 +975,15 @@ export default function AgentRunView() {
     if (item.role === 'user') {
       return (
         <div key={item.id} className="flex gap-2.5 flex-row-reverse max-w-full">
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: '#1a1a2e', color: '#fff', fontSize: 11, fontWeight: 600 }}>我</div>
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: tv('inverse'), color: tv('inverse-fg'), fontSize: 11, fontWeight: 600 }}>我</div>
           <div style={{ maxWidth: 300 }} className="flex flex-col items-end">
             {item.contextCaption && (
-              <span className="mb-1 inline-flex items-center gap-1 max-w-full px-2 py-0.5 rounded-full text-[11px]" style={{ background: '#eef2ff', color: '#4f6ef7' }} title="带有看板上下文">
+              <span className="mb-1 inline-flex items-center gap-1 max-w-full px-2 py-0.5 rounded-full text-[11px]" style={{ background: tv('primary-soft'), color: tv('primary') }} title="带有看板上下文">
                 <span aria-hidden>📎</span>
                 <span className="truncate">{item.contextCaption}</span>
               </span>
             )}
-            <div className="px-3.5 py-2.5 rounded-xl text-[13.5px] leading-relaxed" style={{ background: '#1a1a2e', color: '#fff', borderTopRightRadius: 4, wordBreak: 'break-word' }}>
+            <div className="px-3.5 py-2.5 rounded-xl text-[13.5px] leading-relaxed" style={{ background: tv('inverse'), color: tv('inverse-fg'), borderTopRightRadius: 4, wordBreak: 'break-word' }}>
               {item.content}
             </div>
           </div>
@@ -989,7 +994,7 @@ export default function AgentRunView() {
     // assistant
     return (
       <div key={item.id} className="flex gap-2.5 max-w-full">
-        <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: '#eef2ff', color: '#4f6ef7', fontSize: 11, fontWeight: 600 }}>AI</div>
+        <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: tv('primary-soft'), color: tv('primary'), fontSize: 11, fontWeight: 600 }}>AI</div>
         <div className="flex-1 min-w-0" style={{ maxWidth: 300 }}>
           {/* 执行过程放在左侧对话里：运行中实时刷新，完成后保留（可折叠） */}
           {item.loading &&
@@ -1000,17 +1005,17 @@ export default function AgentRunView() {
             </div>
           )}
           {item.loading ? null : item.clarification && !item.clarificationResolved ? (
-            <div className="rounded-xl rounded-tl px-3.5 py-3 border text-[13px]" style={{ background: '#f5f6f8', borderTopLeftRadius: 4 }}>
-              <p className="mb-2" style={{ color: '#2d3142' }}>{item.clarification.question}</p>
+            <div className="rounded-xl rounded-tl px-3.5 py-3 border text-[13px]" style={{ background: tv('bg'), borderTopLeftRadius: 4 }}>
+              <p className="mb-2" style={{ color: tv('fg') }}>{item.clarification.question}</p>
               {item.clarification.type === 'save_confirm' ? (
                 <div className="flex gap-2">
-                  <button onClick={() => void resumeWith(item.id, 'confirm', 'confirm', '确认保存')} className="flex-1 py-1.5 rounded-lg text-[12.5px] font-medium" style={{ background: '#4f6ef7', color: '#fff' }}>确认</button>
-                  <button onClick={() => void resumeWith(item.id, 'confirm', 'cancel', '取消')} className="flex-1 py-1.5 rounded-lg text-[12.5px] border" style={{ color: '#6b7089' }}>取消</button>
+                  <button onClick={() => void resumeWith(item.id, 'confirm', 'confirm', '确认保存')} className="flex-1 py-1.5 rounded-lg text-[12.5px] font-medium" style={{ background: tv('primary'), color: tv('primary-fg') }}>确认</button>
+                  <button onClick={() => void resumeWith(item.id, 'confirm', 'cancel', '取消')} className="flex-1 py-1.5 rounded-lg text-[12.5px] border" style={{ color: tv('muted') }}>取消</button>
                 </div>
               ) : (
                 <div className="flex flex-wrap gap-1.5">
                   {item.clarification.options.map((opt) => (
-                    <button key={String(opt.value)} onClick={() => void resumeWith(item.id, item.clarification!.field, opt.value, opt.label)} className="px-2.5 py-1 rounded-full text-[12px] border" style={{ borderColor: '#c7d2fe', background: '#eef2ff', color: '#4f6ef7' }}>
+                    <button key={String(opt.value)} onClick={() => void resumeWith(item.id, item.clarification!.field, opt.value, opt.label)} className="px-2.5 py-1 rounded-full text-[12px] border" style={{ borderColor: tv('primary', 0.35), background: tv('primary-soft'), color: tv('primary') }}>
                       {opt.label}
                     </button>
                   ))}
@@ -1020,7 +1025,7 @@ export default function AgentRunView() {
           ) : (
             <button
               className="w-full text-left rounded-xl rounded-tl px-3.5 py-2.5 text-[13.5px] leading-relaxed transition-colors border"
-              style={{ background: item.turnRef === currentTurnId ? '#eef2ff' : '#f5f6f8', borderTopLeftRadius: 4, borderColor: 'transparent', color: '#2d3142', wordBreak: 'break-word' }}
+              style={{ background: item.turnRef === currentTurnId ? tv('primary-soft') : tv('bg'), borderTopLeftRadius: 4, borderColor: 'transparent', color: tv('fg'), wordBreak: 'break-word' }}
               onClick={() => { if (item.turnRef) { setCurrentTurnId(item.turnRef); setRightTab('result') } }}
             >
               <div className="flex items-start gap-1.5 flex-wrap mb-1">
@@ -1030,7 +1035,7 @@ export default function AgentRunView() {
               </div>
               <span className="line-clamp-3">{item.content || '（完成）'}</span>
               {item.turnRef && (
-                <span className="flex items-center gap-0.5 mt-1.5 text-[11px]" style={{ color: '#818cf8' }}>
+                <span className="flex items-center gap-0.5 mt-1.5 text-[11px]" style={{ color: tv('primary', 0.7) }}>
                   点击查看完整分析 <ChevronRight className="w-3 h-3" />
                 </span>
               )}
@@ -1050,19 +1055,17 @@ export default function AgentRunView() {
     @keyframes spin { to { transform: rotate(360deg); } }
     .agent-scrollbar::-webkit-scrollbar { width: 4px; height: 4px; }
     .agent-scrollbar::-webkit-scrollbar-track { background: transparent; }
-    .agent-scrollbar::-webkit-scrollbar-thumb { background: #d8dae5; border-radius: 3px; }
+    .agent-scrollbar::-webkit-scrollbar-thumb { background: rgb(var(--c-line-strong)); border-radius: 3px; }
   `
 
   // ─── 渲染分支：PC 双栏 ────────────────────────────────────────────────────
 
-  const isPcLayout = typeof window !== 'undefined' && window.innerWidth >= 900
-
-  if (isPcLayout) {
+  if (isPc) {
     return (
       <>
         <style>{globalStyle}</style>
         {popoverEl}
-        <div className="flex overflow-hidden" style={{ height: 'calc(100vh - 3.5rem)', background: '#f5f6f8' }}>
+        <div className="flex overflow-hidden" style={{ height: 'calc(100vh - 3.5rem)', background: tv('bg') }}>
 
           {/* 左栏：对话 + 输入 */}
           <div
@@ -1070,27 +1073,27 @@ export default function AgentRunView() {
             style={{
               width: pcLeftCollapsed ? 0 : 420,
               minWidth: pcLeftCollapsed ? 0 : 420,
-              background: '#fff',
-              borderRight: pcLeftCollapsed ? 'none' : '1px solid #e8eaed',
+              background: tv('surface'),
+              borderRight: pcLeftCollapsed ? 'none' : '1px solid rgb(var(--c-line))',
             }}
           >
             {/* 左栏 header */}
-            <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid #f0f1f3', flexShrink: 0, minWidth: 420 }}>
+            <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid rgb(var(--c-surface-2))', flexShrink: 0, minWidth: 420 }}>
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 text-[17px] font-semibold" style={{ color: '#1a1a2e' }}>
-                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: '#22c55e', boxShadow: '0 0 0 3px rgba(34,197,94,.15)' }} />
+                  <div className="flex items-center gap-2 text-[17px] font-semibold" style={{ color: tv('fg') }}>
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: tv('success'), boxShadow: '0 0 0 3px rgb(var(--c-success) / 0.15)' }} />
                     {agent?.label ?? 'Agent'}
                   </div>
                   {agent?.subtitle && (
-                    <div className="text-[12px] mt-1" style={{ color: '#8b8fa3' }}>{agent.subtitle}</div>
+                    <div className="text-[12px] mt-1" style={{ color: tv('subtle') }}>{agent.subtitle}</div>
                   )}
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <button onClick={startNew} className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[12px] transition-colors" style={{ color: '#6b7089', border: '1px solid #e8eaed' }}>
+                  <button onClick={startNew} className="flex items-center gap-1 px-2 py-1.5 rounded-lg text-[12px] transition-colors" style={{ color: tv('muted'), border: '1px solid rgb(var(--c-line))' }}>
                     <Plus className="w-3.5 h-3.5" /> 新对话
                   </button>
-                  <button onClick={() => setPcLeftCollapsed(true)} className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors" style={{ border: '1px solid #e8eaed', color: '#6b7089' }} title="收起对话栏">
+                  <button onClick={() => setPcLeftCollapsed(true)} className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors" style={{ border: '1px solid rgb(var(--c-line))', color: tv('muted') }} title="收起对话栏">
                     <PanelLeftClose className="w-4 h-4" />
                   </button>
                 </div>
@@ -1103,9 +1106,9 @@ export default function AgentRunView() {
               {chatItems.length === 0 && (
                 <div>
                   <div className="flex gap-2.5">
-                    <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: '#eef2ff', color: '#4f6ef7', fontSize: 11, fontWeight: 600 }}>AI</div>
+                    <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: tv('primary-soft'), color: tv('primary'), fontSize: 11, fontWeight: 600 }}>AI</div>
                     <div className="flex-1 min-w-0">
-                      <div className="rounded-xl rounded-tl px-3.5 py-2.5 text-[13.5px] leading-relaxed" style={{ background: '#f5f6f8', borderTopLeftRadius: 4, color: '#2d3142' }}>
+                      <div className="rounded-xl rounded-tl px-3.5 py-2.5 text-[13.5px] leading-relaxed" style={{ background: tv('bg'), borderTopLeftRadius: 4, color: tv('fg') }}>
                         {agent?.welcomeMd
                           ? <ChatMarkdown content={agent.welcomeMd} />
                           : `你好，我是${agent?.label ?? 'Agent'}。已为你准备好默认报告，右侧是完整内容。`}
@@ -1113,9 +1116,9 @@ export default function AgentRunView() {
                       {quickPrompts.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-2.5">
                           {quickPrompts.map((q, i) => (
-                            <button key={i} onClick={() => void doSend(q.prompt)} className="text-[12px] px-3 py-1.5 rounded-full border transition-colors" style={{ borderColor: '#e0e2e8', color: '#4a4f63', background: '#fff' }}
-                              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = '#4f6ef7'; (e.currentTarget as HTMLElement).style.color = '#4f6ef7' }}
-                              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = '#e0e2e8'; (e.currentTarget as HTMLElement).style.color = '#4a4f63' }}
+                            <button key={i} onClick={() => void doSend(q.prompt)} className="text-[12px] px-3 py-1.5 rounded-full border transition-colors" style={{ borderColor: tv('line'), color: tv('fg-2'), background: tv('surface') }}
+                              onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = tv('primary'); (e.currentTarget as HTMLElement).style.color = tv('primary') }}
+                              onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = tv('line'); (e.currentTarget as HTMLElement).style.color = tv('fg-2') }}
                             >
                               {q.icon ? `${q.icon} ` : ''}{q.label}
                             </button>
@@ -1142,7 +1145,7 @@ export default function AgentRunView() {
               <button
                 onClick={() => setPcLeftCollapsed(false)}
                 className="absolute top-4 left-4 z-10 w-9 h-9 rounded-xl flex items-center justify-center transition-colors"
-                style={{ border: '1px solid #e8eaed', background: '#fff', color: '#4a4f63', boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}
+                style={{ border: '1px solid rgb(var(--c-line))', background: tv('surface'), color: tv('fg-2'), boxShadow: '0 2px 8px rgba(0,0,0,.06)' }}
                 title="展开对话栏"
               >
                 <PanelLeftOpen className="w-5 h-5" />
@@ -1155,12 +1158,12 @@ export default function AgentRunView() {
                 className="flex items-center gap-1 flex-shrink-0"
                 role="tablist"
                 aria-label="右栏内容"
-                style={{ padding: pcLeftCollapsed ? '16px 28px 0 68px' : '16px 28px 0', borderBottom: '1px solid #e8eaed', background: '#f5f6f8' }}
+                style={{ padding: pcLeftCollapsed ? '16px 28px 0 68px' : '16px 28px 0', borderBottom: '1px solid rgb(var(--c-line))', background: tv('bg') }}
               >
                 <RightTabButton active={rightTab === 'dashboard'} onClick={() => setRightTab('dashboard')}>📊 看板</RightTabButton>
                 <RightTabButton active={rightTab === 'result'} onClick={() => setRightTab('result')}>
                   当前结果
-                  {sending && <Loader2 className="w-3 h-3 animate-spin" style={{ color: '#4f6ef7' }} aria-label="分析中" />}
+                  {sending && <Loader2 className="w-3 h-3 animate-spin" style={{ color: tv('primary') }} aria-label="分析中" />}
                 </RightTabButton>
               </div>
             )}
@@ -1182,7 +1185,7 @@ export default function AgentRunView() {
               style={{ padding: '24px 28px', display: !hasDashboard || rightTab === 'result' ? 'flex' : 'none', flexDirection: 'column', gap: 20 }}
             >
               {hasDashboard && turns.length === 0 && !sending && (
-                <div className="text-[13px] text-center py-16" style={{ color: '#8b8fa3' }}>
+                <div className="text-[13px] text-center py-16" style={{ color: tv('subtle') }}>
                   还没有分析结果。在左侧提问，或在看板上点击数字、图表让 AI 解读。
                 </div>
               )}
@@ -1190,11 +1193,11 @@ export default function AgentRunView() {
               {(turns.length > 0 || sending) && (
                 <div className="flex items-center justify-between">
                   <div>
-                    <h2 className="text-[16px] font-semibold" style={{ color: '#1a1a2e' }}>
+                    <h2 className="text-[16px] font-semibold" style={{ color: tv('fg') }}>
                       {currentTurn?.query ?? pendingQuery ?? agent?.label ?? 'Agent'}
                     </h2>
                     {agent?.defaultCacheSecs && agent.defaultCacheSecs > 0 && (
-                      <div className="text-[12px] mt-0.5" style={{ color: '#8b8fa3' }}>
+                      <div className="text-[12px] mt-0.5" style={{ color: tv('subtle') }}>
                         数据每 {Math.round(agent.defaultCacheSecs / 60)} 分钟更新
                       </div>
                     )}
@@ -1227,11 +1230,11 @@ export default function AgentRunView() {
       {/* 整体：flex col，撑满视口（减去顶部 header 56px + 底部安全区） */}
       <div
         className="flex flex-col"
-        style={{ height: 'calc(100dvh - 3.5rem)', background: '#f5f6f8' }}
+        style={{ height: 'calc(100dvh - 3.5rem)', background: tv('bg') }}
       >
         {/* 关联看板：顶部页签 */}
         {hasDashboard && (
-          <div className="flex-shrink-0 flex gap-1 p-1 mx-4 mt-3 rounded-xl" role="tablist" aria-label="内容" style={{ background: '#e9ebf0' }}>
+          <div className="flex-shrink-0 flex gap-1 p-1 mx-4 mt-3 rounded-xl" role="tablist" aria-label="内容" style={{ background: tv('line') }}>
             {(['dashboard', 'chat'] as const).map((t) => (
               <button
                 key={t}
@@ -1239,10 +1242,10 @@ export default function AgentRunView() {
                 aria-selected={mobileTab === t}
                 onClick={() => setMobileTab(t)}
                 className="flex-1 py-1.5 rounded-lg text-[13px] flex items-center justify-center gap-1"
-                style={mobileTab === t ? { background: '#fff', color: '#1a1a2e', fontWeight: 600, boxShadow: '0 1px 2px rgba(0,0,0,.06)' } : { color: '#6b7089' }}
+                style={mobileTab === t ? { background: tv('surface'), color: tv('fg'), fontWeight: 600, boxShadow: '0 1px 2px rgba(0,0,0,.06)' } : { color: tv('muted') }}
               >
                 {t === 'dashboard' ? '📊 看板' : '对话'}
-                {t === 'chat' && sending && <Loader2 className="w-3 h-3 animate-spin" style={{ color: '#4f6ef7' }} />}
+                {t === 'chat' && sending && <Loader2 className="w-3 h-3 animate-spin" style={{ color: tv('primary') }} />}
               </button>
             ))}
           </div>
@@ -1276,14 +1279,14 @@ export default function AgentRunView() {
             {/* 欢迎语（无内容时） */}
             {showWelcome && (
               <FadeUp>
-                <div className="rounded-2xl p-4 mb-3" style={{ background: '#fff', border: '1px solid #eef0f4' }}>
-                  <div className="flex items-center gap-2 mb-2" style={{ color: '#4f6ef7' }}>
+                <div className="rounded-2xl p-4 mb-3" style={{ background: tv('surface'), border: '1px solid rgb(var(--c-surface-2))' }}>
+                  <div className="flex items-center gap-2 mb-2" style={{ color: tv('primary') }}>
                     <Bot className="w-4 h-4" />
                     <span className="text-[13px] font-medium">{agent?.label ?? 'Agent'}</span>
                   </div>
                   {agent?.welcomeMd
                     ? <ChatMarkdown content={agent.welcomeMd} />
-                    : <p className="text-[13px] leading-relaxed" style={{ color: '#4a4f63' }}>你好，我是 {agent?.label ?? 'Agent'}，有什么可以帮你？</p>
+                    : <p className="text-[13px] leading-relaxed" style={{ color: tv('fg-2') }}>你好，我是 {agent?.label ?? 'Agent'}，有什么可以帮你？</p>
                   }
                 </div>
               </FadeUp>
@@ -1297,12 +1300,12 @@ export default function AgentRunView() {
                     key={i}
                     onClick={() => void doSend(q.prompt)}
                     className="w-full flex items-center justify-between gap-2 rounded-xl px-3.5 py-3 text-left border transition-colors active:scale-[0.99]"
-                    style={{ background: '#fff', borderColor: '#eef0f4', color: '#2d3142' }}
+                    style={{ background: tv('surface'), borderColor: tv('surface-2'), color: tv('fg') }}
                   >
                     <span className="text-[13px]">
                       {q.icon ? `${q.icon} ` : ''}{q.label}
                     </span>
-                    <ChevronRight className="w-4 h-4 flex-shrink-0" style={{ color: '#c0c3d4' }} />
+                    <ChevronRight className="w-4 h-4 flex-shrink-0" style={{ color: tv('line-strong') }} />
                   </button>
                 ))}
               </div>
@@ -1328,8 +1331,8 @@ export default function AgentRunView() {
         <div
           className="flex-shrink-0 border-t"
           style={{
-            background: '#fff',
-            borderColor: '#eef0f4',
+            background: tv('surface'),
+            borderColor: tv('surface-2'),
             paddingBottom: 'env(safe-area-inset-bottom, 0px)',
           }}
         >
@@ -1342,7 +1345,7 @@ export default function AgentRunView() {
                   onClick={() => void doSend(q.prompt)}
                   disabled={sending}
                   className="text-[12px] px-3 py-1.5 rounded-full border whitespace-nowrap flex-shrink-0 transition-colors disabled:opacity-40"
-                  style={{ borderColor: '#e0e2e8', color: '#4a4f63', background: '#fff' }}
+                  style={{ borderColor: tv('line'), color: tv('fg-2'), background: tv('surface') }}
                 >
                   {q.icon ? `${q.icon} ` : ''}{q.label}
                 </button>
@@ -1355,8 +1358,8 @@ export default function AgentRunView() {
             <div
               className="flex items-center gap-2 rounded-2xl px-4 py-2.5 transition-colors"
               style={{
-                background: '#f5f6f8',
-                border: `1px solid ${mobileInputFocused ? '#4f6ef7' : 'transparent'}`,
+                background: tv('bg'),
+                border: `1px solid ${mobileInputFocused ? tv('primary') : 'transparent'}`,
               }}
             >
               <input
@@ -1372,16 +1375,16 @@ export default function AgentRunView() {
                 placeholder={sending ? '思考中…' : agent ? `问问${agent.label}…` : '输入问题…'}
                 disabled={sending}
                 className="flex-1 bg-transparent outline-none min-w-0 disabled:opacity-50"
-                style={{ fontSize: 14, color: '#1a1a2e' }}
+                style={{ fontSize: 14, color: tv('fg') }}
               />
               <button
                 onClick={() => sending ? abortRef.current?.abort() : void doSend(mobileInput)}
                 className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all"
                 style={{
                   background: sending
-                    ? '#fee2e2'
-                    : mobileInput.trim() ? '#4f6ef7' : '#94a3b8',
-                  color: '#fff',
+                    ? tv('danger-soft')
+                    : mobileInput.trim() ? tv('primary') : tv('subtle'),
+                  color: tv('primary-fg'),
                   border: 'none',
                   opacity: (!sending && !mobileInput.trim()) ? 0.5 : 1,
                 }}

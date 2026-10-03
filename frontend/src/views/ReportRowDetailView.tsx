@@ -64,16 +64,16 @@ export default function ReportRowDetailView() {
   }, [routeKey, params, detailKey])
 
   if (loading) {
-    return <div className="flex items-center justify-center py-20 text-slate-400">加载中…</div>
+    return <div className="flex items-center justify-center py-20 text-subtle">加载中…</div>
   }
 
   if (error) {
     return (
       <div className="p-4">
-        <div className="rounded-2xl bg-red-50 border border-red-200 text-red-700 p-4 text-sm whitespace-pre-wrap">
+        <div className="rounded-2xl bg-danger-soft border border-danger/25 text-danger p-4 text-sm whitespace-pre-wrap">
           {error}
         </div>
-        <button onClick={goBack} className="mt-4 text-sky-600 underline text-sm">返回</button>
+        <button onClick={goBack} className="mt-4 text-primary underline text-sm">返回</button>
       </div>
     )
   }
@@ -83,9 +83,9 @@ export default function ReportRowDetailView() {
 
   if (rows.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+      <div className="flex flex-col items-center justify-center py-20 text-subtle">
         <p>无详情数据</p>
-        <button onClick={goBack} className="mt-4 text-sky-600 underline text-sm">返回</button>
+        <button onClick={goBack} className="mt-4 text-primary underline text-sm">返回</button>
       </div>
     )
   }
@@ -104,23 +104,23 @@ export default function ReportRowDetailView() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-6">
-      <div className="sticky top-0 z-10 bg-white border-b border-slate-100 px-4 py-3 flex items-center gap-3">
-        <button onClick={goBack} className="text-sky-600 text-sm shrink-0">← 返回</button>
+    <div className="min-h-screen bg-surface-2 pb-6">
+      <div className="sticky top-0 z-10 bg-surface border-b border-line px-4 py-3 flex items-center gap-3">
+        <button onClick={goBack} className="text-primary text-sm shrink-0">← 返回</button>
         <h2 className="text-base font-semibold truncate">行详情</h2>
       </div>
 
       {truncated && (
-        <div className="mx-3 mt-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 px-3 py-2 text-xs">
+        <div className="mx-3 mt-3 rounded-xl bg-warning-soft border border-warning/25 text-warning px-3 py-2 text-xs">
           (结果已截断)
         </div>
       )}
 
       <div className="mx-3 mt-3 space-y-4">
         {rows.map((row, ri) => (
-          <div key={ri} className="rounded-2xl bg-white shadow-sm border border-slate-100 overflow-hidden">
+          <div key={ri} className="rounded-2xl bg-surface shadow-sm border border-line overflow-hidden">
             {rows.length > 1 && (
-              <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 text-xs font-medium text-slate-500">
+              <div className="px-4 py-2 bg-surface-2 border-b border-line text-xs font-medium text-muted">
                 记录 {ri + 1}
               </div>
             )}
@@ -131,8 +131,8 @@ export default function ReportRowDetailView() {
                   const label = reportColumnHeaderText(col, columnLabels)
                   const display = val == null || val === '' ? '—' : String(val)
                   return (
-                    <tr key={ci} className={ci % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}>
-                      <th className="text-left px-4 py-2 text-slate-500 font-normal w-1/3 align-top whitespace-nowrap">
+                    <tr key={ci} className={ci % 2 === 0 ? 'bg-surface' : 'bg-surface-2/60'}>
+                      <th className="text-left px-4 py-2 text-muted font-normal w-1/3 align-top whitespace-nowrap">
                         {label}
                       </th>
                       <td className="px-4 py-2 break-all">{display}</td>

@@ -125,9 +125,9 @@ export default function MessagesView() {
   return (
     <div className="p-4 space-y-3">
       <div className="flex items-center justify-between">
-        <div className="text-sm text-slate-500">
+        <div className="text-sm text-muted">
           {totalUnread > 0 ? (
-            <span className="text-rose-600 font-medium">{totalUnread} 条未读</span>
+            <span className="text-danger font-medium">{totalUnread} 条未读</span>
           ) : (
             <span>暂无未读提醒</span>
           )}
@@ -138,7 +138,7 @@ export default function MessagesView() {
         <button
           onClick={() => void refresh()}
           disabled={refreshing}
-          className="flex items-center gap-1 text-sm text-sky-600 px-2 py-1 rounded hover:bg-sky-50 disabled:opacity-50"
+          className="flex items-center gap-1 text-sm text-primary px-2 py-1 rounded hover:bg-primary-soft disabled:opacity-50"
         >
           <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
           刷新
@@ -146,7 +146,7 @@ export default function MessagesView() {
       </div>
 
       {rules.length === 0 && (
-        <div className="rounded-xl bg-white border border-slate-100 p-8 text-center text-slate-400 text-sm">
+        <div className="rounded-xl bg-surface border border-line p-8 text-center text-subtle text-sm">
           暂无数据提醒
         </div>
       )}
@@ -155,57 +155,57 @@ export default function MessagesView() {
         const expanded = expandedRuleId === rule.id
         const detail = ruleItems[rule.id]
         return (
-          <div key={rule.id} className="rounded-xl bg-white border border-slate-100 shadow-sm overflow-hidden">
+          <div key={rule.id} className="rounded-xl bg-surface border border-line shadow-sm overflow-hidden">
             <button
               onClick={() => void toggleRule(rule.id)}
-              className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors"
+              className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-surface-2 transition-colors"
             >
               {expanded ? (
-                <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+                <ChevronDown className="w-4 h-4 text-subtle shrink-0" />
               ) : (
-                <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />
+                <ChevronRight className="w-4 h-4 text-subtle shrink-0" />
               )}
               <div className="flex-1 min-w-0">
-                <div className="font-medium text-slate-800 truncate">{rule.name}</div>
-                <div className="text-xs text-slate-400 mt-0.5">
+                <div className="font-medium text-fg truncate">{rule.name}</div>
+                <div className="text-xs text-subtle mt-0.5">
                   共 {rule.total} 条
                   {rule.fetchedAt ? ` · ${formatTime(rule.fetchedAt)}` : ''}
                 </div>
               </div>
               {rule.error ? (
-                <span className="text-xs text-rose-500 shrink-0">查询失败</span>
+                <span className="text-xs text-danger shrink-0">查询失败</span>
               ) : rule.unread > 0 ? (
-                <span className="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full bg-rose-500 text-white text-xs font-medium flex items-center justify-center">
+                <span className="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full bg-danger text-white text-xs font-medium flex items-center justify-center">
                   {rule.unread > 99 ? '99+' : rule.unread}
                 </span>
               ) : (
-                <span className="text-xs text-slate-300 shrink-0">已读</span>
+                <span className="text-xs text-subtle shrink-0">已读</span>
               )}
             </button>
 
             {expanded && (
-              <div className="border-t border-slate-100 px-4 py-3 bg-slate-50/50">
+              <div className="border-t border-line px-4 py-3 bg-surface-2/50">
                 {rule.error && (
-                  <div className="text-sm text-rose-600 mb-2">{rule.error}</div>
+                  <div className="text-sm text-danger mb-2">{rule.error}</div>
                 )}
                 {detail?.loading && (
-                  <div className="text-sm text-slate-400 py-4 text-center">加载中...</div>
+                  <div className="text-sm text-subtle py-4 text-center">加载中...</div>
                 )}
                 {detail?.error && (
-                  <div className="text-sm text-rose-600 py-2">{detail.error}</div>
+                  <div className="text-sm text-danger py-2">{detail.error}</div>
                 )}
                 {detail && !detail.loading && !detail.error && (
                   <>
                     {detail.items.length > 0 && detail.items.some((i) => i.unread) && (
                       <button
                         onClick={() => void markRead(rule.id, [], true)}
-                        className="mb-3 text-xs text-sky-600 hover:underline"
+                        className="mb-3 text-xs text-primary hover:underline"
                       >
                         全部标为已读
                       </button>
                     )}
                     {detail.items.length === 0 ? (
-                      <div className="text-sm text-slate-400 py-2 text-center">暂无数据</div>
+                      <div className="text-sm text-subtle py-2 text-center">暂无数据</div>
                     ) : (
                       <ul className="space-y-2">
                         {detail.items.map((item) => {
@@ -216,35 +216,35 @@ export default function MessagesView() {
                               key={item.key}
                               className={`rounded-lg border px-3 py-2 ${
                                 item.unread
-                                  ? 'border-sky-200 bg-white'
-                                  : 'border-slate-100 bg-white/80'
+                                  ? 'border-primary/25 bg-surface'
+                                  : 'border-line bg-surface/80'
                               }`}
                             >
                               <div className="flex items-start gap-2">
                                 {item.unread && (
-                                  <span className="mt-1.5 w-2 h-2 rounded-full bg-sky-500 shrink-0" />
+                                  <span className="mt-1.5 w-2 h-2 rounded-full bg-primary shrink-0" />
                                 )}
                                 <button
                                   onClick={() => toggleItemDetail(rule.id, item.key)}
-                                  className="flex-1 text-left text-sm text-slate-700"
+                                  className="flex-1 text-left text-sm text-fg-2"
                                 >
                                   {item.title}
                                 </button>
                                 {item.unread && (
                                   <button
                                     onClick={() => void markRead(rule.id, [item.key])}
-                                    className="text-xs text-sky-600 shrink-0 hover:underline"
+                                    className="text-xs text-primary shrink-0 hover:underline"
                                   >
                                     标为已读
                                   </button>
                                 )}
                               </div>
                               {showDetail && (
-                                <div className="mt-2 pt-2 border-t border-slate-100 text-xs text-slate-500 space-y-1">
+                                <div className="mt-2 pt-2 border-t border-line text-xs text-muted space-y-1">
                                   {(detail.columns.length ? detail.columns : Object.keys(item.row)).map(
                                     (col) => (
                                       <div key={col} className="flex gap-2">
-                                        <span className="text-slate-400 shrink-0">{col}:</span>
+                                        <span className="text-subtle shrink-0">{col}:</span>
                                         <span className="break-all">
                                           {item.row[col] == null ? '-' : String(item.row[col])}
                                         </span>

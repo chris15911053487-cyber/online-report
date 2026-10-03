@@ -335,29 +335,29 @@ export default function ReturnProPickDetail({
   }, [validate, verifyAllBatchStock, collectPayload, detailKey, showToast, goBack])
 
   const inputCls =
-    'border border-slate-200 rounded-lg px-3 py-2 w-full text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 focus:border-sky-300'
+    'border border-line rounded-lg px-3 py-2 w-full text-sm focus:outline-none focus:ring-2 focus:ring-primary/25 focus:border-primary/40'
 
   const stockHintCls = (status: BatchStockStatus) => {
-    if (status === 'ok') return 'text-emerald-600'
-    if (status === 'checking') return 'text-slate-500'
-    if (status === 'idle') return 'text-slate-400'
-    return 'text-red-600'
+    if (status === 'ok') return 'text-success'
+    if (status === 'checking') return 'text-muted'
+    if (status === 'idle') return 'text-subtle'
+    return 'text-danger'
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-28">
-      <div className="sticky top-0 z-10 bg-white border-b border-slate-100 px-4 py-3 flex items-center gap-3">
-        <button type="button" onClick={goBack} className="text-sky-600 text-sm shrink-0">
+    <div className="min-h-screen bg-surface-2 pb-28">
+      <div className="sticky top-0 z-10 bg-surface border-b border-line px-4 py-3 flex items-center gap-3">
+        <button type="button" onClick={goBack} className="text-primary text-sm shrink-0">
           ← 返回
         </button>
         <div className="min-w-0 flex-1">
           <h2 className="text-base font-semibold truncate">领料明细</h2>
-          <p className="text-xs text-slate-500 truncate">单据号 {headerDocEntry}</p>
+          <p className="text-xs text-muted truncate">单据号 {headerDocEntry}</p>
         </div>
       </div>
 
       {truncated && (
-        <div className="mx-3 mt-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 px-3 py-2 text-xs">
+        <div className="mx-3 mt-3 rounded-xl bg-warning-soft border border-warning/25 text-warning px-3 py-2 text-xs">
           结果已截断，请缩小查询范围
         </div>
       )}
@@ -370,14 +370,14 @@ export default function ReturnProPickDetail({
           return (
             <div
               key={ri}
-              className="rounded-2xl bg-white shadow-sm border border-slate-100 overflow-hidden"
+              className="rounded-2xl bg-surface shadow-sm border border-line overflow-hidden"
             >
-              <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between gap-2">
-                <span className="text-sm font-medium text-slate-700">
+              <div className="px-4 py-2.5 bg-surface-2 border-b border-line flex items-center justify-between gap-2">
+                <span className="text-sm font-medium text-fg-2">
                   行 {formatDisplay(getRowValue(row, 'LineId'))}
                 </span>
                 {batchOn && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-100">
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-primary-soft text-primary border border-primary/25">
                     批次管理
                   </span>
                 )}
@@ -389,15 +389,15 @@ export default function ReturnProPickDetail({
                   if (col === 'ManBtchNum' && !batchOn) return null
                   return (
                     <div key={col} className="flex gap-2">
-                      <span className="text-slate-500 shrink-0 w-24">{labelFor(col)}</span>
-                      <span className="text-slate-800 break-all flex-1">{formatDisplay(val)}</span>
+                      <span className="text-muted shrink-0 w-24">{labelFor(col)}</span>
+                      <span className="text-fg break-all flex-1">{formatDisplay(val)}</span>
                     </div>
                   )
                 })}
 
-                <div className="pt-2 border-t border-slate-100 space-y-3">
+                <div className="pt-2 border-t border-line space-y-3">
                   <label className="block">
-                    <span className="text-slate-500 text-xs mb-1 block">{labelFor('Quantity')}</span>
+                    <span className="text-muted text-xs mb-1 block">{labelFor('Quantity')}</span>
                     <input
                       type="number"
                       inputMode="decimal"
@@ -412,7 +412,7 @@ export default function ReturnProPickDetail({
 
                   {batchOn && (
                     <label className="block">
-                      <span className="text-slate-500 text-xs mb-1 block">{labelFor('BatchNum')}</span>
+                      <span className="text-muted text-xs mb-1 block">{labelFor('BatchNum')}</span>
                       <input
                         type="text"
                         value={draft.batchNum}
@@ -434,13 +434,13 @@ export default function ReturnProPickDetail({
         })}
       </div>
 
-      <div className="fixed bottom-0 inset-x-0 z-20 p-3 bg-white/95 backdrop-blur border-t border-slate-200 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="fixed bottom-0 inset-x-0 z-20 p-3 bg-surface/95 backdrop-blur border-t border-line shadow-[0_-4px_12px_rgba(0,0,0,0.06)] pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="max-w-2xl mx-auto">
           <button
             type="button"
             onClick={handlePick}
             disabled={submitting || rows.length === 0}
-            className="w-full py-3.5 rounded-xl bg-sky-600 text-white font-medium text-base active:bg-sky-700 transition-colors disabled:opacity-50"
+            className="w-full py-3.5 rounded-xl bg-primary text-primary-fg font-medium text-base active:bg-primary-hover transition-colors disabled:opacity-50"
           >
             {submitting ? '提交中…' : '领料'}
           </button>

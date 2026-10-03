@@ -125,19 +125,19 @@ function AIPromptDialog({
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="bg-white rounded-xl shadow-xl w-[90%] max-w-lg p-5">
-        <p className="font-semibold text-slate-800 mb-3">
+      <div className="bg-surface rounded-xl shadow-xl w-[90%] max-w-lg p-5">
+        <p className="font-semibold text-fg mb-3">
           请输入报表业务描述（越详细越好）：
         </p>
-        <div className="text-xs text-slate-500 mb-1">示例：</div>
-        <div className="text-xs text-slate-600 bg-slate-50 rounded p-2 mb-3 leading-relaxed">
+        <div className="text-xs text-muted mb-1">示例：</div>
+        <div className="text-xs text-fg-2 bg-surface-2 rounded p-2 mb-3 leading-relaxed">
           {exampleText}
         </div>
-        <label className="block text-sm text-slate-700 mb-1">
+        <label className="block text-sm text-fg-2 mb-1">
           {reportLabel ? `报表「${reportLabel}」的业务描述` : '业务描述'}
         </label>
         <textarea
-          className="w-full border border-slate-300 rounded-lg p-2 text-sm min-h-[100px] focus:ring-2 focus:ring-sky-300 focus:border-sky-400 outline-none"
+          className="w-full border border-line-strong rounded-lg p-2 text-sm min-h-[100px] focus:ring-2 focus:ring-primary/25 focus:border-primary/60 outline-none"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           autoFocus
@@ -146,14 +146,14 @@ function AIPromptDialog({
         <div className="flex justify-end gap-2 mt-4">
           <button
             type="button"
-            className="px-4 py-2 text-sm rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50"
+            className="px-4 py-2 text-sm rounded-lg border border-line-strong text-fg-2 hover:bg-surface-2"
             onClick={onClose}
           >
             取消
           </button>
           <button
             type="button"
-            className="px-4 py-2 text-sm rounded-lg bg-sky-500 text-white hover:bg-sky-600 disabled:opacity-50"
+            className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-fg hover:bg-primary-hover disabled:opacity-50"
             disabled={!description.trim()}
             onClick={() => onConfirm(description.trim())}
           >
@@ -326,12 +326,12 @@ function MenuEditCard({
     }
   }
 
-  const inputCls = 'w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-300 focus:border-sky-400 outline-none disabled:bg-slate-100 disabled:text-slate-400'
-  const labelCls = 'block text-sm font-medium text-slate-600 mb-1'
+  const inputCls = 'w-full border border-line-strong rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/25 focus:border-primary/60 outline-none disabled:bg-surface-2 disabled:text-subtle'
+  const labelCls = 'block text-sm font-medium text-fg-2 mb-1'
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 space-y-3">
-      <h3 className="font-semibold text-slate-700">菜单 #{item.id}</h3>
+    <div className="bg-surface rounded-xl border border-line shadow-sm p-4 space-y-3">
+      <h3 className="font-semibold text-fg-2">菜单 #{item.id}</h3>
 
       <div className="grid grid-cols-2 gap-3">
         <label className="block">
@@ -356,7 +356,7 @@ function MenuEditCard({
         </label>
       </div>
 
-      <label className="flex items-center gap-2 text-sm text-slate-700">
+      <label className="flex items-center gap-2 text-sm text-fg-2">
         <input type="checkbox" className="rounded" checked={form.enabled}
           onChange={(e) => update({ enabled: e.target.checked })} />
         启用
@@ -446,7 +446,7 @@ function MenuEditCard({
       {!isReserved && isAdmin && (
         <button
           type="button"
-          className="text-sm px-3 py-1.5 rounded-lg border border-sky-300 text-sky-600 hover:bg-sky-50"
+          className="text-sm px-3 py-1.5 rounded-lg border border-primary/40 text-primary hover:bg-primary-soft"
           onClick={() => setShowAIDialog(true)}
         >
           🤖 AI 生成 Prompt
@@ -481,7 +481,7 @@ function MenuEditCard({
       <div className="flex gap-2 pt-2">
         <button
           type="button"
-          className="px-4 py-2 text-sm rounded-lg bg-sky-500 text-white hover:bg-sky-600 disabled:opacity-50"
+          className="px-4 py-2 text-sm rounded-lg bg-primary text-primary-fg hover:bg-primary-hover disabled:opacity-50"
           disabled={saving}
           onClick={handleSave}
         >
@@ -489,7 +489,7 @@ function MenuEditCard({
         </button>
         <button
           type="button"
-          className="px-4 py-2 text-sm rounded-lg border border-red-300 text-red-600 hover:bg-red-50"
+          className="px-4 py-2 text-sm rounded-lg border border-danger/40 text-danger hover:bg-danger-soft"
           onClick={handleDelete}
         >
           删除
@@ -639,14 +639,14 @@ export default function MenuSettingsView() {
     }
   }
 
-  const inputCls = 'w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-300 focus:border-sky-400 outline-none'
-  const labelCls = 'block text-sm font-medium text-slate-600 mb-1'
+  const inputCls = 'w-full border border-line-strong rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/25 focus:border-primary/60 outline-none'
+  const labelCls = 'block text-sm font-medium text-fg-2 mb-1'
 
   return (
     <div className="p-4 pb-24 max-w-3xl mx-auto">
-      <h2 className="text-xl font-semibold text-slate-800 mb-4">菜单与权限</h2>
+      <h2 className="text-xl font-semibold text-fg mb-4">菜单与权限</h2>
 
-      <div className="flex gap-2 mb-6 border-b border-slate-200">
+      <div className="flex gap-2 mb-6 border-b border-line">
         {([
           ['menus', '菜单项'],
           ['roles', '角色定义'],
@@ -657,8 +657,8 @@ export default function MenuSettingsView() {
             type="button"
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === key
-                ? 'border-sky-500 text-sky-600'
-                : 'border-transparent text-slate-500 hover:text-slate-700'
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted hover:text-fg-2'
             }`}
             onClick={() => setTab(key)}
           >
@@ -681,8 +681,8 @@ export default function MenuSettingsView() {
 
       {tab === 'menus' && (
         <>
-      {loading && <p className="text-slate-400 text-center py-8">加载中…</p>}
-      {error && <p className="text-red-500 text-center py-4">{error}</p>}
+      {loading && <p className="text-subtle text-center py-8">加载中…</p>}
+      {error && <p className="text-danger text-center py-4">{error}</p>}
 
       <div className="space-y-4">
         {items.map((item) => (
@@ -697,13 +697,13 @@ export default function MenuSettingsView() {
         ))}
 
         {!loading && items.length === 0 && !error && (
-          <p className="text-slate-400 text-center py-8">暂无菜单，请在下方添加</p>
+          <p className="text-subtle text-center py-8">暂无菜单，请在下方添加</p>
         )}
       </div>
 
       {/* Add menu form */}
-      <div className="mt-8 bg-white rounded-xl border border-dashed border-sky-300 shadow-sm p-4 space-y-3">
-        <h3 className="font-semibold text-sky-700">添加新菜单</h3>
+      <div className="mt-8 bg-surface rounded-xl border border-dashed border-primary/40 shadow-sm p-4 space-y-3">
+        <h3 className="font-semibold text-primary">添加新菜单</h3>
 
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
@@ -728,7 +728,7 @@ export default function MenuSettingsView() {
           </label>
         </div>
 
-        <label className="flex items-center gap-2 text-sm text-slate-700">
+        <label className="flex items-center gap-2 text-sm text-fg-2">
           <input type="checkbox" className="rounded" checked={addForm.enabled}
             onChange={(e) => updateAdd({ enabled: e.target.checked })} />
           启用
@@ -834,11 +834,11 @@ export default function MenuSettingsView() {
           </select>
         </label>
 
-        {addError && <p className="text-red-500 text-sm">{addError}</p>}
+        {addError && <p className="text-danger text-sm">{addError}</p>}
 
         <button
           type="button"
-          className="w-full py-2.5 text-sm rounded-lg bg-sky-500 text-white hover:bg-sky-600 disabled:opacity-50 font-medium"
+          className="w-full py-2.5 text-sm rounded-lg bg-primary text-primary-fg hover:bg-primary-hover disabled:opacity-50 font-medium"
           disabled={adding}
           onClick={handleAdd}
         >

@@ -264,33 +264,33 @@ export default function ProSignReceiveView() {
 
   if (!items.length) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-slate-400">
+      <div className="flex flex-col items-center justify-center py-20 text-subtle">
         <p>无合并报工数据</p>
-        <button onClick={goBack} className="mt-4 text-sky-600 underline text-sm">返回</button>
+        <button onClick={goBack} className="mt-4 text-primary underline text-sm">返回</button>
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col min-h-screen bg-slate-50 pb-20">
+    <div className="flex flex-col min-h-screen bg-surface-2 pb-20">
       {/* Header card */}
-      <div className="m-3 rounded-2xl bg-white shadow-sm border border-slate-100 p-4 space-y-3">
+      <div className="m-3 rounded-2xl bg-surface shadow-sm border border-line p-4 space-y-3">
         <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
-          <span><span className="text-slate-500">工序编码：</span>{headerLine?.stepCode}</span>
-          <span><span className="text-slate-500">工序名称：</span>{headerLine?.stepName}</span>
+          <span><span className="text-muted">工序编码：</span>{headerLine?.stepCode}</span>
+          <span><span className="text-muted">工序名称：</span>{headerLine?.stepName}</span>
         </div>
         <div className="text-sm">
-          <span className="text-slate-500">当前时间：</span>
+          <span className="text-muted">当前时间：</span>
           <span className="font-mono">{clock}</span>
         </div>
 
         {/* Operator picker */}
         <div className="text-sm">
           <div className="flex items-center gap-2 mb-2">
-            <span className="text-slate-500 shrink-0">当前操作员：</span>
+            <span className="text-muted shrink-0">当前操作员：</span>
             <button
               onClick={selectOnlySelf}
-              className="text-xs px-2 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 active:bg-sky-100"
+              className="text-xs px-2 py-0.5 rounded bg-primary-soft text-primary border border-primary/25 active:bg-primary-soft"
             >
               仅本人
             </button>
@@ -300,29 +300,29 @@ export default function ProSignReceiveView() {
             placeholder="搜索编码/姓名…"
             value={operatorSearch}
             onChange={(e) => setOperatorSearch(e.target.value)}
-            className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm mb-2 focus:outline-none focus:ring-1 focus:ring-sky-300"
+            className="w-full border border-line rounded-lg px-3 py-1.5 text-sm mb-2 focus:outline-none focus:ring-1 focus:ring-primary/25"
           />
-          <div className="max-h-36 overflow-y-auto border border-slate-100 rounded-lg">
+          <div className="max-h-36 overflow-y-auto border border-line rounded-lg">
             {filteredOperators.length === 0 && (
-              <div className="px-3 py-2 text-slate-400 text-xs">无匹配人员</div>
+              <div className="px-3 py-2 text-subtle text-xs">无匹配人员</div>
             )}
             {filteredOperators.map((op) => (
               <label
                 key={op.code}
-                className="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 cursor-pointer"
+                className="flex items-center gap-2 px-3 py-1.5 hover:bg-surface-2 cursor-pointer"
               >
                 <input
                   type="checkbox"
                   checked={selectedCodes.has(op.code)}
                   onChange={() => toggleOperator(op.code)}
-                  className="accent-sky-600"
+                  className="accent-primary"
                 />
                 <span>{op.code}</span>
-                <span className="text-slate-400">{op.name}</span>
+                <span className="text-subtle">{op.name}</span>
               </label>
             ))}
           </div>
-          <div className="mt-1 text-xs text-slate-500">{selectedSummary}</div>
+          <div className="mt-1 text-xs text-muted">{selectedSummary}</div>
         </div>
       </div>
 
@@ -331,12 +331,12 @@ export default function ProSignReceiveView() {
         {lines.map((line, idx) => (
           <div
             key={idx}
-            className="rounded-2xl bg-white shadow-sm border border-slate-100 p-4"
+            className="rounded-2xl bg-surface shadow-sm border border-line p-4"
           >
             <h3 className="font-medium text-sm mb-2">
               第 {idx + 1} 条 · 工单 {line.baseEntry}
             </h3>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm text-slate-600">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm text-fg-2">
               <span>来源类型：{line.baseOType}</span>
               <span>来源单号：{line.baseOEntry}</span>
               <span>来源行号：{line.baseOLine}</span>
@@ -348,12 +348,12 @@ export default function ProSignReceiveView() {
               <span className="col-span-2">上道工序时间：{line.lastStepTimeLabel}</span>
             </div>
             <div className="mt-2 flex items-center gap-2 text-sm">
-              <label className="text-slate-500 shrink-0">数量：</label>
+              <label className="text-muted shrink-0">数量：</label>
               <input
                 type="number"
                 value={quantities[idx] ?? line.quantity}
                 onChange={(e) => updateQty(idx, e.target.value)}
-                className="border border-slate-200 rounded-lg px-3 py-1.5 w-28 focus:outline-none focus:ring-1 focus:ring-sky-300"
+                className="border border-line rounded-lg px-3 py-1.5 w-28 focus:outline-none focus:ring-1 focus:ring-primary/25"
               />
             </div>
           </div>
@@ -361,14 +361,14 @@ export default function ProSignReceiveView() {
       </div>
 
       {/* Sticky save buttons */}
-      <div className="fixed bottom-0 inset-x-0 p-3 bg-white/90 backdrop-blur border-t border-slate-100 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="fixed bottom-0 inset-x-0 p-3 bg-surface/90 backdrop-blur border-t border-line pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="flex gap-2">
           {isCompletionFlow && (
             <button
               type="button"
               onClick={openPausePreview}
               disabled={saving || pauseSaving}
-              className="flex-1 py-3 rounded-xl border-2 border-amber-500 text-amber-800 bg-amber-50 font-medium active:bg-amber-100 transition-colors disabled:opacity-50"
+              className="flex-1 py-3 rounded-xl border-2 border-warning text-warning bg-warning-soft font-medium active:bg-warning-soft transition-colors disabled:opacity-50"
             >
               暂停报工
             </button>
@@ -381,8 +381,8 @@ export default function ProSignReceiveView() {
               isCompletionFlow ? 'flex-1' : 'w-full'
             } ${
               isResumeFlow
-                ? 'bg-emerald-600 text-white active:bg-emerald-700'
-                : 'bg-sky-600 text-white active:bg-sky-700'
+                ? 'bg-success text-white active:bg-success'
+                : 'bg-primary text-white active:bg-primary-hover'
             }`}
           >
             {proSignMergeButtonLabel || '合并报工'}
@@ -394,18 +394,18 @@ export default function ProSignReceiveView() {
       {showPausePreview && (
         <ReportOverlay title="暂停报工" onClose={() => !pauseSaving && setShowPausePreview(false)}>
           <div className="space-y-3 text-sm">
-            <p className="text-slate-600">
+            <p className="text-fg-2">
               将当前明细以「暂停报工」类型写入系统（与常规「完工」为不同单据类型）。
             </p>
             <label className="block space-y-1">
-              <span className="text-slate-500 text-xs">备注（选填）</span>
+              <span className="text-muted text-xs">备注（选填）</span>
               <textarea
                 value={pauseRemarks}
                 onChange={(e) => setPauseRemarks(e.target.value)}
                 maxLength={500}
                 rows={3}
                 placeholder="可填写暂停原因等"
-                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-amber-400 resize-y min-h-[72px]"
+                className="w-full rounded-lg border border-line px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-warning resize-y min-h-[72px]"
               />
             </label>
             <div className="flex gap-3 pt-2">
@@ -413,7 +413,7 @@ export default function ProSignReceiveView() {
                 type="button"
                 disabled={pauseSaving}
                 onClick={() => setShowPausePreview(false)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 active:bg-slate-50 disabled:opacity-50"
+                className="flex-1 py-2.5 rounded-xl border border-line text-fg-2 active:bg-surface-2 disabled:opacity-50"
               >
                 取消
               </button>
@@ -421,7 +421,7 @@ export default function ProSignReceiveView() {
                 type="button"
                 disabled={pauseSaving}
                 onClick={handleConfirmPause}
-                className="flex-1 py-2.5 rounded-xl bg-amber-600 text-white font-medium active:bg-amber-700 disabled:opacity-50"
+                className="flex-1 py-2.5 rounded-xl bg-warning text-white font-medium active:bg-warning disabled:opacity-50"
               >
                 {pauseSaving ? '提交中…' : '确认暂停报工'}
               </button>
@@ -435,18 +435,18 @@ export default function ProSignReceiveView() {
         <ReportOverlay title="保存前确认" onClose={() => !saving && setShowPreview(false)}>
           <div className="space-y-3 text-sm">
             <div className="space-y-1">
-              <p><span className="text-slate-500">工序编码：</span>{headerLine?.stepCode}</p>
-              <p><span className="text-slate-500">工序名称：</span>{headerLine?.stepName}</p>
-              <p><span className="text-slate-500">签到时间：</span>保存时自动记录为提交时刻</p>
+              <p><span className="text-muted">工序编码：</span>{headerLine?.stepCode}</p>
+              <p><span className="text-muted">工序名称：</span>{headerLine?.stepName}</p>
+              <p><span className="text-muted">签到时间：</span>保存时自动记录为提交时刻</p>
               <p>
-                <span className="text-slate-500">操作员：</span>
+                <span className="text-muted">操作员：</span>
                 {operatorCodesArr.length > 0 ? operatorCodesArr.join('、') : user?.username || '—'}
               </p>
             </div>
 
-            <div className="border-t border-slate-100 pt-2 space-y-2">
+            <div className="border-t border-line pt-2 space-y-2">
               {lines.map((line, idx) => (
-                <div key={idx} className="rounded-lg bg-slate-50 p-3 text-xs space-y-0.5">
+                <div key={idx} className="rounded-lg bg-surface-2 p-3 text-xs space-y-0.5">
                   <p className="font-medium text-sm">工单 {line.baseEntry}</p>
                   <p>来源：{line.baseOType} / {line.baseOEntry} / {line.baseOLine}</p>
                   <p>工序行号：{line.gxLineId}</p>
@@ -461,14 +461,14 @@ export default function ProSignReceiveView() {
               <button
                 disabled={saving}
                 onClick={() => setShowPreview(false)}
-                className="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-600 active:bg-slate-50 disabled:opacity-50"
+                className="flex-1 py-2.5 rounded-xl border border-line text-fg-2 active:bg-surface-2 disabled:opacity-50"
               >
                 取消
               </button>
               <button
                 disabled={saving}
                 onClick={handleConfirmSave}
-                className="flex-1 py-2.5 rounded-xl bg-sky-600 text-white font-medium active:bg-sky-700 disabled:opacity-50"
+                className="flex-1 py-2.5 rounded-xl bg-primary text-primary-fg font-medium active:bg-primary-hover disabled:opacity-50"
               >
                 {saving ? '保存中…' : '确认'}
               </button>

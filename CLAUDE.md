@@ -28,9 +28,10 @@ npm run build
 npm run init-db
 
 # 测试
-cd server && node --test test/                                # 后端（无 npm test 脚本）
+cd server && npm test                                         # 后端（node --test test/）
 cd frontend && npx vitest run                                 # 前端单测
 cd frontend && npx tsc -b                                     # 前端类型检查
+cd frontend && npm run lint:colors                            # 检查是否写死颜色（必须通过）
 cd ai-agent && python3 -m unittest discover -s tests -v       # ai-agent（未装依赖的用例自动跳过）
 
 # 前端 lint
@@ -50,6 +51,8 @@ cd frontend && npm run lint
 - 角色：`server/src/roles.js`（`resolveUserRoles`、`canAccessMenu`）；`app_roles` / `user_roles` 表；`ADMIN_USER_CODES` env var 指定管理员；无分配默认 `operator`；内置 `cost-viewer`、`attachment-generator`、`web-access` 等能力型角色
 - 路由注册方式：`fastify.register(routeFn)`，但 `owor` 用 `registerOworRoutes(fastify)` 直接调用
 - 错误响应格式：`{ error: string, code: string, detail?: string }`
+- `/api` 前缀：前端统一请求 `/api/...`，`Fastify({ rewriteUrl })` 去掉前缀再匹配（`server/src/spa.js`）；路由本身**不写** `/api`。机器人回调、ai-agent 回调等外部调用方继续用无前缀地址
+- SPA 回退：浏览器导航（GET + `Accept: text/html`，非 `/api`、非静态资源）返回 `frontend/dist/index.html`，所以页面地址可以与 GET 接口同名
 - 启动时 `ensure-nav-menu-schema.js` 自动执行 `server/sql/migrate-*.sql`（新表须写成幂等的 `IF OBJECT_ID(...) IS NULL`）
 
 ### 数据库 (SQL Server)
@@ -107,11 +110,20 @@ cd frontend && npm run lint
 ### 前端 (React + Vite)
 
 - 状态管理：Zustand store (`frontend/src/store.ts`)，含 auth、menus、toast、视图路由、报表/报工上下文
-- 视图路由：通过 Zustand `currentView` 状态切换，不使用 React Router；新增视图须同时改 `types.ts` 的 `ViewName`、`components/MainLayout.tsx` 的视图表与标题、`views/index.ts`
-- API 层：`frontend/src/utils/api.ts` — 开发时走 Vite proxy `/api → localhost:3000`，生产时同域直接请求；JWT 存 localStorage key `online_report_token`
+- 视图切换：Zustand `currentView` 是唯一状态源，不使用 React Router；新增视图须同时改 `types.ts` 的 `ViewName`、`components/MainLayout.tsx` 的视图表与标题、`views/index.ts`，并在 `router.ts` 登记地址
+- URL 路由：`frontend/src/router.ts` 做「状态 ⇄ 地址」同步（`pathFor` / `parsePath`，有单测）。地址如 `/report/:routeKey`、`/agents/:agentKey`、`/admin/bi`；刷新、收藏、浏览器/安卓返回键都可用。打开菜单统一用 store 的 `openMenuItem(menu)`
+- API 层：`frontend/src/utils/api.ts` 的 `apiUrl()` 统一加 `/api` 前缀（开发时 Vite 代理去掉前缀转发，`API_PROXY_TARGET` 可改代理目标）；JWT 存 localStorage key `online_report_token`
 - Agent 流式：`utils/agentStream.ts`；图表统一用 ECharts（`components/ChartRenderer.tsx`）
-- 管理员入口集中在 `SettingsView`（Agent 配置、BI 看板管理、AI Skill、消息提醒、定时报告等）
-- 页面需兼顾 PC 与手机宽度（AgentRunView：PC 左对话右看板，移动端顶部页签）
+- 外壳：`MainLayout` —— PC（≥1024px，`hooks/useMediaQuery.ts` 的 `useIsPc`）左侧 `Sidebar` + 面包屑顶栏；手机顶栏 + `BottomNav`。管理入口集中在「管理后台」`AdminHubView`（入口清单 `components/adminEntries.ts`）
+- 页面需兼顾 PC 与手机宽度（AgentRunView：PC 左对话右看板，移动端顶部页签）；PC 布局用 Tailwind `lg:` 断点或 `useIsPc`，不要读 `window.innerWidth`
+
+### 界面主题（六套，可切换）
+
+- token 定义：`frontend/src/theme/themes.css`（`[data-ui-theme="warm|tech|ent|ind|mono|dark"]`，默认 D `warm`）；视觉参照 `docs/design/ui-style-demo.html`
+- Tailwind 只提供语义色（`tailwind.config.js`）：`bg / surface(-2/-3) / line(-strong) / fg(-2) / muted / subtle / primary(-hover/-fg/-soft) / accent / success / warning / danger / info(+ -soft) / inverse / chrome-* / chart-1..8`，以及 `bg-ai`（AI 渐变）、`font-display`、`.num`（数字字体）。`slate-*`、`sky-*` 等原始调色板**不会生成**
+- 运行时：`theme/index.ts`（`useTheme`、`setThemePref`、跟随系统、`tv('primary')` 内联样式取色、`readChartPalette`）；`theme/sync.ts` 与服务端同步（`GET /ui/config` 公司默认、`GET/PUT /me/preferences` 用户选择、`PUT /admin/ui-settings`）
+- ECharts 统一经 `utils/chartTheme.ts` 的 `themedChartOption()` 套主题色，并用 `useThemeChange` 在切换时重绘
+- 通用组件：`frontend/src/ui/`（`Button`、`Card`、`Section`、`PageHeader`、`Badge`、`Segmented`、`Tabs`、`Field/Input/Select/Textarea`、`ListRow`、`Modal`、`EmptyState`、`KpiCard` 等；`ui/classes.ts` 有 `cn` 与表单/表格类名常量）
 
 ### 生产部署
 
@@ -124,7 +136,8 @@ cd frontend && npm run lint
 - **中国本地时间**：界面与 SQL `DATETIME2` 墙钟时间须一致（UTC+8）。禁止对用户可见字段用 `toISOString()` / 裸 `Date` 绑库 / `SYSUTCDATETIME()` 默认值。统一用 `server/src/china-datetime.js`（`toChinaLocalDateTimeForSql`、`SQL_CHINA_LOCAL_NOW_EXPR`）；表默认值用 `DATEADD(HOUR,8,SYSUTCDATETIME())`。详见 `.cursor/rules/china-local-datetime.mdc`。
 - 路由文件在 `server/src/routes/`，以 Fastify plugin 函数导出：`async function xxxRoutes(fastify) { ... }; module.exports = xxxRoutes;`
 - 数据库迁移脚本在 `server/sql/`
-- 后端所有路由无 `api` 前缀（Fastify 直接注册），前端开发时 Vite proxy 加 `/api` 再 strip
+- 后端路由定义不写 `/api` 前缀（由 `rewriteUrl` 统一去掉），前端请求一律经 `apiUrl()` / `apiFetch()`
 - 权限必须后端校验（菜单 `roles_json`、Agent `canUseAgent`、BI 查询 `canUseQuery`），不能只靠前端隐藏；SQL 报错详情只给管理员
+- **只用变量，不写死颜色**：组件里禁止十六进制色值、`rgb()` 字面量、原始调色板类名、内联命名色；一律用语义色类名或 `tv()`。`npm run lint:colors` 必须通过。各主题布局一致，只变外观；新增 token 时六套主题都要补齐
 - 密钥只放 `.env`（已 gitignore `.env` / `.env.*`），只提交 `.env.example`
 - 提交信息用 `feat(scope): 中文说明` 风格；较大功能在提交信息里列验证结果

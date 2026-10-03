@@ -45,7 +45,7 @@ function CodeCopyBtn({ text }: { text: string }) {
     <button
       type="button"
       onClick={doCopy}
-      className="absolute top-1.5 right-1.5 text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-200 hover:bg-slate-600 opacity-0 group-hover:opacity-100 transition-opacity"
+      className="absolute top-1.5 right-1.5 text-[10px] px-1.5 py-0.5 rounded bg-inverse text-inverse-fg hover:bg-fg-2 opacity-0 group-hover:opacity-100 transition-opacity"
     >
       {copied ? '已复制' : '复制'}
     </button>

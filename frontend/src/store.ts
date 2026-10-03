@@ -64,6 +64,8 @@ interface AppState {
 
   /** 当前进入的 Agent（agent-run 页使用） */
   currentAgentKey: string | null
+  /** 当前 Agent 的显示名（运行页加载配置后写入，用于顶栏标题） */
+  currentAgentLabel: string | null
 
   // Actions
   initialize: () => Promise<void>
@@ -126,6 +128,7 @@ export const useStore = create<AppState>((set, get) => ({
   proSignOrderDetailOrderNo: null,
   pendingChatSkill: null,
   currentAgentKey: null,
+  currentAgentLabel: null,
 
   clearProSignListRefreshFlag: () => set({ shouldRefreshProSignListAfterReceive: false }),
 
@@ -142,6 +145,7 @@ export const useStore = create<AppState>((set, get) => ({
   openAgent: (agentKey: string) => {
     set((s) => ({
       currentAgentKey: agentKey,
+      currentAgentLabel: null,
       currentView: 'agent-run',
       viewHistory: [...s.viewHistory, s.currentView],
     }))

@@ -24,12 +24,12 @@ export default function ReportOverlay({ title, onClose, children }: ReportOverla
       onClick={handleBackdropClick}
     >
       <div
-        className="flex max-h-[85vh] w-full flex-col rounded-t-2xl bg-white"
+        className="flex max-h-[85vh] w-full flex-col rounded-t-2xl bg-surface"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b px-4 py-3">
           <h2 className="text-base font-semibold">{title}</h2>
-          <button className="text-2xl text-gray-400" onClick={onClose} aria-label="关闭">
+          <button className="text-2xl text-subtle" onClick={onClose} aria-label="关闭">
             ×
           </button>
         </div>

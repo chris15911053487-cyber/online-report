@@ -1,21 +1,52 @@
 import { useState } from 'react'
+import { Check, ChevronRight, KeyRound, LogOut, Monitor, Shield } from 'lucide-react'
 import AgentStatusBadge from '../components/AgentStatusBadge'
 import { useStore } from '../store'
 import { apiFetch } from '../utils/api'
 import { isAdminUser } from '../utils/helpers'
+import { Badge, Button, Card, Field, Input, ListRow } from '../ui'
+import { cn } from '../ui/classes'
+import { THEMES, useTheme, type ThemePref } from '../theme'
+import { saveUserTheme } from '../theme/sync'
+
+/** 主题缩略卡：在卡片内局部套用该主题（themes.css 的 [data-ui-theme] 选择器），画一个迷你界面 */
+function ThemePreview({ id }: { id: string }) {
+  return (
+    <div data-ui-theme={id} className="rounded-lg overflow-hidden border border-line bg-bg h-[72px] flex flex-col">
+      <div className="h-3.5 bg-chrome border-b border-chrome-line flex items-center px-1.5 gap-1">
+        <span className="w-2 h-2 rounded-sm bg-ai" />
+        <span className="h-1 w-6 rounded bg-chrome-fg/50" />
+      </div>
+      <div className="flex-1 p-1.5 flex gap-1">
+        <div className="flex-1 rounded bg-surface border border-line p-1 flex flex-col gap-1">
+          <span className="h-1 w-8 rounded bg-fg/70" />
+          <span className="h-1 w-5 rounded bg-muted/60" />
+          <span className="mt-auto h-2.5 w-9 rounded-sm bg-primary" />
+        </div>
+        <div className="w-5 rounded bg-surface border border-line flex flex-col justify-end p-0.5 gap-0.5">
+          <span className="h-2 rounded-sm bg-chart-1" />
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function SettingsView() {
-  const { user, logout, navigateTo } = useStore()
+  const { user, logout, navigateTo, showToast } = useStore()
   const isAdmin = isAdminUser(user)
+  const { pref, active } = useTheme()
   const [showChangePwd, setShowChangePwd] = useState(false)
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  const chooseTheme = (next: ThemePref) => {
+    saveUserTheme(next).catch(() => showToast('主题已在本机生效，同步到账号失败'))
+  }
+
   const handleChangePassword = async () => {
     setError('')
-
     if (!newPassword.trim()) {
       setError('请输入新密码')
       return
@@ -24,7 +55,6 @@ export default function SettingsView() {
       setError('两次输入的密码不一致')
       return
     }
-
     setLoading(true)
     try {
       await apiFetch('/auth/change-password', {
@@ -33,8 +63,7 @@ export default function SettingsView() {
       })
       logout()
     } catch (err) {
-      const msg = err instanceof Error ? err.message : '密码修改失败'
-      setError(msg)
+      setError(err instanceof Error ? err.message : '密码修改失败')
     } finally {
       setLoading(false)
     }
@@ -47,132 +76,100 @@ export default function SettingsView() {
     setError('')
   }
 
+  const name = user?.displayName || user?.username || '-'
+  const roles = user?.roles && user.roles.length > 0 ? user.roles : [user?.role === 'admin' ? 'admin' : 'operator']
+
   return (
-    <div className="p-4 max-w-md mx-auto">
-      <div className="bg-white rounded-lg shadow p-6 mb-4">
-        <h2 className="text-lg font-semibold mb-4">用户信息</h2>
-        <div className="text-sm text-slate-600 space-y-2">
-          <p>用户名：{user?.username || '-'}</p>
-          <p>显示名：{user?.displayName || '-'}</p>
-          <p>
-            角色：
-            {user?.roles && user.roles.length > 0
-              ? user.roles.join('、')
-              : user?.role === 'admin'
-                ? '管理员'
-                : '操作员'}
+    <div className="p-4 lg:p-6 max-w-3xl mx-auto flex flex-col gap-4">
+      <Card className="p-4 flex items-center gap-3">
+        <span className="w-12 h-12 rounded-full bg-ai text-primary-fg text-lg font-semibold flex items-center justify-center flex-shrink-0">{name.slice(0, 1)}</span>
+        <div className="min-w-0">
+          <p className="font-display text-base font-semibold text-fg truncate">
+            {name} <span className="num text-xs font-normal text-muted ml-1">{user?.username}</span>
           </p>
+          <div className="flex flex-wrap gap-1 mt-1">
+            {roles.map((r) => (
+              <Badge key={r} tone={r === 'admin' ? 'accent' : 'primary'}>
+                {r === 'admin' ? '管理员' : r}
+              </Badge>
+            ))}
+          </div>
         </div>
-      </div>
+      </Card>
 
       <AgentStatusBadge variant="card" showAdminDetails={isAdmin} />
 
-      {isAdmin && !showChangePwd && (
-        <>
+      <section className="flex flex-col gap-2">
+        <h3 className="text-xs text-muted tracking-wider px-1">外观</h3>
+        <Card className="p-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+            {THEMES.map((t) => {
+              const on = pref === t.id || (pref == null && active === t.id)
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => chooseTheme(t.id)}
+                  aria-pressed={on}
+                  className={cn('text-left rounded-xl p-1.5 border-2 transition-colors', on ? 'border-primary' : 'border-transparent hover:border-line')}
+                >
+                  <ThemePreview id={t.id} />
+                  <span className="flex items-center gap-1 mt-1.5 px-0.5 text-[13px] font-medium text-fg">
+                    {on && <Check className="w-3.5 h-3.5 text-primary" />}
+                    {t.name}
+                  </span>
+                  <span className="block px-0.5 text-[11px] text-muted truncate">{t.description}</span>
+                </button>
+              )
+            })}
+          </div>
           <button
-            onClick={() => navigateTo('agents-admin')}
-            className="w-full py-3 bg-indigo-500 text-white rounded-lg font-medium hover:bg-indigo-600 transition-colors mb-4"
+            type="button"
+            onClick={() => chooseTheme('system')}
+            aria-pressed={pref === 'system'}
+            className={cn('mt-2.5 w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border text-left text-[13px] transition-colors', pref === 'system' ? 'border-primary bg-primary-soft text-primary' : 'border-line text-fg-2 hover:bg-surface-2')}
           >
-            Agent 配置管理
+            <Monitor className="w-4 h-4" />
+            <span className="flex-1">跟随系统：系统浅色时用公司默认，深色时用「F 全深色」</span>
+            {pref === 'system' && <Check className="w-4 h-4" />}
           </button>
-          <button
-            onClick={() => navigateTo('bi-admin')}
-            className="w-full py-3 bg-sky-600 text-white rounded-lg font-medium hover:bg-sky-700 transition-colors mb-4"
-          >
-            BI 看板管理
-          </button>
-          <button
-            onClick={() => navigateTo('ai-skills')}
-            className="w-full py-3 bg-violet-500 text-white rounded-lg font-medium hover:bg-violet-600 transition-colors mb-4"
-          >
-            AI Skill 管理
-          </button>
-          <button
-            onClick={() => navigateTo('message-alert-settings')}
-            className="w-full py-3 bg-amber-500 text-white rounded-lg font-medium hover:bg-amber-600 transition-colors mb-4"
-          >
-            消息提醒设置
-          </button>
-          <button
-            onClick={() => navigateTo('scheduled-reports')}
-            className="w-full py-3 bg-teal-500 text-white rounded-lg font-medium hover:bg-teal-600 transition-colors mb-4"
-          >
-            定时报告管理
-          </button>
-          <button
-            onClick={() => navigateTo('alert-push')}
-            className="w-full py-3 bg-orange-500 text-white rounded-lg font-medium hover:bg-orange-600 transition-colors mb-4"
-          >
-            警报推送管理
-          </button>
-        </>
-      )}
+          {pref && pref !== 'system' && (
+            <button type="button" className="mt-2 text-xs text-muted hover:text-fg px-1" onClick={() => saveUserTheme(null).catch(() => undefined)}>
+              恢复公司默认主题
+            </button>
+          )}
+        </Card>
+      </section>
 
-      {!showChangePwd ? (
-        <button
-          onClick={() => setShowChangePwd(true)}
-          className="w-full py-3 bg-sky-500 text-white rounded-lg font-medium hover:bg-sky-600 transition-colors mb-4"
-        >
-          修改密码
-        </button>
-      ) : (
-        <div className="bg-white rounded-lg shadow p-6 mb-4">
-          <h2 className="text-lg font-semibold mb-4">修改密码</h2>
-
-          {error && (
-            <div className="mb-3 p-2 bg-red-50 text-red-600 text-sm rounded">
-              {error}
+      <section className="flex flex-col gap-2">
+        <h3 className="text-xs text-muted tracking-wider px-1">账号</h3>
+        <Card className="overflow-hidden">
+          {isAdmin && (
+            <ListRow icon={<Shield className="w-4 h-4" />} title="管理后台" description="Agent、看板、Skill、菜单权限与推送配置" trailing={<ChevronRight className="w-4 h-4 text-subtle" />} onClick={() => navigateTo('admin')} />
+          )}
+          <ListRow icon={<KeyRound className="w-4 h-4" />} title="修改密码" trailing={<ChevronRight className="w-4 h-4 text-subtle" />} onClick={() => setShowChangePwd((v) => !v)} />
+          {showChangePwd && (
+            <div className="px-4 pb-4 pt-1 border-t border-line flex flex-col gap-3">
+              {error && <div className="p-2 bg-danger-soft text-danger text-sm rounded-lg">{error}</div>}
+              <Field label="新密码">
+                <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="请输入新密码" />
+              </Field>
+              <Field label="确认新密码">
+                <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="请再次输入新密码" />
+              </Field>
+              <div className="flex gap-2">
+                <Button variant="secondary" block onClick={resetForm}>
+                  取消
+                </Button>
+                <Button block onClick={handleChangePassword} disabled={loading}>
+                  {loading ? '修改中…' : '确认修改'}
+                </Button>
+              </div>
             </div>
           )}
-
-          <div className="space-y-3">
-            <div>
-              <label className="block text-sm text-slate-600 mb-1">新密码</label>
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-sky-500"
-                placeholder="请输入新密码"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-slate-600 mb-1">确认新密码</label>
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-sky-500"
-                placeholder="请再次输入新密码"
-              />
-            </div>
-          </div>
-
-          <div className="flex gap-3 mt-4">
-            <button
-              onClick={resetForm}
-              className="flex-1 py-2 border border-slate-300 text-slate-600 rounded-lg text-sm hover:bg-slate-50 transition-colors"
-            >
-              取消
-            </button>
-            <button
-              onClick={handleChangePassword}
-              disabled={loading}
-              className="flex-1 py-2 bg-sky-500 text-white rounded-lg text-sm font-medium hover:bg-sky-600 disabled:opacity-50 transition-colors"
-            >
-              {loading ? '修改中...' : '确认修改'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      <button
-        id="btn-settings-logout"
-        onClick={logout}
-        className="w-full py-3 bg-red-500 text-white rounded-lg font-medium hover:bg-red-600 transition-colors"
-      >
-        退出登录
-      </button>
+          <ListRow id="btn-settings-logout" icon={<LogOut className="w-4 h-4" />} title="退出登录" danger onClick={logout} />
+        </Card>
+      </section>
     </div>
   )
 }

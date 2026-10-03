@@ -162,16 +162,16 @@ export default function WorkRegistrationView() {
   }, [lineInputs, lines, acting, workRegBatchId, showToast, goBack])
 
   if (loading) {
-    return <div className="flex items-center justify-center py-20 text-slate-400">加载中…</div>
+    return <div className="flex items-center justify-center py-20 text-subtle">加载中…</div>
   }
 
   if (error) {
     return (
       <div className="p-4 text-center">
-        <div className="rounded-2xl bg-red-50 border border-red-200 text-red-700 p-4 text-sm whitespace-pre-wrap">
+        <div className="rounded-2xl bg-danger-soft border border-danger/25 text-danger p-4 text-sm whitespace-pre-wrap">
           {error}
         </div>
-        <button onClick={goBack} className="mt-4 text-sky-600 underline text-sm">返回</button>
+        <button onClick={goBack} className="mt-4 text-primary underline text-sm">返回</button>
       </div>
     )
   }
@@ -179,16 +179,16 @@ export default function WorkRegistrationView() {
   const status = batch?.status ?? ''
 
   return (
-    <div className="flex flex-col min-h-screen bg-slate-50 pb-4">
+    <div className="flex flex-col min-h-screen bg-surface-2 pb-4">
       {/* Header */}
-      <div className="m-3 rounded-2xl bg-white shadow-sm border border-slate-100 p-4">
+      <div className="m-3 rounded-2xl bg-surface shadow-sm border border-line p-4">
         <h2 className="text-base font-semibold mb-2">报工登记</h2>
-        <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-slate-600">
+        <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-fg-2">
           <span>账号：{user?.username || '—'}</span>
           <span>状态：
             <span className={
-              status === 'in_progress' ? 'text-emerald-600 font-medium'
-              : status === 'paused' ? 'text-amber-600 font-medium'
+              status === 'in_progress' ? 'text-success font-medium'
+              : status === 'paused' ? 'text-warning font-medium'
               : ''
             }>
               {batchStatusLabel(status)}
@@ -203,7 +203,7 @@ export default function WorkRegistrationView() {
             <button
               disabled={acting}
               onClick={handleAccept}
-              className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium active:bg-emerald-700 disabled:opacity-50"
+              className="px-4 py-2 rounded-xl bg-success text-white text-sm font-medium active:bg-success disabled:opacity-50"
             >
               接单开工
             </button>
@@ -212,7 +212,7 @@ export default function WorkRegistrationView() {
             <button
               disabled={acting}
               onClick={handlePause}
-              className="px-4 py-2 rounded-xl bg-amber-500 text-white text-sm font-medium active:bg-amber-600 disabled:opacity-50"
+              className="px-4 py-2 rounded-xl bg-warning text-white text-sm font-medium active:bg-warning disabled:opacity-50"
             >
               暂停
             </button>
@@ -221,7 +221,7 @@ export default function WorkRegistrationView() {
             <button
               disabled={acting}
               onClick={handleResume}
-              className="px-4 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium active:bg-emerald-700 disabled:opacity-50"
+              className="px-4 py-2 rounded-xl bg-success text-white text-sm font-medium active:bg-success disabled:opacity-50"
             >
               继续开工
             </button>
@@ -230,7 +230,7 @@ export default function WorkRegistrationView() {
             <button
               disabled={acting}
               onClick={handleSubmit}
-              className="px-4 py-2 rounded-xl bg-sky-600 text-white text-sm font-medium active:bg-sky-700 disabled:opacity-50"
+              className="px-4 py-2 rounded-xl bg-primary text-primary-fg text-sm font-medium active:bg-primary-hover disabled:opacity-50"
             >
               提交报工
             </button>
@@ -242,7 +242,7 @@ export default function WorkRegistrationView() {
       <div className="mx-3 overflow-x-auto">
         <table className="w-full text-sm border-collapse">
           <thead>
-            <tr className="bg-slate-100 text-slate-600">
+            <tr className="bg-surface-2 text-fg-2">
               <th className="text-left px-3 py-2 rounded-tl-xl">订单</th>
               <th className="text-left px-3 py-2">工序</th>
               <th className="text-center px-3 py-2">良品</th>
@@ -252,7 +252,7 @@ export default function WorkRegistrationView() {
           </thead>
           <tbody>
             {lines.map((line, idx) => (
-              <tr key={line.lineId ?? idx} className="border-b border-slate-100 bg-white">
+              <tr key={line.lineId ?? idx} className="border-b border-line bg-surface">
                 <td className="px-3 py-2 whitespace-nowrap">{line.orderDoc ?? '—'}</td>
                 <td className="px-3 py-2 whitespace-nowrap">{line.stepName ?? '—'}</td>
                 <td className="px-2 py-1.5">
@@ -261,7 +261,7 @@ export default function WorkRegistrationView() {
                     value={lineInputs[idx]?.goodQty ?? ''}
                     onChange={(e) => updateLine(idx, 'goodQty', e.target.value)}
                     placeholder="0"
-                    className="w-20 border border-slate-200 rounded-lg px-2 py-1 text-center focus:outline-none focus:ring-1 focus:ring-sky-300"
+                    className="w-20 border border-line rounded-lg px-2 py-1 text-center focus:outline-none focus:ring-1 focus:ring-primary/25"
                   />
                 </td>
                 <td className="px-2 py-1.5">
@@ -269,7 +269,7 @@ export default function WorkRegistrationView() {
                     type="number"
                     value={lineInputs[idx]?.scrapQty ?? '0'}
                     onChange={(e) => updateLine(idx, 'scrapQty', e.target.value)}
-                    className="w-20 border border-slate-200 rounded-lg px-2 py-1 text-center focus:outline-none focus:ring-1 focus:ring-sky-300"
+                    className="w-20 border border-line rounded-lg px-2 py-1 text-center focus:outline-none focus:ring-1 focus:ring-primary/25"
                   />
                 </td>
                 <td className="px-2 py-1.5">
@@ -278,14 +278,14 @@ export default function WorkRegistrationView() {
                     value={lineInputs[idx]?.remark ?? ''}
                     onChange={(e) => updateLine(idx, 'remark', e.target.value)}
                     placeholder=""
-                    className="w-full min-w-[80px] border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-sky-300"
+                    className="w-full min-w-[80px] border border-line rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-primary/25"
                   />
                 </td>
               </tr>
             ))}
             {lines.length === 0 && (
               <tr>
-                <td colSpan={5} className="text-center py-8 text-slate-400">暂无明细</td>
+                <td colSpan={5} className="text-center py-8 text-subtle">暂无明细</td>
               </tr>
             )}
           </tbody>

@@ -473,15 +473,15 @@ export default function AiChatView() {
   )
 
   return (
-    <div className="flex flex-col bg-slate-50 min-h-[calc(100dvh-7.5rem)] max-w-2xl mx-auto md:max-w-none relative">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 bg-white/80">
+    <div className="flex flex-col bg-surface-2 min-h-[calc(100dvh-7.5rem)] max-w-2xl mx-auto md:max-w-none relative">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-line bg-surface/80">
         <button
           type="button"
           onClick={() => {
             setShowHistory((v) => !v)
             void refreshConversations()
           }}
-          className="text-xs text-sky-600"
+          className="text-xs text-primary"
         >
           ☰ 历史对话
         </button>
@@ -489,18 +489,18 @@ export default function AiChatView() {
           <button
             type="button"
             onClick={() => setShowSkills((v) => !v)}
-            className="text-xs text-slate-500"
+            className="text-xs text-muted"
           >
             AI 智能助手
-            <span className="ml-1 text-violet-600">· {skills.length} 个 Skill</span>
+            <span className="ml-1 text-accent">· {skills.length} 个 Skill</span>
           </button>
         ) : (
-          <p className="text-xs text-slate-500">AI 智能助手</p>
+          <p className="text-xs text-muted">AI 智能助手</p>
         )}
-        <button type="button" onClick={startNewChat} disabled={loading} className="text-xs text-sky-600 disabled:text-slate-300">
+        <button type="button" onClick={startNewChat} disabled={loading} className="text-xs text-primary disabled:text-subtle">
           + 新对话
         </button>
-        <button type="button" onClick={clearChat} disabled={loading || messages.length === 0} className="text-xs text-rose-500 disabled:text-slate-300">
+        <button type="button" onClick={clearChat} disabled={loading || messages.length === 0} className="text-xs text-danger disabled:text-subtle">
           清空
         </button>
       </div>
@@ -509,16 +509,16 @@ export default function AiChatView() {
       {showSkills && skills.length > 0 && (
         <div className="absolute inset-0 z-30 bg-black/20" onClick={() => setShowSkills(false)}>
           <div
-            className="absolute left-3 right-3 top-12 max-h-[70vh] bg-white shadow-xl rounded-xl p-3 overflow-y-auto"
+            className="absolute left-3 right-3 top-12 max-h-[70vh] bg-surface shadow-xl rounded-xl p-3 overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-slate-700">可用 Skill（{skills.length}）</span>
-              <button type="button" onClick={() => setShowSkills(false)} className="text-xs text-slate-400">
+              <span className="text-sm font-medium text-fg-2">可用 Skill（{skills.length}）</span>
+              <button type="button" onClick={() => setShowSkills(false)} className="text-xs text-subtle">
                 关闭
               </button>
             </div>
-            <p className="text-[10px] text-slate-400 mb-2">点击后将开启新对话并发送（确保 Skill 工作流完整加载）</p>
+            <p className="text-[10px] text-subtle mb-2">点击后将开启新对话并发送（确保 Skill 工作流完整加载）</p>
             <div className="space-y-2">
               {skills.map((s) => (
                 <button
@@ -529,17 +529,17 @@ export default function AiChatView() {
                     setShowSkills(false)
                     invokeSkill(s)
                   }}
-                  className="w-full text-left rounded-xl border border-violet-200 bg-violet-50/80 px-3 py-2.5 active:bg-violet-100 disabled:opacity-50"
+                  className="w-full text-left rounded-xl border border-accent/25 bg-accent-soft/80 px-3 py-2.5 active:bg-accent-soft disabled:opacity-50"
                 >
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-violet-900">{skillChipLabel(s)}</span>
+                    <span className="text-xs font-medium text-accent">{skillChipLabel(s)}</span>
                     {s.producesDocument && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600 shrink-0">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent-soft text-accent shrink-0">
                         文档
                       </span>
                     )}
                   </div>
-                  <p className="text-[10px] text-violet-700/70 mt-0.5 line-clamp-2">{s.description}</p>
+                  <p className="text-[10px] text-accent/70 mt-0.5 line-clamp-2">{s.description}</p>
                 </button>
               ))}
             </div>
@@ -550,26 +550,26 @@ export default function AiChatView() {
       {showHistory && (
         <div className="absolute inset-0 z-30 bg-black/20" onClick={() => setShowHistory(false)}>
           <div
-            className="absolute left-0 top-0 bottom-0 w-72 bg-white shadow-xl p-3 overflow-y-auto"
+            className="absolute left-0 top-0 bottom-0 w-72 bg-surface shadow-xl p-3 overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-2">
-              <span className="text-sm font-medium text-slate-700">历史对话</span>
-              <button onClick={startNewChat} className="text-xs text-sky-600">+ 新对话</button>
+              <span className="text-sm font-medium text-fg-2">历史对话</span>
+              <button onClick={startNewChat} className="text-xs text-primary">+ 新对话</button>
             </div>
-            {conversations.length === 0 && <p className="text-xs text-slate-400 py-4 text-center">暂无历史</p>}
+            {conversations.length === 0 && <p className="text-xs text-subtle py-4 text-center">暂无历史</p>}
             {conversations.map((c) => (
               <div
                 key={c.id}
                 onClick={() => void openConversation(c.id)}
                 className={`group flex items-center justify-between gap-2 px-2 py-2 rounded-lg cursor-pointer text-sm ${
-                  c.id === conversationId ? 'bg-sky-50 text-sky-800' : 'hover:bg-slate-50 text-slate-700'
+                  c.id === conversationId ? 'bg-primary-soft text-primary' : 'hover:bg-surface-2 text-fg-2'
                 }`}
               >
                 <span className="truncate flex-1">{c.title}</span>
                 <button
                   onClick={(e) => void deleteConversation(c.id, e)}
-                  className="text-xs text-slate-300 hover:text-red-500 shrink-0"
+                  className="text-xs text-subtle hover:text-danger shrink-0"
                 >
                   删除
                 </button>
@@ -581,15 +581,15 @@ export default function AiChatView() {
 
       <div className="flex-1 overflow-y-auto px-3 py-4 space-y-3 pb-40">
         {messages.length === 0 && (
-          <div className="rounded-2xl bg-white border border-slate-100 p-4 text-sm text-slate-600 shadow-sm space-y-3">
+          <div className="rounded-2xl bg-surface border border-line p-4 text-sm text-fg-2 shadow-sm space-y-3">
             <div>
-              <p className="font-medium text-slate-800 mb-1">我可以帮您</p>
-              <p className="text-xs text-slate-500">
+              <p className="font-medium text-fg mb-1">我可以帮您</p>
+              <p className="text-xs text-muted">
                 知识问答（操作说明）、按权限查询报表数据（如客户销售额）。
               </p>
             </div>
             <div>
-              <p className="text-xs font-medium text-slate-500 mb-2">快捷提问</p>
+              <p className="text-xs font-medium text-muted mb-2">快捷提问</p>
               <div className="flex flex-wrap gap-2">
                 {topics.map((t) => (
                   <button
@@ -597,7 +597,7 @@ export default function AiChatView() {
                     type="button"
                     disabled={loading}
                     onClick={() => void sendText(t.question)}
-                    className="text-left text-xs px-3 py-2 rounded-full border border-sky-200 bg-sky-50 text-sky-800 active:bg-sky-100 disabled:opacity-50"
+                    className="text-left text-xs px-3 py-2 rounded-full border border-primary/25 bg-primary-soft text-primary active:bg-primary-soft disabled:opacity-50"
                   >
                     {t.question}
                   </button>
@@ -631,8 +631,8 @@ export default function AiChatView() {
                 (m.role === 'user' ? 'max-w-[88%] ' : 'max-w-full w-full ') +
                 'rounded-2xl break-words ' +
                 (m.role === 'user'
-                  ? 'px-3 py-2.5 text-sm bg-sky-600 text-white rounded-br-md whitespace-pre-wrap'
-                  : 'px-3.5 py-3 text-sm bg-white border border-slate-100 text-slate-800 shadow-sm rounded-bl-md')
+                  ? 'px-3 py-2.5 text-sm bg-primary text-white rounded-br-md whitespace-pre-wrap'
+                  : 'px-3.5 py-3 text-sm bg-surface border border-line text-fg shadow-sm rounded-bl-md')
               }
             >
               {m.role === 'assistant' ? (
@@ -650,14 +650,14 @@ export default function AiChatView() {
               m.clarification &&
               !m.clarificationResolved &&
               m.clarification.type === 'save_confirm' && (
-                <div className="mt-2 max-w-[88%] w-full rounded-xl border border-amber-300 bg-amber-50 p-3">
-                  <p className="text-xs font-medium text-amber-800 mb-2">
+                <div className="mt-2 max-w-[88%] w-full rounded-xl border border-warning/40 bg-warning-soft p-3">
+                  <p className="text-xs font-medium text-warning mb-2">
                     即将保存到「{m.clarification.entity}」，请确认：
                   </p>
-                  <div className="text-xs text-slate-700 space-y-1 mb-3">
+                  <div className="text-xs text-fg-2 space-y-1 mb-3">
                     {Object.entries(m.clarification.payload || {}).map(([k, v]) => (
                       <div key={k} className="flex gap-2">
-                        <span className="text-slate-400 shrink-0">{k}：</span>
+                        <span className="text-subtle shrink-0">{k}：</span>
                         <span className="break-all">{String(v)}</span>
                       </div>
                     ))}
@@ -667,7 +667,7 @@ export default function AiChatView() {
                       type="button"
                       disabled={loading}
                       onClick={() => void confirmSave(i, true)}
-                      className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white active:bg-emerald-700 disabled:opacity-50"
+                      className="text-xs px-3 py-1.5 rounded-lg bg-success text-white active:bg-success disabled:opacity-50"
                     >
                       确认保存
                     </button>
@@ -675,7 +675,7 @@ export default function AiChatView() {
                       type="button"
                       disabled={loading}
                       onClick={() => void confirmSave(i, false)}
-                      className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 disabled:opacity-50"
+                      className="text-xs px-3 py-1.5 rounded-lg border border-line-strong text-fg-2 disabled:opacity-50"
                     >
                       取消
                     </button>
@@ -689,7 +689,7 @@ export default function AiChatView() {
               m.clarification.type !== 'save_confirm' && (
                 <div className="mt-2 flex flex-wrap gap-2 max-w-[88%]">
                   {m.clarification.options.length === 0 && (
-                    <span className="text-xs text-slate-400">（无候选项）</span>
+                    <span className="text-xs text-subtle">（无候选项）</span>
                   )}
                   {m.clarification.options.map((opt, j) => (
                     <button
@@ -697,7 +697,7 @@ export default function AiChatView() {
                       type="button"
                       disabled={loading}
                       onClick={() => void chooseOption(i, m.clarification!.field, opt)}
-                      className="text-xs px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 active:bg-amber-100 disabled:opacity-50"
+                      className="text-xs px-3 py-1.5 rounded-lg border border-warning/40 bg-warning-soft text-warning active:bg-warning-soft disabled:opacity-50"
                     >
                       {opt.label}
                     </button>
@@ -711,14 +711,14 @@ export default function AiChatView() {
                   key={`doc-${j}`}
                   type="button"
                   onClick={() => downloadDocument(url).catch(() => showToast('下载失败'))}
-                  className="mt-2 text-xs px-3 py-1.5 rounded-lg border border-violet-300 bg-violet-50 text-violet-700 active:bg-violet-100"
+                  className="mt-2 text-xs px-3 py-1.5 rounded-lg border border-accent/40 bg-accent-soft text-accent active:bg-accent-soft"
                 >
                   ⬇ 下载文档
                 </button>
               ))}
 
             {m.role === 'assistant' && m.sources && m.sources.length > 0 && (
-              <p className="mt-1 text-[10px] text-slate-400 px-1 max-w-[88%]">参考：{m.sources.join(' · ')}</p>
+              <p className="mt-1 text-[10px] text-subtle px-1 max-w-[88%]">参考：{m.sources.join(' · ')}</p>
             )}
             {m.role === 'assistant' && m.actions && m.actions.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-2 max-w-[88%]">
@@ -727,7 +727,7 @@ export default function AiChatView() {
                     key={j}
                     type="button"
                     onClick={() => runHelpNavAction(action, navStore)}
-                    className="text-xs px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-800 active:bg-emerald-100"
+                    className="text-xs px-3 py-1.5 rounded-lg border border-success/25 bg-success-soft text-success active:bg-success-soft"
                   >
                     {action.label}
                   </button>
@@ -737,29 +737,29 @@ export default function AiChatView() {
 
             {m.role === 'assistant' && m.content && m.content !== '（无内容）' && (
               <div className="mt-1.5 flex items-center gap-0.5 px-0.5 text-[11px]">
-                <button type="button" onClick={() => copyMessage(m.content)} className="px-1.5 py-0.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100">
+                <button type="button" onClick={() => copyMessage(m.content)} className="px-1.5 py-0.5 rounded text-subtle hover:text-fg-2 hover:bg-surface-2">
                   复制
                 </button>
-                <button type="button" onClick={() => setQuotedMsg({ index: i, text: m.content.slice(0, 200) })} className="px-1.5 py-0.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100">
+                <button type="button" onClick={() => setQuotedMsg({ index: i, text: m.content.slice(0, 200) })} className="px-1.5 py-0.5 rounded text-subtle hover:text-fg-2 hover:bg-surface-2">
                   引用
                 </button>
                 {i === messages.length - 1 && (
-                  <button type="button" onClick={regenerate} disabled={loading} className="px-1.5 py-0.5 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-30">
+                  <button type="button" onClick={regenerate} disabled={loading} className="px-1.5 py-0.5 rounded text-subtle hover:text-fg-2 hover:bg-surface-2 disabled:opacity-30">
                     重新生成
                   </button>
                 )}
-                <span className="mx-0.5 text-slate-200">|</span>
+                <span className="mx-0.5 text-inverse-fg">|</span>
                 <button
                   type="button"
                   onClick={() => setFeedback((f) => ({ ...f, [i]: f[i] === 'up' ? undefined! : 'up' }))}
-                  className={`px-1.5 py-0.5 rounded ${feedback[i] === 'up' ? 'text-emerald-600 bg-emerald-50' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}
+                  className={`px-1.5 py-0.5 rounded ${feedback[i] === 'up' ? 'text-success bg-success-soft' : 'text-subtle hover:text-fg-2 hover:bg-surface-2'}`}
                 >
                   有用
                 </button>
                 <button
                   type="button"
                   onClick={() => setFeedback((f) => ({ ...f, [i]: f[i] === 'down' ? undefined! : 'down' }))}
-                  className={`px-1.5 py-0.5 rounded ${feedback[i] === 'down' ? 'text-rose-600 bg-rose-50' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}
+                  className={`px-1.5 py-0.5 rounded ${feedback[i] === 'down' ? 'text-danger bg-danger-soft' : 'text-subtle hover:text-fg-2 hover:bg-surface-2'}`}
                 >
                   没用
                 </button>
@@ -774,13 +774,13 @@ export default function AiChatView() {
               <>
                 <AgentLiveTrace live={live} />
                 {stripActionsBlock(live.text).trim() && (
-                  <div className="max-w-full w-full rounded-2xl rounded-bl-md px-3.5 py-3 text-sm bg-white border border-slate-100 text-slate-800 shadow-sm break-words">
+                  <div className="max-w-full w-full rounded-2xl rounded-bl-md px-3.5 py-3 text-sm bg-surface border border-line text-fg shadow-sm break-words">
                     <ChatMarkdown content={stripActionsBlock(live.text)} />
                   </div>
                 )}
               </>
             ) : (
-              <div className="rounded-2xl rounded-bl-md bg-white border border-slate-100 px-4 py-3 text-sm text-slate-400 shadow-sm">
+              <div className="rounded-2xl rounded-bl-md bg-surface border border-line px-4 py-3 text-sm text-subtle shadow-sm">
                 <span className="animate-pulse">正在处理…</span>
               </div>
             )}
@@ -790,23 +790,23 @@ export default function AiChatView() {
       </div>
 
       <div
-        className="fixed left-0 right-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur"
+        className="fixed left-0 right-0 z-40 border-t border-line bg-surface/95 backdrop-blur"
         style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom, 0px))' }}
       >
         <div className="max-w-2xl mx-auto md:max-w-none px-3 py-2">
           {quotedMsg && (
-            <div className="mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100 border-l-2 border-sky-400 text-[11px] text-slate-600">
+            <div className="mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-2 border-l-2 border-primary/60 text-[11px] text-fg-2">
               <span className="flex-1 line-clamp-1">引用：{quotedMsg.text}</span>
-              <button type="button" onClick={() => setQuotedMsg(null)} className="text-slate-400 hover:text-slate-600 shrink-0">✕</button>
+              <button type="button" onClick={() => setQuotedMsg(null)} className="text-subtle hover:text-fg-2 shrink-0">✕</button>
             </div>
           )}
           {showSlashMenu && (
-            <div className="mb-2 max-h-60 overflow-y-auto rounded-xl border border-violet-200 bg-white shadow-lg">
-              <div className="px-3 py-1.5 text-[10px] text-slate-400 border-b border-slate-100 sticky top-0 bg-white">
+            <div className="mb-2 max-h-60 overflow-y-auto rounded-xl border border-accent/25 bg-surface shadow-lg">
+              <div className="px-3 py-1.5 text-[10px] text-subtle border-b border-line sticky top-0 bg-surface">
                 调用 Skill{slashQuery ? `（匹配「${slashQuery}」）` : ''} · 点击直接发起
               </div>
               {slashMatches.length === 0 ? (
-                <div className="px-3 py-3 text-xs text-slate-400">无匹配的 Skill</div>
+                <div className="px-3 py-3 text-xs text-subtle">无匹配的 Skill</div>
               ) : (
                 slashMatches.map((s) => (
                   <button
@@ -814,17 +814,17 @@ export default function AiChatView() {
                     type="button"
                     disabled={loading}
                     onClick={() => selectSlashSkill(s)}
-                    className="w-full text-left px-3 py-2 border-b border-slate-50 last:border-0 hover:bg-violet-50 active:bg-violet-100 disabled:opacity-50"
+                    className="w-full text-left px-3 py-2 border-b border-line last:border-0 hover:bg-accent-soft active:bg-accent-soft disabled:opacity-50"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium text-violet-900">/{s.name}</span>
+                      <span className="text-xs font-medium text-accent">/{s.name}</span>
                       {s.producesDocument && (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-600 shrink-0">
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent-soft text-accent shrink-0">
                           文档
                         </span>
                       )}
                     </div>
-                    <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-1">{s.description}</p>
+                    <p className="text-[10px] text-muted mt-0.5 line-clamp-1">{s.description}</p>
                   </button>
                 ))
               )}
@@ -850,7 +850,7 @@ export default function AiChatView() {
               maxLength={8000}
               placeholder="输入问题；输入 / 调用 Skill（如 /report-query）"
               disabled={loading}
-              className="flex-1 resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 disabled:bg-slate-50"
+              className="flex-1 resize-none rounded-xl border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/25 disabled:bg-surface-2"
             />
             <button
               type="button"
@@ -868,7 +868,7 @@ export default function AiChatView() {
               disabled={loading ? false : !input.trim() || (showSlashMenu && slashMatches.length === 0)}
               className={
                 'shrink-0 rounded-xl px-4 py-2 text-sm font-medium text-white disabled:opacity-40 disabled:cursor-not-allowed ' +
-                (loading ? 'bg-rose-500 active:bg-rose-600' : 'bg-sky-600 active:bg-sky-700')
+                (loading ? 'bg-danger active:bg-danger' : 'bg-primary active:bg-primary-hover')
               }
             >
               {loading ? '⏹ 停止' : showSlashMenu ? '调用' : '发送'}

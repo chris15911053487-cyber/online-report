@@ -18,6 +18,7 @@ const semantic = {
   danger: { DEFAULT: v('danger'), soft: v('danger-soft') },
   info: { DEFAULT: v('info'), soft: v('info-soft') },
   inverse: { DEFAULT: v('inverse'), fg: v('inverse-fg') },
+  chart: Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8].map((i) => [i, v(`chart-${i}`)])),
   chrome: {
     DEFAULT: v('chrome'),
     fg: v('chrome-fg'),

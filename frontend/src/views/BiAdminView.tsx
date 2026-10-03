@@ -125,15 +125,15 @@ const CARDS_PLACEHOLDER = `[
 ]`
 
 const inputCls =
-  'w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-sky-500'
+  'w-full px-3 py-2 border border-line-strong rounded-lg text-sm focus:outline-none focus:border-primary'
 const monoCls = inputCls + ' font-mono text-[12px] leading-relaxed'
-const labelCls = 'block text-[13px] font-medium text-slate-600 mb-1'
+const labelCls = 'block text-[13px] font-medium text-fg-2 mb-1'
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-lg border border-slate-200 p-4 mb-3">
-      <h3 className="text-sm font-semibold text-slate-800 mb-0.5">{title}</h3>
-      {hint && <p className="text-[12px] text-slate-400 mb-3">{hint}</p>}
+    <div className="bg-surface rounded-lg border border-line p-4 mb-3">
+      <h3 className="text-sm font-semibold text-fg mb-0.5">{title}</h3>
+      {hint && <p className="text-[12px] text-subtle mb-3">{hint}</p>}
       <div className={hint ? '' : 'mt-3'}>{children}</div>
     </div>
   )
@@ -250,18 +250,18 @@ function QueryEditor({
 
   return (
     <div className="p-4 pb-24">
-      <button onClick={() => onDone(false)} className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700 mb-3">
+      <button onClick={() => onDone(false)} className="flex items-center gap-1 text-sm text-muted hover:text-fg-2 mb-3">
         <ChevronLeft className="w-4 h-4" />
         返回列表
       </button>
-      <h2 className="text-lg font-semibold text-slate-900 mb-3">{isNew ? '新增查询' : `编辑：${d.label || d.queryKey}`}</h2>
+      <h2 className="text-lg font-semibold text-fg mb-3">{isNew ? '新增查询' : `编辑：${d.label || d.queryKey}`}</h2>
 
       <Section title="基本信息">
         <div className="space-y-3">
           <div>
             <label className={labelCls}>查询标识（queryKey）</label>
             <input className={inputCls} value={d.queryKey} disabled={!isNew} onChange={(e) => patch({ queryKey: e.target.value })} placeholder="fin_ar_by_customer" />
-            <p className="text-[11px] text-slate-400 mt-1">小写字母开头，仅小写字母/数字/下划线/连字符；创建后不可修改</p>
+            <p className="text-[11px] text-subtle mt-1">小写字母开头，仅小写字母/数字/下划线/连字符；创建后不可修改</p>
           </div>
           <div>
             <label className={labelCls}>显示名称</label>
@@ -300,13 +300,13 @@ function QueryEditor({
           <div>
             <label className={labelCls}>结果缓存（秒）</label>
             <input type="number" className={inputCls} value={d.cacheSecs} onChange={(e) => patch({ cacheSecs: Number(e.target.value) })} />
-            <p className="text-[11px] text-slate-400 mt-1">0 = 不缓存。缓存按「参数 + 用户角色组合」分别保存，不同角色不会共享结果</p>
+            <p className="text-[11px] text-subtle mt-1">0 = 不缓存。缓存按「参数 + 用户角色组合」分别保存，不同角色不会共享结果</p>
           </div>
           <div>
             <label className={labelCls}>可见角色（未勾选 = 仅管理员）</label>
             <div className="flex flex-wrap gap-2">
               {availableRoles.map((r) => (
-                <label key={r} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-slate-200 text-[12px] cursor-pointer">
+                <label key={r} className="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-line text-[12px] cursor-pointer">
                   <input
                     type="checkbox"
                     checked={d.roles.includes(r)}
@@ -319,7 +319,7 @@ function QueryEditor({
           </div>
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" className="w-4 h-4" checked={d.enabled} onChange={(e) => patch({ enabled: e.target.checked })} />
-            <span className="text-sm text-slate-700">启用</span>
+            <span className="text-sm text-fg-2">启用</span>
           </label>
         </div>
       </Section>
@@ -327,30 +327,30 @@ function QueryEditor({
       <Section title="试运行" hint="用当前表单里的定义执行（无需先保存），最多返回 50 行，不走缓存。">
         <div className="space-y-2">
           <textarea className={monoCls} rows={2} value={testParamsText} onChange={(e) => setTestParamsText(e.target.value)} placeholder='{ "period": "2026-09" }' spellCheck={false} />
-          <button onClick={() => void runTest()} disabled={testing} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm disabled:opacity-60">
+          <button onClick={() => void runTest()} disabled={testing} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-success text-white text-sm disabled:opacity-60">
             <Play className="w-3.5 h-3.5" />
             {testing ? '执行中…' : '试运行'}
           </button>
-          {testError && <p className="text-[12px] text-red-600 break-all">{testError}</p>}
+          {testError && <p className="text-[12px] text-danger break-all">{testError}</p>}
           {testResult && (
             <div>
-              <p className="text-[12px] text-slate-500 mb-1">
+              <p className="text-[12px] text-muted mb-1">
                 {testResult.rowCount} 行{testResult.truncated ? '（已截断）' : ''} · {testResult.durationMs} ms
               </p>
-              <div className="overflow-auto max-h-72 border border-slate-200 rounded">
+              <div className="overflow-auto max-h-72 border border-line rounded">
                 <table className="min-w-full text-[12px]">
-                  <thead className="bg-slate-50 sticky top-0">
+                  <thead className="bg-surface-2 sticky top-0">
                     <tr>
                       {testResult.columns.map((c) => (
-                        <th key={c} className="px-2 py-1 text-left font-medium text-slate-600 whitespace-nowrap">{c}</th>
+                        <th key={c} className="px-2 py-1 text-left font-medium text-fg-2 whitespace-nowrap">{c}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {testResult.rows.map((row, i) => (
-                      <tr key={i} className="border-t border-slate-100">
+                      <tr key={i} className="border-t border-line">
                         {testResult.columns.map((c) => (
-                          <td key={c} className="px-2 py-1 whitespace-nowrap text-slate-700">{row[c] == null ? '' : String(row[c])}</td>
+                          <td key={c} className="px-2 py-1 whitespace-nowrap text-fg-2">{row[c] == null ? '' : String(row[c])}</td>
                         ))}
                       </tr>
                     ))}
@@ -362,9 +362,9 @@ function QueryEditor({
         </div>
       </Section>
 
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-3 flex gap-2 z-10">
-        <button onClick={() => onDone(false)} className="flex-1 py-2.5 border border-slate-300 rounded-lg text-sm text-slate-600">取消</button>
-        <button onClick={() => void save()} disabled={saving} className="flex-1 py-2.5 bg-indigo-500 text-white rounded-lg text-sm font-medium disabled:opacity-60">
+      <div className="fixed bottom-0 left-0 right-0 bg-surface border-t border-line p-3 flex gap-2 z-10">
+        <button onClick={() => onDone(false)} className="flex-1 py-2.5 border border-line-strong rounded-lg text-sm text-fg-2">取消</button>
+        <button onClick={() => void save()} disabled={saving} className="flex-1 py-2.5 bg-primary text-primary-fg rounded-lg text-sm font-medium disabled:opacity-60">
           {saving ? '保存中…' : '保存'}
         </button>
       </div>
@@ -419,11 +419,11 @@ function DashboardEditor({
 
   return (
     <div className="p-4 pb-24">
-      <button onClick={() => onDone(false)} className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700 mb-3">
+      <button onClick={() => onDone(false)} className="flex items-center gap-1 text-sm text-muted hover:text-fg-2 mb-3">
         <ChevronLeft className="w-4 h-4" />
         返回列表
       </button>
-      <h2 className="text-lg font-semibold text-slate-900 mb-3">{isNew ? '新增看板' : `编辑：${d.label || d.dashboardKey}`}</h2>
+      <h2 className="text-lg font-semibold text-fg mb-3">{isNew ? '新增看板' : `编辑：${d.label || d.dashboardKey}`}</h2>
 
       <Section title="基本信息">
         <div className="space-y-3">
@@ -441,7 +441,7 @@ function DashboardEditor({
           </div>
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" className="w-4 h-4" checked={d.enabled} onChange={(e) => patch({ enabled: e.target.checked })} />
-            <span className="text-sm text-slate-700">启用</span>
+            <span className="text-sm text-fg-2">启用</span>
           </label>
         </div>
       </Section>
@@ -462,17 +462,17 @@ function DashboardEditor({
 
       <Section title="可引用的查询" hint="来自查询库；卡片与下钻的 queryKey 须在此列表中。">
         {availableQueries.length === 0 ? (
-          <p className="text-[13px] text-slate-400">查询库为空，请先到「查询库」页签新增。</p>
+          <p className="text-[13px] text-subtle">查询库为空，请先到「查询库」页签新增。</p>
         ) : (
           <div className="space-y-1.5 max-h-72 overflow-y-auto">
             {availableQueries.map((q) => (
-              <div key={q.queryKey} className="p-2 rounded border border-slate-200 text-[12px]">
+              <div key={q.queryKey} className="p-2 rounded border border-line text-[12px]">
                 <div className="flex items-center gap-1.5">
-                  <code className="font-medium text-slate-800">{q.queryKey}</code>
-                  <span className="text-slate-500">{q.label}</span>
-                  {!q.enabled && <span className="text-[10px] px-1.5 rounded bg-slate-100 text-slate-500">已停用</span>}
+                  <code className="font-medium text-fg">{q.queryKey}</code>
+                  <span className="text-muted">{q.label}</span>
+                  {!q.enabled && <span className="text-[10px] px-1.5 rounded bg-surface-2 text-muted">已停用</span>}
                 </div>
-                <div className="text-slate-400 mt-0.5">
+                <div className="text-subtle mt-0.5">
                   参数：{q.params.length ? q.params.map((p) => p.name).join('、') : '无'}
                   {q.dimensions.length > 0 && ` · 维度：${q.dimensions.map((x) => x.column).join('、')}`}
                 </div>
@@ -482,9 +482,9 @@ function DashboardEditor({
         )}
       </Section>
 
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-3 flex gap-2 z-10">
-        <button onClick={() => onDone(false)} className="flex-1 py-2.5 border border-slate-300 rounded-lg text-sm text-slate-600">取消</button>
-        <button onClick={() => void save()} disabled={saving} className="flex-1 py-2.5 bg-indigo-500 text-white rounded-lg text-sm font-medium disabled:opacity-60">
+      <div className="fixed bottom-0 left-0 right-0 bg-surface border-t border-line p-3 flex gap-2 z-10">
+        <button onClick={() => onDone(false)} className="flex-1 py-2.5 border border-line-strong rounded-lg text-sm text-fg-2">取消</button>
+        <button onClick={() => void save()} disabled={saving} className="flex-1 py-2.5 bg-primary text-primary-fg rounded-lg text-sm font-medium disabled:opacity-60">
           {saving ? '保存中…' : '保存'}
         </button>
       </div>
@@ -495,7 +495,7 @@ function DashboardEditor({
 // ═══════════════════════════════ 主视图 ═══════════════════════════════
 
 export default function BiAdminView() {
-  const { showToast, goBack } = useStore()
+  const { showToast } = useStore()
   const [tab, setTab] = useState<'queries' | 'dashboards'>('queries')
   const [queries, setQueries] = useState<BiQueryAdmin[]>([])
   const [availableRoles, setAvailableRoles] = useState<string[]>([])
@@ -576,7 +576,7 @@ export default function BiAdminView() {
   const tabBtn = (key: typeof tab, text: string) => (
     <button
       onClick={() => setTab(key)}
-      className={`flex-1 py-2 text-sm rounded-md transition-colors ${tab === key ? 'bg-white shadow text-slate-900 font-medium' : 'text-slate-500'}`}
+      className={`flex-1 py-2 text-sm rounded-md transition-colors ${tab === key ? 'bg-surface shadow text-fg font-medium' : 'text-muted'}`}
       aria-pressed={tab === key}
     >
       {text}
@@ -587,8 +587,8 @@ export default function BiAdminView() {
     <div className="p-4">
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">BI 看板管理</h2>
-          <p className="text-[12px] text-slate-500 mt-0.5">查询库供卡片、下钻和 Agent 追问共用；看板在「Agent 配置」里关联</p>
+          <h2 className="text-lg font-semibold text-fg">BI 看板管理</h2>
+          <p className="text-[12px] text-muted mt-0.5">查询库供卡片、下钻和 Agent 追问共用；看板在「Agent 配置」里关联</p>
         </div>
         <button
           onClick={() =>
@@ -596,41 +596,41 @@ export default function BiAdminView() {
               ? setEditQuery({ draft: { ...EMPTY_QUERY }, isNew: true })
               : setEditDashboard({ draft: { ...EMPTY_DASHBOARD }, isNew: true })
           }
-          className="flex items-center gap-1 px-3 py-2 bg-indigo-500 text-white rounded-lg text-sm font-medium hover:bg-indigo-600 flex-shrink-0"
+          className="flex items-center gap-1 px-3 py-2 bg-primary text-primary-fg rounded-lg text-sm font-medium hover:bg-primary-hover flex-shrink-0"
         >
           <Plus className="w-4 h-4" />
           新增
         </button>
       </div>
 
-      <div className="flex gap-1 p-1 bg-slate-100 rounded-lg mb-3" role="tablist">
+      <div className="flex gap-1 p-1 bg-surface-2 rounded-lg mb-3" role="tablist">
         {tabBtn('queries', `查询库（${queries.length}）`)}
         {tabBtn('dashboards', `看板（${dashboards.length}）`)}
       </div>
 
-      {loading && <p className="text-sm text-slate-400">加载中…</p>}
-      {!loading && error && <div className="bg-red-50 border border-red-100 text-red-600 text-sm rounded-lg p-3">{error}</div>}
+      {loading && <p className="text-sm text-subtle">加载中…</p>}
+      {!loading && error && <div className="bg-danger-soft border border-danger/25 text-danger text-sm rounded-lg p-3">{error}</div>}
 
       {!loading && !error && tab === 'queries' && (
         <div className="space-y-2">
-          {queries.length === 0 && <p className="text-sm text-slate-400">暂无查询，点「新增」登记第一条。</p>}
+          {queries.length === 0 && <p className="text-sm text-subtle">暂无查询，点「新增」登记第一条。</p>}
           {queries.map((q) => (
-            <div key={q.queryKey} className="bg-white rounded-lg border border-slate-200 p-3.5 flex items-start justify-between gap-2">
+            <div key={q.queryKey} className="bg-surface rounded-lg border border-line p-3.5 flex items-start justify-between gap-2">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[15px] font-semibold text-slate-900">{q.label}</span>
-                  <code className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">{q.queryKey}</code>
-                  {!q.enabled && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">已停用</span>}
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-700">缓存 {q.cacheSecs}s</span>
+                  <span className="text-[15px] font-semibold text-fg">{q.label}</span>
+                  <code className="text-[11px] px-1.5 py-0.5 rounded bg-surface-2 text-muted">{q.queryKey}</code>
+                  {!q.enabled && <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-2 text-muted">已停用</span>}
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary-soft text-primary">缓存 {q.cacheSecs}s</span>
                 </div>
-                {q.caliberNote && <p className="text-[12px] text-slate-500 mt-1">口径：{q.caliberNote}</p>}
-                <p className="text-[12px] text-slate-500 mt-0.5">可见角色：{q.roles.length ? q.roles.join('、') : '仅管理员'}</p>
+                {q.caliberNote && <p className="text-[12px] text-muted mt-1">口径：{q.caliberNote}</p>}
+                <p className="text-[12px] text-muted mt-0.5">可见角色：{q.roles.length ? q.roles.join('、') : '仅管理员'}</p>
               </div>
               <div className="flex gap-1 flex-shrink-0">
-                <button onClick={() => setEditQuery({ draft: queryToDraft(q), isNew: false })} className="p-2 text-slate-400 hover:text-sky-600 rounded-lg" aria-label="编辑">
+                <button onClick={() => setEditQuery({ draft: queryToDraft(q), isNew: false })} className="p-2 text-subtle hover:text-primary rounded-lg" aria-label="编辑">
                   <Pencil className="w-4 h-4" />
                 </button>
-                <button onClick={() => void remove(`/admin/bi/queries/${encodeURIComponent(q.queryKey)}`, q.label)} className="p-2 text-slate-400 hover:text-red-600 rounded-lg" aria-label="删除">
+                <button onClick={() => void remove(`/admin/bi/queries/${encodeURIComponent(q.queryKey)}`, q.label)} className="p-2 text-subtle hover:text-danger rounded-lg" aria-label="删除">
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
@@ -641,27 +641,27 @@ export default function BiAdminView() {
 
       {!loading && !error && tab === 'dashboards' && (
         <div className="space-y-2">
-          {dashboards.length === 0 && <p className="text-sm text-slate-400">暂无看板，点「新增」创建。</p>}
+          {dashboards.length === 0 && <p className="text-sm text-subtle">暂无看板，点「新增」创建。</p>}
           {dashboards.map((d) => (
-            <div key={d.dashboardKey} className="bg-white rounded-lg border border-slate-200 p-3.5 flex items-start justify-between gap-2">
+            <div key={d.dashboardKey} className="bg-surface rounded-lg border border-line p-3.5 flex items-start justify-between gap-2">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[15px] font-semibold text-slate-900">{d.label}</span>
-                  <code className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">{d.dashboardKey}</code>
-                  {!d.enabled && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">已停用</span>}
+                  <span className="text-[15px] font-semibold text-fg">{d.label}</span>
+                  <code className="text-[11px] px-1.5 py-0.5 rounded bg-surface-2 text-muted">{d.dashboardKey}</code>
+                  {!d.enabled && <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-2 text-muted">已停用</span>}
                 </div>
-                <p className="text-[12px] text-slate-500 mt-1">
+                <p className="text-[12px] text-muted mt-1">
                   {d.cards.length} 张卡片 · {d.filters.length} 个筛选
                 </p>
-                <p className="text-[12px] text-slate-500 mt-0.5">
-                  关联 Agent：{d.usedByAgents?.length ? d.usedByAgents.join('、') : <span className="text-amber-600">未关联（在「Agent 配置」里选择）</span>}
+                <p className="text-[12px] text-muted mt-0.5">
+                  关联 Agent：{d.usedByAgents?.length ? d.usedByAgents.join('、') : <span className="text-warning">未关联（在「Agent 配置」里选择）</span>}
                 </p>
               </div>
               <div className="flex gap-1 flex-shrink-0">
-                <button onClick={() => setEditDashboard({ draft: dashboardToDraft(d), isNew: false })} className="p-2 text-slate-400 hover:text-sky-600 rounded-lg" aria-label="编辑">
+                <button onClick={() => setEditDashboard({ draft: dashboardToDraft(d), isNew: false })} className="p-2 text-subtle hover:text-primary rounded-lg" aria-label="编辑">
                   <Pencil className="w-4 h-4" />
                 </button>
-                <button onClick={() => void remove(`/admin/bi/dashboards/${encodeURIComponent(d.dashboardKey)}`, d.label)} className="p-2 text-slate-400 hover:text-red-600 rounded-lg" aria-label="删除">
+                <button onClick={() => void remove(`/admin/bi/dashboards/${encodeURIComponent(d.dashboardKey)}`, d.label)} className="p-2 text-subtle hover:text-danger rounded-lg" aria-label="删除">
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
@@ -670,9 +670,6 @@ export default function BiAdminView() {
         </div>
       )}
 
-      <button onClick={goBack} className="w-full mt-4 py-2.5 border border-slate-300 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50">
-        返回
-      </button>
     </div>
   )
 }

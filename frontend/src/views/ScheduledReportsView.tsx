@@ -154,18 +154,18 @@ export default function ScheduledReportsView() {
     return (
       <div className="p-4 max-w-lg mx-auto">
         <h2 className="text-lg font-semibold mb-4">{editId ? '编辑' : '新增'}推送任务</h2>
-        {error && <div className="mb-3 p-2 bg-red-50 text-red-600 text-sm rounded">{error}</div>}
+        {error && <div className="mb-3 p-2 bg-danger-soft text-danger text-sm rounded">{error}</div>}
         <div className="space-y-3">
           <Field label="任务名称" value={form.name} onChange={(v) => setForm({ ...form, name: v })} placeholder="如：每日生产日报" />
           <Field label="Cron 表达式" value={form.cron_expr} onChange={(v) => setForm({ ...form, cron_expr: v })} placeholder="如：0 8 * * 1-5（工作日8点）" />
           <Field label="关联 Skill（可选）" value={form.skill_name} onChange={(v) => setForm({ ...form, skill_name: v })} placeholder="skill 名称" />
           <div>
-            <label className="block text-sm text-slate-600 mb-1">Prompt 模板</label>
+            <label className="block text-sm text-fg-2 mb-1">Prompt 模板</label>
             <textarea
               value={form.prompt_template}
               onChange={(e) => setForm({ ...form, prompt_template: e.target.value })}
               rows={4}
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-sky-500"
+              className="w-full px-3 py-2 border border-line-strong rounded-lg text-sm focus:outline-none focus:border-primary"
               placeholder="请统计昨天的生产完工数量，按工序汇总..."
             />
           </div>
@@ -178,8 +178,8 @@ export default function ScheduledReportsView() {
           </label>
         </div>
         <div className="flex gap-3 mt-4">
-          <button onClick={() => setMode('list')} className="flex-1 py-2 border border-slate-300 text-slate-600 rounded-lg text-sm hover:bg-slate-50">取消</button>
-          <button onClick={handleSave} className="flex-1 py-2 bg-sky-500 text-white rounded-lg text-sm font-medium hover:bg-sky-600">保存</button>
+          <button onClick={() => setMode('list')} className="flex-1 py-2 border border-line-strong text-fg-2 rounded-lg text-sm hover:bg-surface-2">取消</button>
+          <button onClick={handleSave} className="flex-1 py-2 bg-primary text-primary-fg rounded-lg text-sm font-medium hover:bg-primary-hover">保存</button>
         </div>
       </div>
     )
@@ -190,22 +190,22 @@ export default function ScheduledReportsView() {
       <div className="p-4 max-w-lg mx-auto">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">执行日志 · {logsName}</h2>
-          <button onClick={() => setMode('list')} className="text-sm text-sky-500">返回</button>
+          <button onClick={() => setMode('list')} className="text-sm text-primary">返回</button>
         </div>
         {logs.length === 0 ? (
-          <p className="text-sm text-slate-500">暂无执行记录</p>
+          <p className="text-sm text-muted">暂无执行记录</p>
         ) : (
           <div className="space-y-2">
             {logs.map((l) => (
-              <div key={l.id} className="bg-white rounded-lg shadow p-3 text-sm">
+              <div key={l.id} className="bg-surface rounded-lg shadow p-3 text-sm">
                 <div className="flex justify-between">
-                  <span className={l.status === 'done' ? 'text-green-600' : l.status === 'error' ? 'text-red-600' : 'text-amber-600'}>
+                  <span className={l.status === 'done' ? 'text-success' : l.status === 'error' ? 'text-danger' : 'text-warning'}>
                     {l.status === 'done' ? '✓ 成功' : l.status === 'error' ? '✗ 失败' : l.status === 'skipped' ? '⊘ 跳过' : '⋯ 运行中'}
                   </span>
-                  <span className="text-slate-400">{fmtTime(l.started_at)}</span>
+                  <span className="text-subtle">{fmtTime(l.started_at)}</span>
                 </div>
-                <div className="text-slate-600 mt-1">推送 {l.sent_count}/{l.target_count} 人</div>
-                {l.error_message && <div className="text-red-500 mt-1 text-xs">{l.error_message}</div>}
+                <div className="text-fg-2 mt-1">推送 {l.sent_count}/{l.target_count} 人</div>
+                {l.error_message && <div className="text-danger mt-1 text-xs">{l.error_message}</div>}
               </div>
             ))}
           </div>
@@ -217,26 +217,26 @@ export default function ScheduledReportsView() {
   // list mode
   return (
     <div className="p-4 max-w-lg mx-auto">
-      {error && <div className="mb-3 p-2 bg-red-50 text-red-600 text-sm rounded">{error}</div>}
-      {msg && <div className="mb-3 p-2 bg-green-50 text-green-600 text-sm rounded">{msg}</div>}
-      <button onClick={openCreate} className="w-full py-2 bg-sky-500 text-white rounded-lg text-sm font-medium hover:bg-sky-600 mb-4">
+      {error && <div className="mb-3 p-2 bg-danger-soft text-danger text-sm rounded">{error}</div>}
+      {msg && <div className="mb-3 p-2 bg-success-soft text-success text-sm rounded">{msg}</div>}
+      <button onClick={openCreate} className="w-full py-2 bg-primary text-primary-fg rounded-lg text-sm font-medium hover:bg-primary-hover mb-4">
         ＋ 新增推送任务
       </button>
       {loading ? (
-        <p className="text-sm text-slate-500 text-center">加载中...</p>
+        <p className="text-sm text-muted text-center">加载中...</p>
       ) : items.length === 0 ? (
-        <p className="text-sm text-slate-500 text-center">暂无推送任务</p>
+        <p className="text-sm text-muted text-center">暂无推送任务</p>
       ) : (
         <div className="space-y-3">
           {items.map((r) => (
-            <div key={r.id} className="bg-white rounded-lg shadow p-4">
+            <div key={r.id} className="bg-surface rounded-lg shadow p-4">
               <div className="flex items-center justify-between mb-1">
                 <span className="font-medium text-sm">{r.name}</span>
-                <span className={`text-xs px-2 py-0.5 rounded ${r.enabled ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
+                <span className={`text-xs px-2 py-0.5 rounded ${r.enabled ? 'bg-success-soft text-success' : 'bg-surface-2 text-muted'}`}>
                   {r.enabled ? '启用' : '禁用'}
                 </span>
               </div>
-              <div className="text-xs text-slate-500 mb-2">
+              <div className="text-xs text-muted mb-2">
                 <span className="mr-3">⏰ {r.cron_expr}</span>
                 <span>{safeJsonParse(r.channels_json)?.join(', ')}</span>
               </div>
@@ -257,11 +257,11 @@ export default function ScheduledReportsView() {
 function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
   return (
     <div>
-      <label className="block text-sm text-slate-600 mb-1">{label}</label>
+      <label className="block text-sm text-fg-2 mb-1">{label}</label>
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-sky-500"
+        className="w-full px-3 py-2 border border-line-strong rounded-lg text-sm focus:outline-none focus:border-primary"
         placeholder={placeholder}
       />
     </div>
@@ -272,7 +272,7 @@ function Btn({ onClick, children, danger }: { onClick: () => void; children: Rea
   return (
     <button
       onClick={onClick}
-      className={`px-2 py-1 text-xs rounded ${danger ? 'text-red-500 border border-red-200 hover:bg-red-50' : 'text-sky-600 border border-sky-200 hover:bg-sky-50'}`}
+      className={`px-2 py-1 text-xs rounded ${danger ? 'text-danger border border-danger/25 hover:bg-danger-soft' : 'text-primary border border-primary/25 hover:bg-primary-soft'}`}
     >
       {children}
     </button>

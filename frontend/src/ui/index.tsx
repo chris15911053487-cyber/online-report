@@ -4,8 +4,8 @@
  */
 import { useEffect, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
 import { Check, Inbox, X } from 'lucide-react'
+import { cn, inputClass, monoInputClass } from './classes'
 
-export const cn = (...xs: (string | false | null | undefined)[]) => xs.filter(Boolean).join(' ')
 
 // ─── 按钮 ─────────────────────────────────────────────────────────────────────
 
@@ -173,9 +173,6 @@ export function Tabs<T extends string>({ options, value, onChange, className }: 
 
 // ─── 表单 ─────────────────────────────────────────────────────────────────────
 
-export const inputClass =
-  'w-full px-3 py-2 rounded-lg border border-line bg-surface text-sm text-fg placeholder:text-subtle transition-colors focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/15 disabled:bg-surface-2 disabled:text-muted'
-export const monoInputClass = inputClass + ' font-mono text-[12px] leading-relaxed'
 
 export function Field({ label, hint, error, children, className }: { label?: ReactNode; hint?: ReactNode; error?: ReactNode; children: ReactNode; className?: string }) {
   return (
@@ -228,17 +225,14 @@ export function Checkbox({ label, className, ...rest }: InputHTMLAttributes<HTML
 
 // ─── 表格 ─────────────────────────────────────────────────────────────────────
 
-/** 表格外壳：横向滚动容器 + 统一的表头/行样式（th/td 用下方常量） */
+/** 表格外壳：横向滚动容器；表头/单元格样式用 ui/classes.ts 的 thClass / tdClass */
 export function TableWrap({ className, children }: { className?: string; children: ReactNode }) {
   return <div className={cn('overflow-x-auto bg-surface border border-line rounded-xl', className)}>{children}</div>
 }
-export const tableClass = 'w-full border-collapse text-sm'
-export const thClass = 'px-3 py-2.5 text-left text-xs font-medium text-muted bg-surface-2 whitespace-nowrap border-b border-line'
-export const tdClass = 'px-3 py-2.5 text-fg-2 border-b border-line'
 
 // ─── 列表行 ───────────────────────────────────────────────────────────────────
 
-export function ListRow({ icon, title, description, trailing, onClick, danger, className, ...rest }: { icon?: ReactNode; title: ReactNode; description?: ReactNode; trailing?: ReactNode; onClick?: () => void; danger?: boolean; className?: string } & Record<`data-${string}`, string>) {
+export function ListRow({ icon, title, description, trailing, onClick, danger, className, ...rest }: { id?: string; icon?: ReactNode; title: ReactNode; description?: ReactNode; trailing?: ReactNode; onClick?: () => void; danger?: boolean; className?: string } & { [k: `data-${string}`]: string }) {
   const Tag = onClick ? 'button' : 'div'
   return (
     <Tag

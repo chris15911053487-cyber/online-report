@@ -2,11 +2,13 @@
  * 看板用的 ECharts 容器：支持点击事件（映射回数据行）与容器尺寸变化自适应。
  * 与 ChartRenderer 不同：option 由 biOption 在代码里生成，不做函数字符串还原。
  */
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import * as echarts from 'echarts/core'
 import { BarChart, LineChart, PieChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { useThemeChange } from '../../theme'
+import { themedChartOption } from '../../utils/chartTheme'
 
 echarts.use([BarChart, LineChart, PieChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
 
@@ -69,8 +71,12 @@ export default function BiChart({ option, height, onPick, ariaLabel }: Props) {
   }, [])
 
   useEffect(() => {
-    chartRef.current?.setOption(option, { notMerge: true })
+    chartRef.current?.setOption(themedChartOption(option), { notMerge: true })
   }, [option])
+
+  // 切换主题：按新主题的颜色重绘
+  const redraw = useCallback(() => chartRef.current?.setOption(themedChartOption(option), { notMerge: true }), [option])
+  useThemeChange(redraw)
 
   return <div ref={elRef} style={{ height, width: '100%' }} role="img" aria-label={ariaLabel} />
 }

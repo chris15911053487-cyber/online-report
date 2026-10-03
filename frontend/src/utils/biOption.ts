@@ -4,6 +4,8 @@
  * option 只在这里由代码生成，不接受配置里的函数字符串（ChartRenderer 的 reviveFunctions 会执行
  * "function(...)" 字符串，看板配置不能走那条路）。
  *
+ * 颜色不在这里设置：渲染时由 utils/chartTheme.ts 按当前主题统一套用。
+ *
  * 同时返回 rowAt(dataIndex, seriesName)：把 ECharts 点击事件映射回结果集里的那一行，
  * 供下钻（bind 取列值）和「问 AI」（组装上下文）使用。
  */
@@ -19,8 +21,6 @@ export interface ChartModel {
   /** 实际参与绘图的行数（topN 截断后） */
   plotted: number
 }
-
-export const BI_PALETTE = ['#4f6ef7', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16', '#64748b', '#f97316']
 
 /** 数值列：values 优先，其次 value */
 export function valueColumns(enc: BiEncoding): string[] {
@@ -58,7 +58,6 @@ export function buildChartModel(
       plotted: rows.length,
       rowAt: (i) => rows[i] ?? null,
       option: {
-        color: BI_PALETTE,
         tooltip: { trigger: 'item', valueFormatter: tooltipValue },
         legend: { type: 'scroll', bottom: 0, textStyle: { fontSize: 11 } },
         series: [
@@ -127,16 +126,15 @@ export function buildChartModel(
   const valueAxis = {
     type: 'value',
     name: enc.unit && enc.format !== 'percent' ? enc.unit : '',
-    nameTextStyle: { fontSize: 11, color: '#94a3b8' },
+    nameTextStyle: { fontSize: 11 },
     axisLabel: { fontSize: 11, formatter: axisFormatter(enc) },
-    splitLine: { lineStyle: { color: '#f1f5f9' } },
+    splitLine: { show: true },
   }
 
   return {
     plotted: rows.length,
     rowAt,
     option: {
-      color: BI_PALETTE,
       grid: { left: 8, right: 16, top: series.length > 1 ? 32 : 20, bottom: 8, containLabel: true },
       tooltip: { trigger: 'axis', axisPointer: { type: type === 'bar' ? 'shadow' : 'line' }, valueFormatter: tooltipValue },
       legend: series.length > 1 ? { top: 0, type: 'scroll', textStyle: { fontSize: 11 } } : undefined,

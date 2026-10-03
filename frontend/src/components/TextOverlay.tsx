@@ -39,13 +39,13 @@ export default function TextOverlay({ title, text, onClose }: TextOverlayProps) 
     <ReportOverlay title={title} onClose={onClose}>
       <div className="mb-3 flex justify-end">
         <button
-          className="rounded-lg bg-sky-500 px-3 py-1.5 text-sm text-white active:bg-sky-600"
+          className="rounded-lg bg-primary px-3 py-1.5 text-sm text-primary-fg active:bg-primary-hover"
           onClick={handleCopy}
         >
           复制全部
         </button>
       </div>
-      <pre className="whitespace-pre-wrap break-words text-sm text-slate-800">{text}</pre>
+      <pre className="whitespace-pre-wrap break-words text-sm text-fg">{text}</pre>
     </ReportOverlay>
   )
 }

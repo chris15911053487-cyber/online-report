@@ -8,6 +8,8 @@ import {
   GridComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { useThemeChange } from '../theme'
+import { themedChartOption } from '../utils/chartTheme'
 
 echarts.use([
   BarChart, LineChart, PieChart, GraphChart,
@@ -45,7 +47,7 @@ export default function ChartRenderer({ option }: ChartRendererProps) {
 
     const chart = echarts.init(el)
     chartRef.current = chart
-    chart.setOption(reviveFunctions(option) as echarts.EChartsCoreOption)
+    chart.setOption(themedChartOption(reviveFunctions(option) as Record<string, unknown>) as echarts.EChartsCoreOption)
 
     const onResize = () => chart.resize()
     window.addEventListener('resize', onResize)
@@ -55,6 +57,12 @@ export default function ChartRenderer({ option }: ChartRendererProps) {
       chartRef.current = null
     }
   }, [option])
+
+  // 切换主题：按新主题的颜色重绘（AI 生成的 option 自带的颜色保持不变）
+  const redraw = useCallback(() => {
+    chartRef.current?.setOption(themedChartOption(reviveFunctions(option) as Record<string, unknown>) as echarts.EChartsCoreOption, { notMerge: true })
+  }, [option])
+  useThemeChange(redraw)
 
   // Resize chart when toggling fullscreen (container dimensions change)
   useEffect(() => {
@@ -97,16 +105,16 @@ export default function ChartRenderer({ option }: ChartRendererProps) {
     <div
       className={
         fullscreen
-          ? 'fixed inset-0 z-[9999] bg-white flex flex-col'
-          : 'relative w-full h-64 my-2 rounded-lg border border-slate-200 bg-white group'
+          ? 'fixed inset-0 z-[9999] bg-surface flex flex-col'
+          : 'relative w-full h-64 my-2 rounded-lg border border-line bg-surface group'
       }
     >
       {/* Fullscreen header */}
       {fullscreen && (
-        <div className="flex-none flex items-center justify-between px-4 py-2.5 border-b border-slate-200 bg-slate-50">
+        <div className="flex-none flex items-center justify-between px-4 py-2.5 border-b border-line bg-surface-2">
           <button
             onClick={toggleFullscreen}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 active:bg-blue-100 rounded-lg transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-primary hover:text-primary hover:bg-primary-soft active:bg-primary-soft rounded-lg transition-colors"
             aria-label="返回"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -114,7 +122,7 @@ export default function ChartRenderer({ option }: ChartRendererProps) {
             </svg>
             返回
           </button>
-          <span className="text-sm text-slate-500">图表全屏</span>
+          <span className="text-sm text-muted">图表全屏</span>
           <div className="w-16" />
         </div>
       )}
@@ -129,7 +137,7 @@ export default function ChartRenderer({ option }: ChartRendererProps) {
       {!fullscreen && (
         <button
           onClick={toggleFullscreen}
-          className="absolute top-2 right-2 p-1.5 rounded-md bg-white/80 border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-white shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+          className="absolute top-2 right-2 p-1.5 rounded-md bg-surface/80 border border-line text-muted hover:text-fg hover:bg-surface shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
           aria-label="全屏查看"
           title="全屏查看"
         >

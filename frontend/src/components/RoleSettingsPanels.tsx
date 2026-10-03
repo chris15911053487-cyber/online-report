@@ -17,12 +17,12 @@ export function RoleCheckboxGroup({
   onChange: (roles: string[]) => void
 }) {
   if (appRoles.length === 0) {
-    return <p className="text-sm text-slate-400">暂无角色定义</p>
+    return <p className="text-sm text-subtle">暂无角色定义</p>
   }
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-2">
       {appRoles.map((r) => (
-        <label key={r.roleKey} className="flex items-center gap-1.5 text-sm text-slate-700">
+        <label key={r.roleKey} className="flex items-center gap-1.5 text-sm text-fg-2">
           <input
             type="checkbox"
             className="rounded"
@@ -36,7 +36,7 @@ export function RoleCheckboxGroup({
             }}
           />
           {r.label}
-          <span className="text-xs text-slate-400">({r.roleKey})</span>
+          <span className="text-xs text-subtle">({r.roleKey})</span>
         </label>
       ))}
     </div>
@@ -98,35 +98,35 @@ export function RolesDefinitionPanel({
   }
 
   const inputCls =
-    'w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-300 focus:border-sky-400 outline-none'
+    'w-full border border-line-strong rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/25 focus:border-primary/60 outline-none'
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-slate-500">
+      <p className="text-sm text-muted">
         在此定义岗位角色（如 production、warehouse）。菜单「可见角色」和用户分配均引用此列表。
         管理员（admin）由环境变量 ADMIN_USER_CODES 控制，不在此分配。
       </p>
 
-      {loading && <p className="text-slate-400 text-center py-6">加载中…</p>}
+      {loading && <p className="text-subtle text-center py-6">加载中…</p>}
 
       {!loading && (
         <div className="space-y-2">
           {items.map((r) => (
             <div
               key={r.roleKey}
-              className="flex items-center justify-between bg-white rounded-lg border border-slate-200 px-4 py-3"
+              className="flex items-center justify-between bg-surface rounded-lg border border-line px-4 py-3"
             >
               <div>
-                <span className="font-medium text-slate-800">{r.label}</span>
-                <span className="ml-2 text-sm text-slate-400">{r.roleKey}</span>
+                <span className="font-medium text-fg">{r.label}</span>
+                <span className="ml-2 text-sm text-subtle">{r.roleKey}</span>
                 {r.isBuiltin && (
-                  <span className="ml-2 text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded">内置</span>
+                  <span className="ml-2 text-xs bg-surface-2 text-muted px-2 py-0.5 rounded">内置</span>
                 )}
               </div>
               {!r.isBuiltin && (
                 <button
                   type="button"
-                  className="text-sm text-red-500 hover:text-red-600"
+                  className="text-sm text-danger hover:text-danger"
                   onClick={() => handleDelete(r)}
                 >
                   删除
@@ -137,11 +137,11 @@ export function RolesDefinitionPanel({
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-dashed border-sky-300 p-4 space-y-3">
-        <h3 className="font-semibold text-sky-700">添加角色</h3>
+      <div className="bg-surface rounded-xl border border-dashed border-primary/40 p-4 space-y-3">
+        <h3 className="font-semibold text-primary">添加角色</h3>
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
-            <span className="block text-sm font-medium text-slate-600 mb-1">标识（英文小写）</span>
+            <span className="block text-sm font-medium text-fg-2 mb-1">标识（英文小写）</span>
             <input
               className={inputCls}
               value={newKey}
@@ -150,7 +150,7 @@ export function RolesDefinitionPanel({
             />
           </label>
           <label className="block">
-            <span className="block text-sm font-medium text-slate-600 mb-1">显示名称</span>
+            <span className="block text-sm font-medium text-fg-2 mb-1">显示名称</span>
             <input
               className={inputCls}
               value={newLabel}
@@ -162,7 +162,7 @@ export function RolesDefinitionPanel({
         <button
           type="button"
           disabled={saving}
-          className="px-4 py-2 bg-sky-500 text-white rounded-lg text-sm hover:bg-sky-600 disabled:opacity-50"
+          className="px-4 py-2 bg-primary text-primary-fg rounded-lg text-sm hover:bg-primary-hover disabled:opacity-50"
           onClick={handleAdd}
         >
           {saving ? '添加中…' : '添加角色'}
@@ -287,11 +287,11 @@ export function UserRolesPanel({ appRoles }: { appRoles: AppRole[] }) {
   }
 
   const inputCls =
-    'w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-sky-300 focus:border-sky-400 outline-none'
+    'w-full border border-line-strong rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-primary/25 focus:border-primary/60 outline-none'
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-slate-500">
+      <p className="text-sm text-muted">
         列表来自 OUSR 全部用户。「有效角色」含管理员（ADMIN_USER_CODES）与未分配时的默认操作员。
         点击某行可编辑其岗位角色分配。
       </p>
@@ -306,7 +306,7 @@ export function UserRolesPanel({ appRoles }: { appRoles: AppRole[] }) {
         />
         <button
           type="button"
-          className="shrink-0 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg text-sm hover:bg-slate-200"
+          className="shrink-0 px-4 py-2 bg-surface-2 text-fg-2 rounded-lg text-sm hover:bg-surface-3"
           onClick={handleSearch}
         >
           筛选
@@ -314,7 +314,7 @@ export function UserRolesPanel({ appRoles }: { appRoles: AppRole[] }) {
         {query && (
           <button
             type="button"
-            className="shrink-0 px-4 py-2 text-slate-500 rounded-lg text-sm hover:bg-slate-100"
+            className="shrink-0 px-4 py-2 text-muted rounded-lg text-sm hover:bg-surface-2"
             onClick={handleClearSearch}
           >
             清除
@@ -322,18 +322,18 @@ export function UserRolesPanel({ appRoles }: { appRoles: AppRole[] }) {
         )}
         <button
           type="button"
-          className="shrink-0 px-4 py-2 bg-sky-50 text-sky-700 rounded-lg text-sm hover:bg-sky-100"
+          className="shrink-0 px-4 py-2 bg-primary-soft text-primary rounded-lg text-sm hover:bg-primary-soft"
           onClick={() => void loadList({ page, q: query })}
         >
           {loadingList ? '刷新中…' : '刷新列表'}
         </button>
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div className="bg-surface rounded-xl border border-line overflow-hidden">
         <div className="overflow-x-auto max-h-[28rem] overflow-y-auto">
           <table className="w-full text-sm">
-            <thead className="bg-slate-50 sticky top-0 z-10">
-              <tr className="text-left text-slate-600">
+            <thead className="bg-surface-2 sticky top-0 z-10">
+              <tr className="text-left text-fg-2">
                 <th className="px-3 py-2 font-medium">用户代码</th>
                 <th className="px-3 py-2 font-medium">姓名</th>
                 <th className="px-3 py-2 font-medium">有效角色</th>
@@ -343,7 +343,7 @@ export function UserRolesPanel({ appRoles }: { appRoles: AppRole[] }) {
             <tbody>
               {rows.length === 0 && !loadingList && (
                 <tr>
-                  <td colSpan={4} className="px-3 py-8 text-center text-slate-400">
+                  <td colSpan={4} className="px-3 py-8 text-center text-subtle">
                     {query ? '无匹配用户' : '暂无用户'}
                   </td>
                 </tr>
@@ -351,8 +351,8 @@ export function UserRolesPanel({ appRoles }: { appRoles: AppRole[] }) {
               {rows.map((row) => (
                 <tr
                   key={row.userCode}
-                  className={`border-t border-slate-100 cursor-pointer hover:bg-sky-50/80 ${
-                    selectedUser === row.userCode ? 'bg-sky-50' : ''
+                  className={`border-t border-line cursor-pointer hover:bg-primary-soft/80 ${
+                    selectedUser === row.userCode ? 'bg-primary-soft' : ''
                   }`}
                   onClick={() => handleSelectUser(row.userCode)}
                 >
@@ -361,10 +361,10 @@ export function UserRolesPanel({ appRoles }: { appRoles: AppRole[] }) {
                   <td className="px-3 py-2">
                     {formatRoleLabels(row.roles || [], appRoles)}
                     {row.isDefaultOperator && (
-                      <span className="ml-1 text-xs text-slate-400">(默认)</span>
+                      <span className="ml-1 text-xs text-subtle">(默认)</span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-slate-500">
+                  <td className="px-3 py-2 text-muted">
                     {(row.assignedRoles || []).length > 0
                       ? formatRoleLabels(row.assignedRoles, appRoles)
                       : '—'}
@@ -375,7 +375,7 @@ export function UserRolesPanel({ appRoles }: { appRoles: AppRole[] }) {
           </table>
         </div>
 
-        <div className="flex items-center justify-between px-3 py-2 border-t border-slate-100 bg-slate-50 text-xs text-slate-600">
+        <div className="flex items-center justify-between px-3 py-2 border-t border-line bg-surface-2 text-xs text-fg-2">
           <span>
             共 {total} 人
             {query ? `（筛选：${query}）` : ''}
@@ -384,7 +384,7 @@ export function UserRolesPanel({ appRoles }: { appRoles: AppRole[] }) {
             <button
               type="button"
               disabled={page <= 1 || loadingList}
-              className="px-2 py-1 rounded hover:bg-white disabled:opacity-40"
+              className="px-2 py-1 rounded hover:bg-surface disabled:opacity-40"
               onClick={() => void loadList({ page: page - 1, q: query })}
             >
               上一页
@@ -395,7 +395,7 @@ export function UserRolesPanel({ appRoles }: { appRoles: AppRole[] }) {
             <button
               type="button"
               disabled={page >= totalPages || loadingList}
-              className="px-2 py-1 rounded hover:bg-white disabled:opacity-40"
+              className="px-2 py-1 rounded hover:bg-surface disabled:opacity-40"
               onClick={() => void loadList({ page: page + 1, q: query })}
             >
               下一页
@@ -405,10 +405,10 @@ export function UserRolesPanel({ appRoles }: { appRoles: AppRole[] }) {
       </div>
 
       {selectedUser && (
-        <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
-          <h3 className="font-semibold text-slate-700">编辑用户：{selectedUser}</h3>
+        <div className="bg-surface rounded-xl border border-line p-4 space-y-3">
+          <h3 className="font-semibold text-fg-2">编辑用户：{selectedUser}</h3>
           {loadingRoles ? (
-            <p className="text-sm text-slate-400">加载角色中…</p>
+            <p className="text-sm text-subtle">加载角色中…</p>
           ) : (
             <RoleCheckboxGroup
               appRoles={assignableRoles}
@@ -419,7 +419,7 @@ export function UserRolesPanel({ appRoles }: { appRoles: AppRole[] }) {
           <button
             type="button"
             disabled={saving}
-            className="px-4 py-2 bg-sky-500 text-white rounded-lg text-sm hover:bg-sky-600 disabled:opacity-50"
+            className="px-4 py-2 bg-primary text-primary-fg rounded-lg text-sm hover:bg-primary-hover disabled:opacity-50"
             onClick={handleSave}
           >
             {saving ? '保存中…' : '保存用户角色'}

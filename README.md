@@ -57,6 +57,46 @@ npm run init-db
 
 生产或仅启动后端访问页面时，须先执行 `npm run build`，否则 `frontend/dist` 不存在，Web UI 不可用（API 仍可用）。
 
+## 界面主题与页面地址
+
+### 六套主题（用户可切换）
+
+| 主题 | 标识 | 特点 |
+|------|------|------|
+| D 暖色人文风（**默认**） | `warm` | 象牙白底、陶土橙、衬线标题 |
+| B 稳重企业风 | `ent` | 单一蓝色、信息密度高 |
+| A 科技风 | `tech` | 青-靛-紫渐变点缀 |
+| C 深色工业风 | `ind` | 深色框架、等宽数字 |
+| E 极简黑白风 | `mono` | 黑白灰，颜色只留给状态 |
+| F 全深色 | `dark` | 夜间、大屏 |
+
+- 用户在「设置 → 外观」选择，也可选「跟随系统」（系统深色时用 F）；选择保存在本机并同步到账号（`user_preferences` 表）。
+- 管理员在「管理后台」设置**公司默认主题**（`app_settings` 表），用户未选择时使用，登录页也按它显示。
+- 实现：颜色全部是 CSS 变量（`frontend/src/theme/themes.css`），Tailwind 只提供语义色；`npm run lint:colors` 检查是否有写死的颜色。演示页：`docs/design/ui-style-demo.html`。
+
+| 接口 | 说明 |
+|------|------|
+| `GET /ui/config` | 公司默认主题（免登录） |
+| `GET /me/preferences` / `PUT /me/preferences` | 当前用户的界面偏好（`{ "theme": "dark" }`，`null` 表示恢复默认） |
+| `PUT /admin/ui-settings` | 管理员设置公司默认主题 `{ "defaultTheme": "warm" }` |
+
+迁移脚本：`server/sql/migrate-ui-settings.sql`（服务启动自动执行）。
+
+### 页面地址（可刷新、收藏、分享）
+
+| 地址 | 页面 |
+|------|------|
+| `/` | 工作台（菜单） |
+| `/report/<routeKey>` | 报表 / 生产报工列表 |
+| `/report/<routeKey>/order/<单号>` | 生产订单详情 |
+| `/agents`、`/agents/<agentKey>` | Agent 列表、某个 Agent |
+| `/ai`、`/messages`、`/settings` | AI 助手、消息、设置 |
+| `/admin`、`/admin/bi`、`/admin/agents`、`/admin/menus` … | 管理后台及各管理页 |
+
+- 浏览器后退、安卓返回键与页面左上角返回一致；合并报工确认、行详情这类依赖当前选择的页面，刷新后回到所在报表。
+- 前端接口统一走 `/api` 前缀，服务端去掉前缀再匹配；机器人、ai-agent 回调等外部调用方仍可使用无前缀的旧地址。浏览器直接打开页面地址时服务端返回前端页面（`server/src/spa.js`）。
+- PC（≥1024px）为左侧导航 + 面包屑顶栏；手机为顶栏 + 底部 Tab。
+
 ## 后端 (Fastify)
 
 - 入口：`server/src/index.js`

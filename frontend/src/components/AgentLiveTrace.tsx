@@ -18,17 +18,17 @@ function StepIcon({ status }: { status: LiveStep['status'] }) {
   if (status === 'run') {
     return (
       <span
-        className="inline-block w-3.5 h-3.5 rounded-full border-2 border-slate-300 border-t-sky-500 animate-spin shrink-0"
+        className="inline-block w-3.5 h-3.5 rounded-full border-2 border-line-strong border-t-primary animate-spin shrink-0"
         aria-label="执行中"
       />
     )
   }
   const cfg =
     status === 'ok'
-      ? { ch: '✓', cls: 'bg-emerald-100 text-emerald-600', label: '完成' }
+      ? { ch: '✓', cls: 'bg-success-soft text-success', label: '完成' }
       : status === 'waiting'
-        ? { ch: '⏸', cls: 'bg-amber-100 text-amber-600', label: '等待确认' }
-        : { ch: '!', cls: 'bg-rose-100 text-rose-600', label: '失败' }
+        ? { ch: '⏸', cls: 'bg-warning-soft text-warning', label: '等待确认' }
+        : { ch: '!', cls: 'bg-danger-soft text-danger', label: '失败' }
   return (
     <span
       className={`inline-flex items-center justify-center w-3.5 h-3.5 rounded-full text-[9px] font-bold shrink-0 ${cfg.cls}`}
@@ -81,7 +81,7 @@ function CopyBtn({ text }: { text: string }) {
   return (
     <button
       type="button"
-      className="shrink-0 text-[10px] text-slate-400 hover:text-sky-600 px-1"
+      className="shrink-0 text-[10px] text-subtle hover:text-primary px-1"
       title="复制"
       onClick={(e) => {
         e.preventDefault()
@@ -104,14 +104,14 @@ function TextBlock({ title, text, copyRaw, tone = 'normal' }: {
 }) {
   const color =
     tone === 'error'
-      ? 'text-rose-800 bg-rose-50 border-rose-200'
+      ? 'text-danger bg-danger-soft border-danger/25'
       : tone === 'ok'
-        ? 'text-emerald-800 bg-emerald-50/70 border-emerald-100'
-        : 'text-slate-700 bg-white border-slate-200'
+        ? 'text-success bg-success-soft/70 border-success/25'
+        : 'text-fg-2 bg-surface border-line'
   return (
     <div>
       <div className="flex items-center justify-between">
-        <span className="text-[10px] font-medium text-slate-500">{title}</span>
+        <span className="text-[10px] font-medium text-muted">{title}</span>
         <CopyBtn text={copyRaw ?? text} />
       </div>
       <pre className={`mt-0.5 max-h-56 overflow-auto rounded border px-2 py-1.5 text-[10px] leading-relaxed whitespace-pre-wrap break-all font-mono ${color}`}>
@@ -147,7 +147,7 @@ function StepRow({ step, childSteps, now }: { step: LiveStep; childSteps: LiveSt
   const elapsed = running ? now - step.startedAt : step.durationMs
   const hint = stepHint(step)
   const isErr = step.status === 'error'
-  const tone = step.kind === 'llm' ? 'text-slate-500' : isErr ? 'text-rose-800' : 'text-slate-800'
+  const tone = step.kind === 'llm' ? 'text-muted' : isErr ? 'text-danger' : 'text-fg'
   const isLlm = step.kind === 'llm'
   const hasDetail = isLlm
     ? !!step.output?.trim() || childSteps.length > 0 || step.inputTokens != null || !!step.preview
@@ -158,20 +158,20 @@ function StepRow({ step, childSteps, now }: { step: LiveStep; childSteps: LiveSt
       <StepIcon status={step.status} />
       <span className={`text-[11px] font-medium shrink-0 ${tone}`}>{step.label}</span>
       {hint ? (
-        <span className="text-[10px] text-slate-400 truncate min-w-0 flex-1">{hint}</span>
+        <span className="text-[10px] text-subtle truncate min-w-0 flex-1">{hint}</span>
       ) : (
         <span className="flex-1" />
       )}
-      {step.status === 'waiting' && <span className="text-[10px] text-amber-600 shrink-0">等待确认</span>}
+      {step.status === 'waiting' && <span className="text-[10px] text-warning shrink-0">等待确认</span>}
       {elapsed != null && (
-        <span className={`text-[10px] tabular-nums shrink-0 ${running ? 'text-sky-600' : 'text-slate-500'}`}>
+        <span className={`text-[10px] tabular-nums shrink-0 ${running ? 'text-primary' : 'text-muted'}`}>
           {formatDuration(elapsed)}
         </span>
       )}
     </>
   )
 
-  const box = `rounded-lg border ${isErr ? 'bg-rose-50/80 border-rose-200' : 'bg-white border-slate-100'}`
+  const box = `rounded-lg border ${isErr ? 'bg-danger-soft/80 border-danger/25' : 'bg-surface border-line'}`
   if (!hasDetail) {
     return <div className={`${box} flex items-center gap-2 px-2.5 py-1.5`}>{head}</div>
   }
@@ -180,7 +180,7 @@ function StepRow({ step, childSteps, now }: { step: LiveStep; childSteps: LiveSt
       <summary className="flex items-center gap-2 px-2.5 py-1.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
         {head}
       </summary>
-      <div className="px-2.5 pb-2 pt-1.5 border-t border-slate-100 space-y-2">
+      <div className="px-2.5 pb-2 pt-1.5 border-t border-line space-y-2">
         {isLlm ? (
           <>
             {step.output?.trim() && (
@@ -188,14 +188,14 @@ function StepRow({ step, childSteps, now }: { step: LiveStep; childSteps: LiveSt
             )}
             {childSteps.length > 0 && (
               <div className="space-y-2">
-                <div className="text-[10px] font-medium text-slate-500">决定调用的工具（{childSteps.length}）</div>
+                <div className="text-[10px] font-medium text-muted">决定调用的工具（{childSteps.length}）</div>
                 {childSteps.map((c) => (
-                  <div key={c.id} className="rounded border border-slate-100 bg-slate-50/70 p-1.5 space-y-1.5">
-                    <div className="flex items-center gap-1.5 text-[10px] text-slate-700">
+                  <div key={c.id} className="rounded border border-line bg-surface-2/70 p-1.5 space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-[10px] text-fg-2">
                       <StepIcon status={c.status} />
                       <span className="font-medium">{c.label}</span>
                       {c.durationMs != null && (
-                        <span className="ml-auto tabular-nums text-slate-500">{formatDuration(c.durationMs)}</span>
+                        <span className="ml-auto tabular-nums text-muted">{formatDuration(c.durationMs)}</span>
                       )}
                     </div>
                     {argEntries(c).map(([k, v]) => (
@@ -206,11 +206,11 @@ function StepRow({ step, childSteps, now }: { step: LiveStep; childSteps: LiveSt
               </div>
             )}
             {(step.inputTokens != null || step.outputTokens != null) && (
-              <p className="text-[10px] text-slate-500">
+              <p className="text-[10px] text-muted">
                 token：输入 {step.inputTokens ?? '?'} · 输出 {step.outputTokens ?? '?'}
               </p>
             )}
-            {step.preview && <p className="text-[10px] text-rose-700 break-all">✕ {step.preview}</p>}
+            {step.preview && <p className="text-[10px] text-danger break-all">✕ {step.preview}</p>}
           </>
         ) : (
           <ToolDetail step={step} />
@@ -254,36 +254,36 @@ export default function AgentLiveTrace({ live, running = true, totalMs, timings,
   const failed = steps.filter((s) => s.status === 'error').length
   return (
     <div
-      className="max-w-full w-full rounded-xl border border-slate-200 bg-slate-50/90 overflow-hidden"
+      className="max-w-full w-full rounded-xl border border-line bg-surface-2/90 overflow-hidden"
       role="status"
       aria-live="polite"
     >
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-[11px] text-slate-700 hover:bg-slate-100/80"
+        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-[11px] text-fg-2 hover:bg-surface-2/80"
         aria-expanded={open}
       >
         <span className="font-medium">
-          <span className="text-sky-600 mr-1">⚙</span>
+          <span className="text-primary mr-1">⚙</span>
           {running ? '正在执行' : '执行过程'}
           {!running && (
-            <span className="font-normal text-slate-500 ml-1.5">
+            <span className="font-normal text-muted ml-1.5">
               ({skillUsed ? `Skill: ${skillUsed} · ` : ''}
               {steps.filter((s) => s.kind === 'tool').length} 步工具调用
               {failed > 0 ? ` · ${failed} 步失败` : ''})
             </span>
           )}
         </span>
-        <span className="flex items-center gap-2 shrink-0 tabular-nums text-slate-500">
+        <span className="flex items-center gap-2 shrink-0 tabular-nums text-muted">
           {running ? '已用时' : '共'} {formatDuration(Math.max(0, total))}
-          <span className="text-slate-400">{open ? '▲' : '▼'}</span>
+          <span className="text-subtle">{open ? '▲' : '▼'}</span>
         </span>
       </button>
       {open && (
-        <div className="px-3 pb-3 space-y-1.5 border-t border-slate-200/80 pt-2">
+        <div className="px-3 pb-3 space-y-1.5 border-t border-line/80 pt-2">
           {steps.length === 0 && (
-            <div className="flex items-center gap-2 text-[11px] text-slate-500">
+            <div className="flex items-center gap-2 text-[11px] text-muted">
               <StepIcon status="run" />
               正在连接并准备…
             </div>
@@ -298,7 +298,7 @@ export default function AgentLiveTrace({ live, running = true, totalMs, timings,
           ))}
           {!running && timings && (
             <p
-              className="text-[10px] text-slate-600 pt-1"
+              className="text-[10px] text-fg-2 pt-1"
               title="模型耗时为各次调用之和；工具/其它为整轮墙钟减去模型耗时"
             >
               ⏱ {describeTimings(timings)}
@@ -322,10 +322,10 @@ export function AgentLiveStatus({ live }: { live: LiveState | null }) {
       ? `并行执行 ${running.length} 个步骤…`
       : `${current.label}…`
   return (
-    <div className="flex items-center gap-1.5 py-2 text-[13px] text-slate-500" role="status" aria-live="polite">
+    <div className="flex items-center gap-1.5 py-2 text-[13px] text-muted" role="status" aria-live="polite">
       <StepIcon status="run" />
       <span className="truncate">{text}</span>
-      <span className="tabular-nums text-slate-400 shrink-0">{formatDuration(Math.max(0, now - start))}</span>
+      <span className="tabular-nums text-subtle shrink-0">{formatDuration(Math.max(0, now - start))}</span>
     </div>
   )
 }

@@ -152,3 +152,15 @@ export function readChartPalette() {
     font: getComputedStyle(document.documentElement).getPropertyValue('--font-num').trim() || undefined,
   }
 }
+
+/** 内联样式里引用颜色 token：tv('primary') → 'rgb(var(--c-primary))'，tv('line', 0.5) 带透明度 */
+export const tv = (name: string, alpha?: number) => (alpha == null ? `rgb(var(--c-${name}))` : `rgb(var(--c-${name}) / ${alpha})`)
+
+/** 读一个颜色 token 的 #rrggbb 形式（给 <input type="color"> 等只接受十六进制的场合） */
+export function tokenHex(name: string): string {
+  if (typeof document === 'undefined') return '#000000'
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(`--c-${name}`).trim()
+  const parts = raw.split(/\s+/).map(Number)
+  if (parts.length < 3 || parts.some((n) => !Number.isFinite(n))) return '#000000'
+  return '#' + parts.slice(0, 3).map((n) => n.toString(16).padStart(2, '0')).join('')
+}

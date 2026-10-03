@@ -56,29 +56,29 @@ export default function BiPickPopover({ x, y, title, drillLabel, onExplain, onDr
     }
   }, [onClose])
 
-  const item = 'w-full flex items-center gap-2 px-3 py-2 text-left text-[13px] rounded-lg hover:bg-[#f5f7ff] focus:bg-[#f5f7ff] focus:outline-none'
+  const item = 'w-full flex items-center gap-2 px-3 py-2 text-left text-[13px] rounded-lg hover:bg-primary-soft/60 focus:bg-primary-soft/60 focus:outline-none'
 
   return (
     <div
       ref={ref}
       role="menu"
       aria-label={`${title} 的操作`}
-      className="fixed z-[1000] bg-white rounded-xl border border-[#e8eaed] p-1.5"
-      style={{ left: pos.left, top: pos.top, width: W, boxShadow: '0 8px 24px rgba(16,24,40,.12)' }}
+      className="fixed z-[1000] bg-surface rounded-xl border border-line shadow-lg p-1.5"
+      style={{ left: pos.left, top: pos.top, width: W }}
     >
-      <div className="px-3 pt-1 pb-1.5 text-[11px] text-slate-400 truncate" title={title}>{title}</div>
-      <button ref={firstRef} role="menuitem" className={item} style={{ color: '#4f6ef7' }} onClick={onExplain}>
+      <div className="px-3 pt-1 pb-1.5 text-[11px] text-subtle truncate" title={title}>{title}</div>
+      <button ref={firstRef} role="menuitem" className={`${item} text-primary`} onClick={onExplain}>
         <Sparkles className="w-4 h-4 shrink-0" />
         <span className="font-medium">AI 解读</span>
       </button>
       {drillLabel && (
-        <button role="menuitem" className={item} style={{ color: '#2d3142' }} onClick={onDrill}>
-          <CornerRightDown className="w-4 h-4 shrink-0 text-slate-400" />
+        <button role="menuitem" className={`${item} text-fg`} onClick={onDrill}>
+          <CornerRightDown className="w-4 h-4 shrink-0 text-subtle" />
           下钻到「{drillLabel}」
         </button>
       )}
-      <button role="menuitem" className={item} style={{ color: '#2d3142' }} onClick={onAsk}>
-        <MessageSquarePlus className="w-4 h-4 shrink-0 text-slate-400" />
+      <button role="menuitem" className={`${item} text-fg`} onClick={onAsk}>
+        <MessageSquarePlus className="w-4 h-4 shrink-0 text-subtle" />
         问点别的…
       </button>
     </div>

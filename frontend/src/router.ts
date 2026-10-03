@@ -161,22 +161,54 @@ export function applyNavigation(store: RouterStore, nav: Navigation) {
 }
 
 let started = false
+const STACK_KEY = 'online_report_route_stack'
+interface HistoryState {
+  app: true
+  /** 该条目在本应用历史栈中的位置，用于刷新后恢复栈、判断前进还是后退 */
+  idx: number
+}
+
+function readSavedStack(): string[] | null {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(STACK_KEY) || 'null')
+    return Array.isArray(v) && v.every((x) => typeof x === 'string') ? v : null
+  } catch {
+    return null
+  }
+}
 
 /** 登录且菜单加载完成后调用一次：按当前地址恢复页面，然后开始双向同步 */
 export function startRouter(store: RouterStore) {
   if (started || typeof window === 'undefined') return
   started = true
 
-  // 我们推入的历史条目（与浏览器历史栈一一对应，仅本次会话内）
-  const stack: string[] = []
+  // 本应用推入的历史条目，与浏览器历史一一对应；存 sessionStorage，刷新后仍能正确「返回」
+  let stack: string[] = []
   let ignorePops = 0
   // 处理 popstate 期间 store 的变化由 popstate 自己对齐地址，订阅回调不再推入历史
   let applyingPop = false
+  const save = () => {
+    try {
+      sessionStorage.setItem(STACK_KEY, JSON.stringify(stack))
+    } catch {
+      /* 不可写时只是刷新后少了返回记录 */
+    }
+  }
+  const entry = (): HistoryState => ({ app: true, idx: stack.length - 1 })
 
-  const initial = parsePath(window.location.pathname)
-  applyNavigation(store, initial)
-  stack.push(pathFor(store.getState()))
-  window.history.replaceState({ app: true }, '', stack[0] + window.location.search)
+  const initialPath = window.location.pathname
+  applyNavigation(store, parsePath(initialPath))
+  const current = pathFor(store.getState())
+  const hs = window.history.state as HistoryState | null
+  const saved = readSavedStack()
+  if (hs?.app && typeof hs.idx === 'number' && saved && saved[hs.idx] === initialPath) {
+    stack = saved.slice(0, hs.idx + 1)
+    stack[hs.idx] = current
+  } else {
+    stack = [current]
+  }
+  window.history.replaceState(entry(), '', current + window.location.search)
+  save()
 
   store.subscribe(() => {
     if (applyingPop) return
@@ -185,27 +217,34 @@ export function startRouter(store: RouterStore) {
     if (stack.length > 1 && path === stack[stack.length - 2]) {
       // 页面内的返回：同步后退一步，避免历史里堆出「列表 → 详情 → 列表」
       stack.pop()
+      save()
       ignorePops += 1
       window.history.back()
       return
     }
     stack.push(path)
-    window.history.pushState({ app: true }, '', path)
+    window.history.pushState(entry(), '', path)
+    save()
   })
 
-  window.addEventListener('popstate', () => {
+  window.addEventListener('popstate', (e) => {
     if (ignorePops > 0) {
       ignorePops -= 1
       return
     }
     const target = window.location.pathname
+    const st = e.state as HistoryState | null
+    const idx = st?.app && typeof st.idx === 'number' ? st.idx : null
+    const backOne = stack.length > 1 && stack[stack.length - 2] === target && (idx == null || idx === stack.length - 2)
     applyingPop = true
     try {
-      if (stack.length > 1 && target === stack[stack.length - 2]) {
+      if (backOne) {
         // 浏览器后退 / 安卓返回键：走页面自己的返回逻辑（含合并报工返回后刷新列表等）
         stack.pop()
         store.getState().goBack()
       } else {
+        // 前进、或一次后退多步：按地址打开
+        if (idx != null) stack = stack.slice(0, idx)
         stack.push(target)
         applyNavigation(store, parsePath(target))
       }
@@ -215,7 +254,8 @@ export function startRouter(store: RouterStore) {
     const after = pathFor(store.getState())
     if (after !== target) {
       stack[stack.length - 1] = after
-      window.history.replaceState({ app: true }, '', after)
+      window.history.replaceState(entry(), '', after)
     }
+    save()
   })
 }

@@ -95,32 +95,31 @@ export default function BiCardView({ card, filters, queries, onPick }: Props) {
 
   return (
     <section
-      className="bg-white rounded-2xl border border-[#eef0f4] p-4 flex flex-col min-w-0"
+      className="bg-surface rounded-2xl border border-line shadow-sm p-4 flex flex-col min-w-0"
       aria-label={card.title}
-      style={{ boxShadow: '0 1px 2px rgba(16,24,40,.03)' }}
     >
       {/* 标题行 */}
       <header className="flex items-start justify-between gap-2 mb-2">
         <div className="min-w-0">
-          <h3 className="text-[13.5px] font-semibold text-[#1a1a2e] truncate flex items-center gap-1">
+          <h3 className="text-[13.5px] font-semibold text-fg truncate flex items-center gap-1">
             {card.title}
             {meta?.caliberNote && (
-              <span title={`口径：${meta.caliberNote}`} className="text-slate-400 cursor-help">
+              <span title={`口径：${meta.caliberNote}`} className="text-subtle cursor-help">
                 <Info className="w-3.5 h-3.5" aria-label={`口径：${meta.caliberNote}`} />
               </span>
             )}
           </h3>
-          {card.subtitle && stack.length === 1 && <p className="text-[11.5px] text-slate-400 truncate">{card.subtitle}</p>}
+          {card.subtitle && stack.length === 1 && <p className="text-[11.5px] text-subtle truncate">{card.subtitle}</p>}
         </div>
-        <div className="flex items-center gap-1.5 shrink-0 text-[10.5px] text-slate-400">
-          {data?.stale && <span className="text-amber-600" title="缓存已过期，后台正在更新">更新中</span>}
+        <div className="flex items-center gap-1.5 shrink-0 text-[10.5px] text-subtle">
+          {data?.stale && <span className="text-warning" title="缓存已过期，后台正在更新">更新中</span>}
           {/* KPI 卡较窄（手机半宽），时间放到底部，保证标题完整 */}
           {data?.asOf && card.type !== 'kpi' && <span title={data.cached ? '来自缓存' : '刚刚查询'}>截至 {hhmm(data.asOf)}</span>}
           <button
             type="button"
             onClick={refresh}
             disabled={refreshing || loading}
-            className="p-1 rounded hover:bg-slate-100 disabled:opacity-40"
+            className="p-1 rounded hover:bg-surface-2 disabled:opacity-40"
             title="刷新（跳过缓存）"
             aria-label={`刷新 ${card.title}`}
           >
@@ -132,19 +131,19 @@ export default function BiCardView({ card, filters, queries, onPick }: Props) {
       {/* 下钻面包屑 */}
       {stack.length > 1 && (
         <nav className="flex items-center gap-1 flex-wrap mb-2 text-[11.5px]" aria-label="下钻路径">
-          <button type="button" onClick={() => setStack((s) => popDrillTo(s, s.length - 2))} className="flex items-center text-slate-500 hover:text-[#4f6ef7] mr-1" aria-label="返回上一级">
+          <button type="button" onClick={() => setStack((s) => popDrillTo(s, s.length - 2))} className="flex items-center text-muted hover:text-primary mr-1" aria-label="返回上一级">
             <ChevronLeft className="w-3.5 h-3.5" />
             返回
           </button>
           {stack.map((f, i) => (
             <span key={i} className="flex items-center gap-1 min-w-0">
-              {i > 0 && <ChevronRight className="w-3 h-3 text-slate-300 shrink-0" />}
+              {i > 0 && <ChevronRight className="w-3 h-3 text-subtle shrink-0" />}
               {i < stack.length - 1 ? (
-                <button type="button" onClick={() => setStack((s) => popDrillTo(s, i))} className="text-[#4f6ef7] hover:underline truncate max-w-[160px]">
+                <button type="button" onClick={() => setStack((s) => popDrillTo(s, i))} className="text-primary hover:underline truncate max-w-[160px]">
                   {f.crumb}
                 </button>
               ) : (
-                <span className="text-slate-700 font-medium truncate max-w-[200px]" aria-current="page">{f.crumb}</span>
+                <span className="text-fg-2 font-medium truncate max-w-[200px]" aria-current="page">{f.crumb}</span>
               )}
             </span>
           ))}
@@ -153,14 +152,14 @@ export default function BiCardView({ card, filters, queries, onPick }: Props) {
 
       {/* 内容 */}
       <div className={`relative flex-1 min-h-0 ${loading && data ? 'opacity-60' : ''}`}>
-        {loading && !data && <div className="rounded-xl animate-pulse bg-[#eef0f4]" style={{ height: view.type === 'kpi' ? 56 : height }} />}
+        {loading && !data && <div className="rounded-xl animate-pulse bg-surface-2" style={{ height: view.type === 'kpi' ? 56 : height }} />}
         {error && (
-          <div className="text-[12px] text-rose-600 py-3">
+          <div className="text-[12px] text-danger py-3">
             {error}
             <button type="button" onClick={refresh} className="ml-2 underline">重试</button>
           </div>
         )}
-        {data && !error && rows.length === 0 && <p className="text-[12px] text-slate-400 py-6 text-center">暂无数据</p>}
+        {data && !error && rows.length === 0 && <p className="text-[12px] text-subtle py-6 text-center">暂无数据</p>}
         {data && !error && rows.length > 0 && (
           <>
             {view.type === 'kpi' && <KpiBody card={card} row={rows[0]} onClick={(x, y) => pick(rows[0], x, y)} clickable={!!onPick} />}
@@ -181,16 +180,16 @@ export default function BiCardView({ card, filters, queries, onPick }: Props) {
                 onRow={clickable ? (row, x, y) => pick(row, x, y) : undefined}
               />
             )}
-            {data.truncated && <p className="text-[10.5px] text-slate-400 mt-1">仅显示前 {data.rowCount} 行</p>}
+            {data.truncated && <p className="text-[10.5px] text-subtle mt-1">仅显示前 {data.rowCount} 行</p>}
           </>
         )}
       </div>
 
       {card.type === 'kpi' && data?.asOf && (
-        <p className="text-[10.5px] text-slate-400 mt-1.5" title={data.cached ? '来自缓存' : '刚刚查询'}>数据截至 {hhmm(data.asOf)}</p>
+        <p className="text-[10.5px] text-subtle mt-1.5" title={data.cached ? '来自缓存' : '刚刚查询'}>数据截至 {hhmm(data.asOf)}</p>
       )}
       {clickable && data && rows.length > 0 && (
-        <p className="text-[10.5px] text-slate-300 mt-1.5">
+        <p className="text-[10.5px] text-subtle mt-1.5">
           点击{view.type === 'kpi' ? '数字' : view.type === 'table' ? '行' : '图形'}可{drillLabel ? `下钻到「${drillLabel}」或` : ''}让 AI 解读
         </p>
       )}
@@ -205,18 +204,18 @@ function KpiBody({ card, row, onClick, clickable }: { card: BiCard; row: BiRow; 
   const label = enc.label && row[enc.label] != null ? String(row[enc.label]) : ''
   const body = (
     <>
-      <div className="text-[26px] font-semibold tabular-nums text-[#1a1a2e] leading-tight">
+      <div className="num text-[26px] font-semibold text-fg leading-tight">
         {formatValue(value, enc, { withUnit: false })}
-        {enc.unit && enc.format !== 'percent' && <span className="text-[13px] font-normal text-slate-400 ml-1">{enc.unit}</span>}
+        {enc.unit && enc.format !== 'percent' && <span className="text-[13px] font-normal text-subtle ml-1">{enc.unit}</span>}
       </div>
       <div className="flex items-center gap-2 mt-1 text-[11.5px]">
         {ratio != null && (
-          <span className={ratio >= 0 ? 'text-[#4f6ef7]' : 'text-amber-600'}>
+          <span className={ratio >= 0 ? 'text-primary' : 'text-warning'}>
             {ratio >= 0 ? '▲' : '▼'} {Math.abs(ratio * 100).toFixed(1)}%
-            <span className="text-slate-400 ml-1">较对比期</span>
+            <span className="text-subtle ml-1">较对比期</span>
           </span>
         )}
-        {label && <span className="text-slate-400 truncate">{label}</span>}
+        {label && <span className="text-subtle truncate">{label}</span>}
       </div>
     </>
   )
@@ -224,7 +223,7 @@ function KpiBody({ card, row, onClick, clickable }: { card: BiCard; row: BiRow; 
   return (
     <button
       type="button"
-      className="text-left w-full rounded-lg -m-1 p-1 hover:bg-[#f5f7ff] transition-colors"
+      className="text-left w-full rounded-lg -m-1 p-1 hover:bg-primary-soft/60 transition-colors"
       onClick={(e) => onClick(e.clientX, e.clientY)}
       aria-label={`${card.title}：${formatValue(value, enc)}，点击查看操作`}
     >
@@ -249,12 +248,12 @@ function TableBody({
   const cols: BiColumnDef[] = encoding.columns?.length ? encoding.columns : columns.map((c) => ({ column: c }))
   const isNum = (v: unknown) => typeof v === 'number' || (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)))
   return (
-    <div className="overflow-auto border border-slate-100 rounded-lg" style={{ maxHeight }}>
+    <div className="overflow-auto border border-line rounded-lg" style={{ maxHeight }}>
       <table className="min-w-full text-[12px]">
-        <thead className="bg-slate-50 sticky top-0 z-[1]">
+        <thead className="bg-surface-2 sticky top-0 z-[1]">
           <tr>
             {cols.map((c) => (
-              <th key={c.column} scope="col" className="px-2.5 py-1.5 text-left font-medium text-slate-500 whitespace-nowrap">
+              <th key={c.column} scope="col" className="px-2.5 py-1.5 text-left font-medium text-muted whitespace-nowrap">
                 {c.label || columnLabel(encoding, c.column)}
               </th>
             ))}
@@ -264,7 +263,7 @@ function TableBody({
           {rows.map((r, i) => (
             <tr
               key={i}
-              className={`border-t border-slate-100 ${onRow ? 'cursor-pointer hover:bg-[#f5f7ff]' : ''}`}
+              className={`border-t border-line ${onRow ? 'cursor-pointer hover:bg-primary-soft/60' : ''}`}
               onClick={onRow ? (e) => onRow(r, e.clientX, e.clientY) : undefined}
               onKeyDown={onRow ? (e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
@@ -279,7 +278,7 @@ function TableBody({
                 const v = r[c.column]
                 const num = c.format != null || isNum(v)
                 return (
-                  <td key={c.column} className={`px-2.5 py-1.5 whitespace-nowrap text-slate-700 ${num ? 'text-right tabular-nums' : ''}`}>
+                  <td key={c.column} className={`px-2.5 py-1.5 whitespace-nowrap text-fg-2 ${num ? 'text-right tabular-nums' : ''}`}>
                     {c.format ? formatValue(v, { format: c.format }) : v == null ? '' : String(v)}
                   </td>
                 )

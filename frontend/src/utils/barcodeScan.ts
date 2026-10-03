@@ -86,10 +86,10 @@ export function openBarcodeScan(opts: OpenBarcodeScanOptions): void {
 
       const panel = document.createElement('div')
       panel.className =
-        'flex max-h-[min(90vh,560px)] w-full max-w-md flex-col gap-3 rounded-2xl bg-white p-4 shadow-xl'
+        'flex max-h-[min(90vh,560px)] w-full max-w-md flex-col gap-3 rounded-2xl bg-surface p-4 shadow-xl'
 
       const hint = document.createElement('p')
-      hint.className = 'hidden whitespace-pre-wrap text-center text-sm text-amber-800'
+      hint.className = 'hidden whitespace-pre-wrap text-center text-sm text-warning'
 
       const readerDiv = document.createElement('div')
       readerDiv.id = readerId
@@ -156,7 +156,7 @@ export function openBarcodeScan(opts: OpenBarcodeScanOptions): void {
       const btnFile = document.createElement('button')
       btnFile.type = 'button'
       btnFile.className =
-        'hidden rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white active:bg-blue-700'
+        'hidden rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white active:bg-primary-hover'
       btnFile.textContent = '选择照片识别'
       btnFile.addEventListener('click', (ev) => {
         ev.preventDefault()
@@ -178,7 +178,7 @@ export function openBarcodeScan(opts: OpenBarcodeScanOptions): void {
       const btnClose = document.createElement('button')
       btnClose.type = 'button'
       btnClose.className =
-        'rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 active:bg-gray-50'
+        'rounded-lg border border-line-strong bg-surface px-4 py-2 text-sm font-medium text-fg-2 active:bg-surface-2'
       btnClose.textContent = '关闭'
       btnClose.addEventListener('click', cleanup)
 

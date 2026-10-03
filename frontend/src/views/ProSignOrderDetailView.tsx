@@ -78,18 +78,18 @@ export default function ProSignOrderDetailView() {
   }, [orderNo, routeKey, detailKeyParam, loginUser, showToast])
 
   if (loading) {
-    return <div className="flex items-center justify-center py-20 text-slate-400">加载中…</div>
+    return <div className="flex items-center justify-center py-20 text-subtle">加载中…</div>
   }
 
   if (error) {
     return (
       <div className="p-4 text-center">
-        <div className="rounded-2xl bg-red-50 border border-red-200 text-red-700 p-4 text-sm whitespace-pre-wrap inline-block text-left">
+        <div className="rounded-2xl bg-danger-soft border border-danger/25 text-danger p-4 text-sm whitespace-pre-wrap inline-block text-left">
           {error}
         </div>
         <button
           onClick={goBack}
-          className="mt-4 text-sky-600 underline text-sm"
+          className="mt-4 text-primary underline text-sm"
           type="button"
         >
           返回
@@ -99,21 +99,21 @@ export default function ProSignOrderDetailView() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-6">
-      <div className="sticky top-0 z-10 bg-white border-b border-slate-100 px-4 py-3 flex items-center gap-3">
-        <button onClick={goBack} className="text-sky-600 text-sm shrink-0" type="button">
+    <div className="min-h-screen bg-surface-2 pb-6">
+      <div className="sticky top-0 z-10 bg-surface border-b border-line px-4 py-3 flex items-center gap-3">
+        <button onClick={goBack} className="text-primary text-sm shrink-0" type="button">
           ← 返回
         </button>
         <h2 className="text-base font-semibold truncate">订单详情</h2>
       </div>
 
       <div className="px-4 py-3">
-        <div className="text-sm text-slate-600 mb-3">
+        <div className="text-sm text-fg-2 mb-3">
           订单号：<span className="font-mono">{orderNo || '—'}</span>
         </div>
 
         {tables.length === 0 ? (
-          <div className="text-center text-slate-400 py-10 text-sm">无详情数据</div>
+          <div className="text-center text-subtle py-10 text-sm">无详情数据</div>
         ) : (
           <div className="space-y-4">
             {tables.map((t, i) => {
@@ -122,23 +122,23 @@ export default function ProSignOrderDetailView() {
               return (
                 <div
                   key={i}
-                  className="rounded-2xl bg-white shadow-sm border border-slate-100 overflow-hidden"
+                  className="rounded-2xl bg-surface shadow-sm border border-line overflow-hidden"
                 >
-                  <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 text-xs font-medium text-slate-500">
+                  <div className="px-4 py-2 bg-surface-2 border-b border-line text-xs font-medium text-muted">
                     {t.index != null ? `表 ${t.index}` : `表 ${i + 1}`}
                   </div>
 
                   {rows.length === 0 || cols.length === 0 ? (
-                    <div className="p-4 text-center text-slate-400 text-sm">无数据</div>
+                    <div className="p-4 text-center text-subtle text-sm">无数据</div>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead>
-                          <tr className="bg-white border-b border-slate-100">
+                          <tr className="bg-surface border-b border-line">
                             {cols.map((c) => (
                               <th
                                 key={c}
-                                className="text-left px-3 py-2 text-xs font-semibold text-slate-600 whitespace-nowrap"
+                                className="text-left px-3 py-2 text-xs font-semibold text-fg-2 whitespace-nowrap"
                               >
                                 {reportColumnHeaderText(c, {})}
                               </th>
@@ -147,7 +147,7 @@ export default function ProSignOrderDetailView() {
                         </thead>
                         <tbody>
                           {rows.map((r, ri) => (
-                            <tr key={ri} className={ri % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}>
+                            <tr key={ri} className={ri % 2 === 0 ? 'bg-surface' : 'bg-surface-2/60'}>
                               {cols.map((c, ci) => {
                                 const v = getRowValue(r, c)
                                 const d = v == null || v === '' ? '—' : String(v)

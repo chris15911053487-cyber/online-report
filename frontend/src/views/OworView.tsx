@@ -59,23 +59,23 @@ export default function OworView() {
       onTouchEnd={handleTouchEnd}
     >
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-xl font-semibold text-slate-800">生产订单</h2>
+        <h2 className="text-xl font-semibold text-fg">生产订单</h2>
         <button
           type="button"
-          className="text-sm text-sky-500 hover:text-sky-600"
+          className="text-sm text-primary hover:text-primary"
           onClick={loadData}
         >
           刷新
         </button>
       </div>
 
-      <p className="text-xs text-slate-400 mb-4 text-center">下拉刷新</p>
+      <p className="text-xs text-subtle mb-4 text-center">下拉刷新</p>
 
-      {loading && <p className="text-slate-400 text-center py-12">加载中…</p>}
-      {error && <p className="text-red-500 text-center py-4">{error}</p>}
+      {loading && <p className="text-subtle text-center py-12">加载中…</p>}
+      {error && <p className="text-danger text-center py-4">{error}</p>}
 
       {!loading && !error && rows.length === 0 && (
-        <p className="text-slate-400 text-center py-12 text-sm leading-relaxed">
+        <p className="text-subtle text-center py-12 text-sm leading-relaxed">
           {emptyMessage}
         </p>
       )}
@@ -85,21 +85,21 @@ export default function OworView() {
           {/* Card view (mobile-friendly) */}
           <div className="space-y-3 md:hidden">
             {rows.map((r, i) => (
-              <div key={i} className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+              <div key={i} className="bg-surface rounded-xl border border-line shadow-sm p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-slate-500">物料编码</span>
-                  <span className="text-sm font-medium text-sky-600 bg-sky-50 px-2 py-0.5 rounded">
+                  <span className="text-xs text-muted">物料编码</span>
+                  <span className="text-sm font-medium text-primary bg-primary-soft px-2 py-0.5 rounded">
                     {r.itemCode || '—'}
                   </span>
                 </div>
                 <dl className="space-y-1.5 text-sm">
                   <div className="flex justify-between">
-                    <dt className="text-slate-500">物料名称</dt>
-                    <dd className="text-slate-800 text-right max-w-[60%] truncate">{r.itemName || '—'}</dd>
+                    <dt className="text-muted">物料名称</dt>
+                    <dd className="text-fg text-right max-w-[60%] truncate">{r.itemName || '—'}</dd>
                   </div>
                   <div className="flex justify-between">
-                    <dt className="text-slate-500">外文名称</dt>
-                    <dd className="text-slate-800 text-right max-w-[60%] truncate">{r.frgnName || '—'}</dd>
+                    <dt className="text-muted">外文名称</dt>
+                    <dd className="text-fg text-right max-w-[60%] truncate">{r.frgnName || '—'}</dd>
                   </div>
                 </dl>
               </div>
@@ -110,18 +110,18 @@ export default function OworView() {
           <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm border-collapse">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="text-left py-2.5 px-3 font-medium text-slate-600">物料编码</th>
-                  <th className="text-left py-2.5 px-3 font-medium text-slate-600">物料名称</th>
-                  <th className="text-left py-2.5 px-3 font-medium text-slate-600">外文名称</th>
+                <tr className="bg-surface-2 border-b border-line">
+                  <th className="text-left py-2.5 px-3 font-medium text-fg-2">物料编码</th>
+                  <th className="text-left py-2.5 px-3 font-medium text-fg-2">物料名称</th>
+                  <th className="text-left py-2.5 px-3 font-medium text-fg-2">外文名称</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r, i) => (
-                  <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
-                    <td className="py-2 px-3 text-sky-600 font-medium">{r.itemCode || '—'}</td>
-                    <td className="py-2 px-3 text-slate-800">{r.itemName || '—'}</td>
-                    <td className="py-2 px-3 text-slate-600">{r.frgnName || '—'}</td>
+                  <tr key={i} className="border-b border-line hover:bg-surface-2">
+                    <td className="py-2 px-3 text-primary font-medium">{r.itemCode || '—'}</td>
+                    <td className="py-2 px-3 text-fg">{r.itemName || '—'}</td>
+                    <td className="py-2 px-3 text-fg-2">{r.frgnName || '—'}</td>
                   </tr>
                 ))}
               </tbody>

@@ -39,14 +39,14 @@ export default function DashboardPanel({ agentKey, pcMode, onPick }: Props) {
 
   if (!state || state.key !== agentKey) {
     return (
-      <div className="flex items-center justify-center h-40 gap-2 text-[13px] text-slate-400">
+      <div className="flex items-center justify-center h-40 gap-2 text-[13px] text-subtle">
         <Loader2 className="w-4 h-4 animate-spin" />
         看板加载中…
       </div>
     )
   }
   if (state.error || !state.dashboard) {
-    return <div className="rounded-xl bg-rose-50 border border-rose-100 text-rose-700 text-[13px] p-4">{state.error || '看板不可用'}</div>
+    return <div className="rounded-xl bg-danger-soft border border-danger/25 text-danger text-[13px] p-4">{state.error || '看板不可用'}</div>
   }
 
   const dashboard = state.dashboard
@@ -56,8 +56,8 @@ export default function DashboardPanel({ agentKey, pcMode, onPick }: Props) {
     <div className="flex flex-col gap-4">
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div className="min-w-0">
-          <h2 className="text-[16px] font-semibold text-[#1a1a2e]">{dashboard.label}</h2>
-          {dashboard.description && <p className="text-[12px] text-slate-400 mt-0.5">{dashboard.description}</p>}
+          <h2 className="font-display text-[16px] font-semibold text-fg">{dashboard.label}</h2>
+          {dashboard.description && <p className="text-[12px] text-subtle mt-0.5">{dashboard.description}</p>}
         </div>
         {dashboard.filters.length > 0 && (
           <div className="flex items-end gap-2 flex-wrap" role="group" aria-label="看板筛选">
@@ -69,7 +69,7 @@ export default function DashboardPanel({ agentKey, pcMode, onPick }: Props) {
       </div>
 
       {dashboard.cards.length === 0 ? (
-        <p className="text-[13px] text-slate-400 py-10 text-center">看板暂无可显示的卡片</p>
+        <p className="text-[13px] text-subtle py-10 text-center">看板暂无可显示的卡片</p>
       ) : (
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(12, minmax(0, 1fr))' }}>
           {dashboard.cards.map((card) => (
@@ -88,7 +88,7 @@ export default function DashboardPanel({ agentKey, pcMode, onPick }: Props) {
       )}
 
       {dashboard.hiddenCards > 0 && (
-        <p className="text-[11px] text-slate-400">另有 {dashboard.hiddenCards} 张卡片因权限未显示</p>
+        <p className="text-[11px] text-subtle">另有 {dashboard.hiddenCards} 张卡片因权限未显示</p>
       )}
     </div>
   )
@@ -96,7 +96,7 @@ export default function DashboardPanel({ agentKey, pcMode, onPick }: Props) {
 
 function FilterInput({ filter, value, onChange }: { filter: BiFilter; value: BiScalar; onChange: (v: BiScalar) => void }) {
   const id = `bi-filter-${filter.name}`
-  const cls = 'h-8 px-2.5 rounded-lg border border-slate-200 bg-white text-[12.5px] text-slate-700 focus:outline-none focus:border-[#4f6ef7]'
+  const cls = 'h-8 px-2.5 rounded-lg border border-line bg-surface text-[12.5px] text-fg-2 focus:outline-none focus:border-primary'
   let control: React.ReactNode
   if (filter.type === 'select') {
     control = (
@@ -119,7 +119,7 @@ function FilterInput({ filter, value, onChange }: { filter: BiFilter; value: BiS
   }
   return (
     <label htmlFor={id} className="flex flex-col gap-0.5">
-      <span className="text-[11px] text-slate-400">{filter.label}</span>
+      <span className="text-[11px] text-subtle">{filter.label}</span>
       {control}
     </label>
   )

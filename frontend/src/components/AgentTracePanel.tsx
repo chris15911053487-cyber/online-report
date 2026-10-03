@@ -73,7 +73,7 @@ function CopyStepBtn({ step }: { step: AgentToolStep }) {
   return (
     <button
       type="button"
-      className="shrink-0 text-[10px] text-slate-400 hover:text-sky-600 px-1"
+      className="shrink-0 text-[10px] text-subtle hover:text-primary px-1"
       title="复制完整内容"
       onClick={() => {
         copyText(buildStepCopyText(step))
@@ -100,7 +100,7 @@ export default function AgentTracePanel({
 
   if (degraded) {
     return (
-      <div className="mt-2 max-w-full w-full rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-[11px] text-amber-800">
+      <div className="mt-2 max-w-full w-full rounded-xl border border-warning/25 bg-warning-soft/80 px-3 py-2 text-[11px] text-warning">
         本次为<strong className="font-medium">本地知识问答模式</strong>（未连接 AI Agent），无工具调用记录。
       </div>
     )
@@ -118,33 +118,33 @@ export default function AgentTracePanel({
     .join(' · ')
 
   return (
-    <div className="mt-2 max-w-full w-full rounded-xl border border-slate-200 bg-slate-50/90 overflow-hidden">
+    <div className="mt-2 max-w-full w-full rounded-xl border border-line bg-surface-2/90 overflow-hidden">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-[11px] text-slate-600 hover:bg-slate-100/80"
+        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left text-[11px] text-fg-2 hover:bg-surface-2/80"
       >
-        <span className="font-medium text-slate-700">
-          <span className="text-sky-600 mr-1">⚙</span>
+        <span className="font-medium text-fg-2">
+          <span className="text-primary mr-1">⚙</span>
           执行过程
-          {summary ? <span className="font-normal text-slate-500 ml-1.5">({summary})</span> : null}
+          {summary ? <span className="font-normal text-muted ml-1.5">({summary})</span> : null}
         </span>
-        <span className="text-slate-400 shrink-0">{open ? '收起 ▲' : '展开 ▼'}</span>
+        <span className="text-subtle shrink-0">{open ? '收起 ▲' : '展开 ▼'}</span>
       </button>
       {open && (
-        <div className="px-3 pb-3 space-y-2 border-t border-slate-200/80">
+        <div className="px-3 pb-3 space-y-2 border-t border-line/80">
           {timings && (
-            <p className="text-[10px] text-slate-600 pt-2" title="模型耗时为各次调用之和；工具/其它为整轮墙钟减去模型耗时">
+            <p className="text-[10px] text-fg-2 pt-2" title="模型耗时为各次调用之和；工具/其它为整轮墙钟减去模型耗时">
               ⏱ {describeTimings(timings)}
             </p>
           )}
           {skillUsed && (
-            <p className="text-[10px] text-violet-700 pt-2">
+            <p className="text-[10px] text-accent pt-2">
               使用 Skill：<span className="font-mono font-medium">{skillUsed}</span>
             </p>
           )}
           {errorCount > 0 && (
-            <p className="text-[10px] text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-2 py-1.5 pt-2">
+            <p className="text-[10px] text-danger bg-danger-soft border border-danger/25 rounded-lg px-2 py-1.5 pt-2">
               以下步骤调用失败（含后端校验/SQL 报错）。展开可查看具体原因，无需查服务器日志。
             </p>
           )}
@@ -155,24 +155,24 @@ export default function AgentTracePanel({
               <div
                 key={`${step.tool}-${i}`}
                 className={`rounded-lg px-2.5 py-2 border ${
-                  isErr ? 'bg-rose-50/80 border-rose-200' : 'bg-white border-slate-100'
+                  isErr ? 'bg-danger-soft/80 border-danger/25' : 'bg-surface border-line'
                 }`}
               >
                 <div className="flex items-start justify-between gap-1">
-                  <p className={`text-[11px] font-medium ${isErr ? 'text-rose-900' : 'text-slate-800'}`}>
+                  <p className={`text-[11px] font-medium ${isErr ? 'text-danger' : 'text-fg'}`}>
                     {i + 1}. {step.label || step.tool}
                     {isErr && (
-                      <span className="ml-1.5 text-[10px] font-normal text-rose-600">失败</span>
+                      <span className="ml-1.5 text-[10px] font-normal text-danger">失败</span>
                     )}
-                    <span className="ml-1.5 font-normal text-slate-400 font-mono text-[10px]">{step.tool}</span>
+                    <span className="ml-1.5 font-normal text-subtle font-mono text-[10px]">{step.tool}</span>
                     {step.durationMs != null && (
-                      <span className="ml-1.5 font-normal text-slate-500 text-[10px]">⏱ {formatDuration(step.durationMs)}</span>
+                      <span className="ml-1.5 font-normal text-muted text-[10px]">⏱ {formatDuration(step.durationMs)}</span>
                     )}
                   </p>
                   <CopyStepBtn step={step} />
                 </div>
                 {argLines.length > 0 && (
-                  <ul className="mt-1 space-y-0.5 text-[10px] text-slate-600">
+                  <ul className="mt-1 space-y-0.5 text-[10px] text-fg-2">
                     {argLines.map((line, j) => (
                       <li key={j} className="break-all">
                         {line}
@@ -184,8 +184,8 @@ export default function AgentTracePanel({
                   <p
                     className={`mt-1.5 text-[10px] rounded px-2 py-1 break-all ${
                       isErr
-                        ? 'text-rose-800 bg-rose-100/90 font-medium'
-                        : 'text-emerald-700 bg-emerald-50/80'
+                        ? 'text-danger bg-danger-soft/90 font-medium'
+                        : 'text-success bg-success-soft/80'
                     }`}
                   >
                     {isErr ? '✕ ' : '→ '}
@@ -196,7 +196,7 @@ export default function AgentTracePanel({
             )
           })}
           {!hasSteps && skillUsed && (
-            <p className="text-[10px] text-slate-500 pt-1">本轮未记录到工具调用（可能为纯文本回复）。</p>
+            <p className="text-[10px] text-muted pt-1">本轮未记录到工具调用（可能为纯文本回复）。</p>
           )}
         </div>
       )}

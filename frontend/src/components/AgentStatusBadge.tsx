@@ -22,33 +22,33 @@ interface AgentStatusBadgeProps {
 function statusMeta(status: AgentStatus | null, loading: boolean) {
   if (loading || !status) {
     return {
-      dot: 'bg-slate-300 animate-pulse',
+      dot: 'bg-line-strong animate-pulse',
       label: '检测 Agent 连接…',
-      text: 'text-slate-500',
-      bg: 'bg-slate-50',
+      text: 'text-muted',
+      bg: 'bg-surface-2',
     }
   }
   if (!status.enabled || status.mode === 'knowledge_only') {
     return {
-      dot: 'bg-slate-400',
+      dot: 'bg-subtle',
       label: 'Agent 已关闭',
-      text: 'text-slate-600',
-      bg: 'bg-slate-50',
+      text: 'text-fg-2',
+      bg: 'bg-surface-2',
     }
   }
   if (status.reachable) {
     return {
-      dot: 'bg-emerald-500',
+      dot: 'bg-success',
       label: 'Agent 已连接',
-      text: 'text-emerald-800',
-      bg: 'bg-emerald-50/80',
+      text: 'text-success',
+      bg: 'bg-success-soft/80',
     }
   }
   return {
-    dot: 'bg-amber-500',
+    dot: 'bg-warning',
     label: 'Agent 未连接',
-    text: 'text-amber-800',
-    bg: 'bg-amber-50/80',
+    text: 'text-warning',
+    bg: 'bg-warning-soft/80',
   }
 }
 
@@ -86,14 +86,14 @@ export default function AgentStatusBadge({
 
   if (variant === 'card') {
     return (
-      <div className="bg-white rounded-lg shadow p-4 mb-4">
+      <div className="bg-surface rounded-lg shadow p-4 mb-4">
         <div className="flex items-center justify-between mb-2">
-          <h2 className="text-lg font-semibold text-slate-800">AI Agent 连接</h2>
+          <h2 className="text-lg font-semibold text-fg">AI Agent 连接</h2>
           <button
             type="button"
             onClick={() => void refresh()}
             disabled={loading}
-            className="text-xs text-sky-600 disabled:text-slate-300"
+            className="text-xs text-primary disabled:text-subtle"
           >
             {loading ? '检测中…' : '刷新'}
           </button>
@@ -102,12 +102,12 @@ export default function AgentStatusBadge({
           <span className={`mt-1.5 h-2 w-2 rounded-full shrink-0 ${meta.dot}`} />
           <div className="min-w-0 flex-1">
             <p className={`text-sm font-medium ${meta.text}`}>{meta.label}</p>
-            {status?.hint && <p className="text-xs text-slate-500 mt-0.5">{status.hint}</p>}
+            {status?.hint && <p className="text-xs text-muted mt-0.5">{status.hint}</p>}
             {showAdminDetails && status?.url && (
-              <p className="text-[10px] text-slate-400 mt-1 font-mono break-all">URL: {status.url}</p>
+              <p className="text-[10px] text-subtle mt-1 font-mono break-all">URL: {status.url}</p>
             )}
             {showAdminDetails && status?.error && (
-              <p className="text-[10px] text-amber-700 mt-1 break-all">错误: {status.error}</p>
+              <p className="text-[10px] text-warning mt-1 break-all">错误: {status.error}</p>
             )}
           </div>
         </div>
@@ -121,12 +121,12 @@ export default function AgentStatusBadge({
       onClick={() => void refresh()}
       disabled={loading}
       title={status?.hint || meta.label}
-      className={`w-full flex items-center justify-center gap-1.5 px-3 py-1 text-[10px] border-b border-slate-100 ${meta.bg} ${meta.text} disabled:opacity-70`}
+      className={`w-full flex items-center justify-center gap-1.5 px-3 py-1 text-[10px] border-b border-line ${meta.bg} ${meta.text} disabled:opacity-70`}
     >
       <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${meta.dot}`} />
       <span>{meta.label}</span>
       {!loading && status && !status.reachable && status.enabled && (
-        <span className="text-amber-600/80">· 仅知识问答</span>
+        <span className="text-warning/80">· 仅知识问答</span>
       )}
     </button>
   )

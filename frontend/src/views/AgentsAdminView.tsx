@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Plus, Pencil, Trash2, ChevronLeft } from 'lucide-react'
 import { useStore } from '../store'
+import { tokenHex } from '../theme'
 import { apiFetch } from '../utils/api'
 import { AGENT_ICON_NAMES } from './AgentHubView'
 import type { AgentAdmin, AgentQuickPrompt, AgentSkillOption } from '../types'
@@ -11,7 +12,7 @@ const EMPTY_AGENT: AgentAdmin = {
   subtitle: '',
   description: '',
   icon: 'Bot',
-  themeColor: '#4f6ef7',
+  themeColor: '',
   welcomeMd: '',
   layoutMode: 'canvas',
   quickPrompts: [],
@@ -27,21 +28,21 @@ const EMPTY_AGENT: AgentAdmin = {
 }
 
 const inputCls =
-  'w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-sky-500'
-const labelCls = 'block text-[13px] font-medium text-slate-600 mb-1'
+  'w-full px-3 py-2 border border-line-strong rounded-lg text-sm focus:outline-none focus:border-primary'
+const labelCls = 'block text-[13px] font-medium text-fg-2 mb-1'
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-lg border border-slate-200 p-4 mb-3">
-      <h3 className="text-sm font-semibold text-slate-800 mb-0.5">{title}</h3>
-      {hint && <p className="text-[12px] text-slate-400 mb-3">{hint}</p>}
+    <div className="bg-surface rounded-lg border border-line p-4 mb-3">
+      <h3 className="text-sm font-semibold text-fg mb-0.5">{title}</h3>
+      {hint && <p className="text-[12px] text-subtle mb-3">{hint}</p>}
       <div className={hint ? '' : 'mt-3'}>{children}</div>
     </div>
   )
 }
 
 export default function AgentsAdminView() {
-  const { showToast, goBack } = useStore()
+  const { showToast } = useStore()
   const [items, setItems] = useState<AgentAdmin[]>([])
   const [availableSkills, setAvailableSkills] = useState<AgentSkillOption[]>([])
   const [availableRoles, setAvailableRoles] = useState<string[]>([])
@@ -135,8 +136,8 @@ export default function AgentsAdminView() {
       <div className="p-4">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Agent 配置</h2>
-            <p className="text-[12px] text-slate-500 mt-0.5">
+            <h2 className="text-lg font-semibold text-fg">Agent 配置</h2>
+            <p className="text-[12px] text-muted mt-0.5">
               配置可在「Agent」页选择的智能体，能力由关联的 Skill 决定
             </p>
           </div>
@@ -145,60 +146,60 @@ export default function AgentsAdminView() {
               setEditing({ ...EMPTY_AGENT })
               setIsNew(true)
             }}
-            className="flex items-center gap-1 px-3 py-2 bg-indigo-500 text-white rounded-lg text-sm font-medium hover:bg-indigo-600 transition-colors flex-shrink-0"
+            className="flex items-center gap-1 px-3 py-2 bg-primary text-primary-fg rounded-lg text-sm font-medium hover:bg-primary-hover transition-colors flex-shrink-0"
           >
             <Plus className="w-4 h-4" />
             新增
           </button>
         </div>
 
-        {loading && <p className="text-sm text-slate-400">加载中…</p>}
+        {loading && <p className="text-sm text-subtle">加载中…</p>}
         {!loading && error && (
-          <div className="bg-red-50 border border-red-100 text-red-600 text-sm rounded-lg p-3">
+          <div className="bg-danger-soft border border-danger/25 text-danger text-sm rounded-lg p-3">
             {error}
           </div>
         )}
         {!loading && !error && items.length === 0 && (
-          <p className="text-sm text-slate-400">暂无 Agent，点「新增」创建第一个。</p>
+          <p className="text-sm text-subtle">暂无 Agent，点「新增」创建第一个。</p>
         )}
 
         <div className="space-y-2">
           {items.map((agent) => (
             <div
               key={agent.agentKey}
-              className="bg-white rounded-lg border border-slate-200 p-3.5"
+              className="bg-surface rounded-lg border border-line p-3.5"
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-[15px] font-semibold text-slate-900">{agent.label}</span>
-                    <code className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
+                    <span className="text-[15px] font-semibold text-fg">{agent.label}</span>
+                    <code className="text-[11px] px-1.5 py-0.5 rounded bg-surface-2 text-muted">
                       {agent.agentKey}
                     </code>
                     {!agent.enabled && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-2 text-muted">
                         已停用
                       </span>
                     )}
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-700">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary-soft text-primary">
                       {agent.layoutMode === 'canvas' ? '画布式' : '纯聊天'}
                     </span>
                   </div>
                   {agent.subtitle && (
-                    <p className="text-[12px] text-slate-400 mt-1">{agent.subtitle}</p>
+                    <p className="text-[12px] text-subtle mt-1">{agent.subtitle}</p>
                   )}
-                  <p className="text-[12px] text-slate-500 mt-1.5">
+                  <p className="text-[12px] text-muted mt-1.5">
                     关联 Skill：
                     {agent.skills.length > 0 ? (
                       agent.skills.join('、')
                     ) : (
-                      <span className="text-amber-600">未关联（该 Agent 暂无数据查询能力）</span>
+                      <span className="text-warning">未关联（该 Agent 暂无数据查询能力）</span>
                     )}
                   </p>
                   {agent.dashboardKey && (
-                    <p className="text-[12px] text-slate-500 mt-0.5">关联看板：{agent.dashboardKey}</p>
+                    <p className="text-[12px] text-muted mt-0.5">关联看板：{agent.dashboardKey}</p>
                   )}
-                  <p className="text-[12px] text-slate-500 mt-0.5">
+                  <p className="text-[12px] text-muted mt-0.5">
                     可见角色：
                     {agent.roles.length > 0 ? agent.roles.join('、') : '仅管理员'}
                   </p>
@@ -209,14 +210,14 @@ export default function AgentsAdminView() {
                       setEditing({ ...EMPTY_AGENT, ...agent })
                       setIsNew(false)
                     }}
-                    className="p-2 text-slate-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors"
+                    className="p-2 text-subtle hover:text-primary hover:bg-primary-soft rounded-lg transition-colors"
                     aria-label="编辑"
                   >
                     <Pencil className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => handleDelete(agent)}
-                    className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    className="p-2 text-subtle hover:text-danger hover:bg-danger-soft rounded-lg transition-colors"
                     aria-label="删除"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -227,12 +228,6 @@ export default function AgentsAdminView() {
           ))}
         </div>
 
-        <button
-          onClick={goBack}
-          className="w-full mt-4 py-2.5 border border-slate-300 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
-        >
-          返回
-        </button>
       </div>
     )
   }
@@ -242,13 +237,13 @@ export default function AgentsAdminView() {
     <div className="p-4 pb-24">
       <button
         onClick={() => setEditing(null)}
-        className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700 mb-3"
+        className="flex items-center gap-1 text-sm text-muted hover:text-fg-2 mb-3"
       >
         <ChevronLeft className="w-4 h-4" />
         返回列表
       </button>
 
-      <h2 className="text-lg font-semibold text-slate-900 mb-3">
+      <h2 className="text-lg font-semibold text-fg mb-3">
         {isNew ? '新增 Agent' : `编辑：${editing.label || editing.agentKey}`}
       </h2>
 
@@ -263,7 +258,7 @@ export default function AgentsAdminView() {
               onChange={(e) => patch({ agentKey: e.target.value })}
               placeholder="sales-analysis"
             />
-            <p className="text-[11px] text-slate-400 mt-1">
+            <p className="text-[11px] text-subtle mt-1">
               小写字母开头，仅小写字母/数字/连字符；创建后不可修改
             </p>
           </div>
@@ -314,10 +309,17 @@ export default function AgentsAdminView() {
               <label className={labelCls}>主题色</label>
               <input
                 type="color"
-                className="w-full h-[38px] border border-slate-300 rounded-lg"
-                value={editing.themeColor || '#4f6ef7'}
+                className="w-full h-[38px] border border-line-strong rounded-lg"
+                value={editing.themeColor || tokenHex('primary')}
                 onChange={(e) => patch({ themeColor: e.target.value })}
               />
+              {editing.themeColor ? (
+                <button type="button" className="mt-1 text-[11px] text-muted hover:text-fg" onClick={() => patch({ themeColor: '' })}>
+                  跟随主题
+                </button>
+              ) : (
+                <p className="mt-1 text-[11px] text-subtle">未设置：跟随主题</p>
+              )}
             </div>
           </div>
         </div>
@@ -328,7 +330,7 @@ export default function AgentsAdminView() {
         hint="Agent 本身不带查询能力：勾选的 Skill 决定它能查什么表、走什么流程。未勾选则只能做一般性问答。"
       >
         {availableSkills.length === 0 ? (
-          <p className="text-[13px] text-slate-400">
+          <p className="text-[13px] text-subtle">
             暂无可用 Skill，请先到「AI Skill 管理」创建。
           </p>
         ) : (
@@ -336,7 +338,7 @@ export default function AgentsAdminView() {
             {availableSkills.map((s) => (
               <label
                 key={s.name}
-                className="flex items-start gap-2.5 p-2.5 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer"
+                className="flex items-start gap-2.5 p-2.5 rounded-lg border border-line hover:bg-surface-2 cursor-pointer"
               >
                 <input
                   type="checkbox"
@@ -346,15 +348,15 @@ export default function AgentsAdminView() {
                 />
                 <span className="min-w-0 flex-1">
                   <span className="flex items-center gap-1.5 flex-wrap">
-                    <code className="text-[12px] font-medium text-slate-800">{s.name}</code>
+                    <code className="text-[12px] font-medium text-fg">{s.name}</code>
                     {!s.enabled && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-2 text-muted">
                         已停用
                       </span>
                     )}
                   </span>
                   {s.description && (
-                    <span className="block text-[12px] text-slate-500 mt-0.5 leading-relaxed">
+                    <span className="block text-[12px] text-muted mt-0.5 leading-relaxed">
                       {s.description}
                     </span>
                   )}
@@ -383,17 +385,17 @@ export default function AgentsAdminView() {
               <label className={labelCls + ' mb-0'}>快捷提问</label>
               <button
                 onClick={addQuickPrompt}
-                className="text-[12px] text-indigo-600 hover:text-indigo-700 font-medium"
+                className="text-[12px] text-primary hover:text-primary font-medium"
               >
                 + 添加
               </button>
             </div>
             {editing.quickPrompts.length === 0 && (
-              <p className="text-[12px] text-slate-400">未配置，进入 Agent 后不显示快捷入口。</p>
+              <p className="text-[12px] text-subtle">未配置，进入 Agent 后不显示快捷入口。</p>
             )}
             <div className="space-y-2">
               {editing.quickPrompts.map((q, idx) => (
-                <div key={idx} className="border border-slate-200 rounded-lg p-2.5">
+                <div key={idx} className="border border-line rounded-lg p-2.5">
                   <div className="flex gap-2 mb-2">
                     <input
                       className={inputCls + ' w-16 text-center'}
@@ -409,7 +411,7 @@ export default function AgentsAdminView() {
                     />
                     <button
                       onClick={() => removeQuickPrompt(idx)}
-                      className="p-2 text-slate-400 hover:text-red-600 rounded-lg flex-shrink-0"
+                      className="p-2 text-subtle hover:text-danger rounded-lg flex-shrink-0"
                       aria-label="删除"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -462,7 +464,7 @@ export default function AgentsAdminView() {
               checked={!!editing.defaultEnabled}
               onChange={(e) => patch({ defaultEnabled: e.target.checked })}
             />
-            <span className="text-sm text-slate-700">进入时自动执行默认分析</span>
+            <span className="text-sm text-fg-2">进入时自动执行默认分析</span>
           </label>
           <div>
             <label className={labelCls}>默认分析指令</label>
@@ -482,7 +484,7 @@ export default function AgentsAdminView() {
               value={editing.defaultCacheSecs ?? 300}
               onChange={(e) => patch({ defaultCacheSecs: Number(e.target.value) })}
             />
-            <p className="text-[11px] text-slate-400 mt-1">
+            <p className="text-[11px] text-subtle mt-1">
               0 = 每次进入都重新查询；300 = 5 分钟内复用上次结果，避免频繁跑 SQL
             </p>
           </div>
@@ -505,7 +507,7 @@ export default function AgentsAdminView() {
           <div>
             <label className={labelCls}>可见角色</label>
             {availableRoles.length === 0 ? (
-              <p className="text-[12px] text-slate-400">暂无自定义角色</p>
+              <p className="text-[12px] text-subtle">暂无自定义角色</p>
             ) : (
               <div className="flex flex-wrap gap-2">
                 {availableRoles.map((r) => (
@@ -513,8 +515,8 @@ export default function AgentsAdminView() {
                     key={r}
                     className={`px-2.5 py-1.5 rounded-lg border text-[12px] cursor-pointer transition-colors ${
                       editing.roles.includes(r)
-                        ? 'border-indigo-400 bg-indigo-50 text-indigo-700'
-                        : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                        ? 'border-primary/60 bg-primary-soft text-primary'
+                        : 'border-line text-fg-2 hover:bg-surface-2'
                     }`}
                   >
                     <input
@@ -528,7 +530,7 @@ export default function AgentsAdminView() {
                 ))}
               </div>
             )}
-            <p className="text-[11px] text-slate-400 mt-1.5">
+            <p className="text-[11px] text-subtle mt-1.5">
               不勾选 = 仅管理员可见；管理员始终可见全部 Agent
             </p>
           </div>
@@ -565,7 +567,7 @@ export default function AgentsAdminView() {
                   checked={editing.enabled}
                   onChange={(e) => patch({ enabled: e.target.checked })}
                 />
-                <span className="text-sm text-slate-700">启用</span>
+                <span className="text-sm text-fg-2">启用</span>
               </label>
             </div>
           </div>
@@ -575,14 +577,14 @@ export default function AgentsAdminView() {
       <div className="flex gap-3">
         <button
           onClick={() => setEditing(null)}
-          className="flex-1 py-2.5 border border-slate-300 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
+          className="flex-1 py-2.5 border border-line-strong text-fg-2 rounded-lg text-sm font-medium hover:bg-surface-2 transition-colors"
         >
           取消
         </button>
         <button
           onClick={handleSave}
           disabled={saving}
-          className="flex-1 py-2.5 bg-indigo-500 text-white rounded-lg text-sm font-medium hover:bg-indigo-600 disabled:opacity-50 transition-colors"
+          className="flex-1 py-2.5 bg-primary text-primary-fg rounded-lg text-sm font-medium hover:bg-primary-hover disabled:opacity-50 transition-colors"
         >
           {saving ? '保存中…' : '保存'}
         </button>
