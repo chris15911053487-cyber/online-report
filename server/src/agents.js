@@ -101,9 +101,9 @@ const AGENT_COLS_V1 = `id, agent_key, label, subtitle, description, icon, theme_
   welcome_md, layout_mode, skills_json, quick_prompts_json,
   default_prompt, default_enabled, default_cache_secs, system_prompt_extra,
   roles_json, enabled, sort_order`;
-// V2 含 dashboard_key（migrate-bi.sql）；尚未迁移的库缺列报 207 时回退 V1，避免 Agent 页整体不可用
+// V2 含 dashboard_key（migrate-bi.sql）；尚未迁移的库缺列报 207 时回退 V1，避免 Agent 页整体不可用。
+// 不缓存「缺列」结论：进程运行期间补了列（手动执行迁移）后立即生效，否则保存会一直静默丢掉看板关联。
 const AGENT_COLS = `${AGENT_COLS_V1}, dashboard_key`;
-let hasDashboardColumn = true;
 
 async function selectAgents(pool, whereSql, bind) {
   const run = (cols) => {
@@ -111,15 +111,12 @@ async function selectAgents(pool, whereSql, bind) {
     if (bind) bind(req);
     return req.query(`SELECT ${cols} FROM dbo.agents ${whereSql}`);
   };
-  if (hasDashboardColumn) {
-    try {
-      return await run(AGENT_COLS);
-    } catch (err) {
-      if (!isMissingColumn(err)) throw err;
-      hasDashboardColumn = false;
-    }
+  try {
+    return await run(AGENT_COLS);
+  } catch (err) {
+    if (!isMissingColumn(err)) throw err;
+    return run(AGENT_COLS_V1);
   }
-  return run(AGENT_COLS_V1);
 }
 
 /** 列出全部 agent（管理后台用）。表不存在时返回空数组，避免未跑迁移导致 500。 */
@@ -234,13 +231,20 @@ function validateAgentInput(input) {
 
 const { SQL_CHINA_LOCAL_NOW_EXPR } = require('./china-datetime');
 
-/** 新增或更新（按 agent_key 幂等）；dashboard_key 列缺失（未迁移）时自动回退为不写该列 */
+/**
+ * 新增或更新（按 agent_key 幂等）。
+ * dashboard_key 列缺失（未迁移）时：未关联看板则回退为不写该列；关联了看板则报错，不能假装保存成功。
+ */
 async function upsertAgent(pool, value) {
   try {
-    await mergeAgent(pool, value, hasDashboardColumn);
+    await mergeAgent(pool, value, true);
   } catch (err) {
-    if (!hasDashboardColumn || !isMissingColumn(err)) throw err;
-    hasDashboardColumn = false;
+    if (!isMissingColumn(err)) throw err;
+    if (value.dashboardKey) {
+      const e = new Error('数据库 agents 表缺少 dashboard_key 列，无法关联看板：请执行 server/sql/migrate-bi.sql 后重试');
+      e.code = 'AGENT_DASHBOARD_COLUMN_MISSING';
+      throw e;
+    }
     await mergeAgent(pool, value, false);
   }
   return getAgent(pool, value.agentKey);

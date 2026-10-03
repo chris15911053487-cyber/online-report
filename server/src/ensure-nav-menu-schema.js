@@ -113,84 +113,56 @@ async function ensureNavMenuSchema(getPool, log) {
     }
   };
 
+  // 按顺序执行；每个脚本单独 try，一个失败（如依赖的业务表不存在）不影响后面的脚本
+  const scripts = [
+    SQL_PATH,
+    SQL_REPORT_COLS_PATH,
+    SQL_DETAIL_COLS_PATH,
+    SQL_X_BATCH_PATH,
+    SQL_COLUMN_LABELS_PATH,
+    SQL_COLUMN_NAME_MAPPING_PATH,
+    SQL_X_ONLINE_SIGN_PATH,
+    SQL_AI_PROMPT_PATH, // AI Prompt 字段 ai_prompt
+    SQL_VOICE_ACTIONS_PATH, // 语音动作模板 voice_actions_json
+    SQL_RETURNPRO_PICK_LOGS_PATH,
+    SQL_PRO_SIGN_SQL_LOGS_PATH,
+    SQL_USER_ROLES_PATH,
+    SQL_AI_AGENT_PATH, // AI Agent：skill 注册表 + 会话/消息表
+    SQL_AWT_KIND_PATH, // AI Agent：写入目标 target_kind 列（table | action）
+    SQL_SKILL_ALLOWED_TABLES_PATH, // AI Agent：skill 的 run_sql 表白名单列
+    SQL_MESSAGE_ALERTS_PATH,
+    SQL_BOT_USER_BINDINGS_PATH,
+    SQL_SCHEDULED_REPORTS_PATH,
+    SQL_ALERT_PUSH_PATH,
+    SQL_BOT_MESSAGE_LOGS_PATH,
+    SQL_AGENTS_PATH, // 可配置 Agent 中心：agents 表
+    SQL_BI_PATH, // BI 看板：查询库、看板表、agents.dashboard_key（须在 agents 表之后）
+    SQL_UI_SETTINGS_PATH, // 界面设置：公司默认主题 + 用户偏好
+  ];
+
+  let pool;
   try {
-    const pool = await getPool();
-    const sqlText = fs.readFileSync(SQL_PATH, 'utf8');
-    await pool.request().query(sqlText);
-    const sqlReportCols = fs.readFileSync(SQL_REPORT_COLS_PATH, 'utf8');
-    await pool.request().query(sqlReportCols);
-    const sqlDetailCols = fs.readFileSync(SQL_DETAIL_COLS_PATH, 'utf8');
-    await pool.request().query(sqlDetailCols);
-    const sqlXBatch = fs.readFileSync(SQL_X_BATCH_PATH, 'utf8');
-    await pool.request().query(sqlXBatch);
-    const sqlColumnLabels = fs.readFileSync(SQL_COLUMN_LABELS_PATH, 'utf8');
-    await pool.request().query(sqlColumnLabels);
-    const sqlColNameMap = fs.readFileSync(SQL_COLUMN_NAME_MAPPING_PATH, 'utf8');
-    await pool.request().query(sqlColNameMap);
-    const sqlXOnlineSign = fs.readFileSync(SQL_X_ONLINE_SIGN_PATH, 'utf8');
-    await pool.request().query(sqlXOnlineSign);
-    
-    // AI Prompt 支持 - 新增字段 ai_prompt
-    const sqlAIPrompt = fs.readFileSync(SQL_AI_PROMPT_PATH, 'utf8');
-    await pool.request().query(sqlAIPrompt);
-
-    // 语音动作模板（方案 B）- 新增字段 voice_actions_json
-    const sqlVoiceActions = fs.readFileSync(SQL_VOICE_ACTIONS_PATH, 'utf8');
-    await pool.request().query(sqlVoiceActions);
-
-    const sqlReturnProPickLogs = fs.readFileSync(SQL_RETURNPRO_PICK_LOGS_PATH, 'utf8');
-    await pool.request().query(sqlReturnProPickLogs);
-    const sqlProSignSqlLogs = fs.readFileSync(SQL_PRO_SIGN_SQL_LOGS_PATH, 'utf8');
-    await pool.request().query(sqlProSignSqlLogs);
-
-    const sqlUserRoles = fs.readFileSync(SQL_USER_ROLES_PATH, 'utf8');
-    await pool.request().query(sqlUserRoles);
-
-    // AI Agent：skill 注册表 + 会话/消息表
-    const sqlAiAgent = fs.readFileSync(SQL_AI_AGENT_PATH, 'utf8');
-    await pool.request().query(sqlAiAgent);
-
-    // AI Agent：写入目标 target_kind 列（table | action）
-    const sqlAwtKind = fs.readFileSync(SQL_AWT_KIND_PATH, 'utf8');
-    await pool.request().query(sqlAwtKind);
-
-    // AI Agent：skill 的 run_sql 表白名单列 allowed_tables_json
-    const sqlSkillAllowedTables = fs.readFileSync(SQL_SKILL_ALLOWED_TABLES_PATH, 'utf8');
-    await pool.request().query(sqlSkillAllowedTables);
-
-    const sqlMessageAlerts = fs.readFileSync(SQL_MESSAGE_ALERTS_PATH, 'utf8');
-    await pool.request().query(sqlMessageAlerts);
-
-    const sqlBotBindings = fs.readFileSync(SQL_BOT_USER_BINDINGS_PATH, 'utf8');
-    await pool.request().query(sqlBotBindings);
-
-    const sqlScheduledReports = fs.readFileSync(SQL_SCHEDULED_REPORTS_PATH, 'utf8');
-    await pool.request().query(sqlScheduledReports);
-
-    const sqlAlertPush = fs.readFileSync(SQL_ALERT_PUSH_PATH, 'utf8');
-    await pool.request().query(sqlAlertPush);
-
-    const sqlBotMessageLogs = fs.readFileSync(SQL_BOT_MESSAGE_LOGS_PATH, 'utf8');
-    await pool.request().query(sqlBotMessageLogs);
-
-    // 可配置 Agent 中心：agents 表
-    const sqlAgents = fs.readFileSync(SQL_AGENTS_PATH, 'utf8');
-    await pool.request().query(sqlAgents);
-
-    // BI 看板：查询库、看板表、agents.dashboard_key（须在 agents 表之后）
-    const sqlBi = fs.readFileSync(SQL_BI_PATH, 'utf8');
-    await pool.request().query(sqlBi);
-
-    // 界面设置：公司默认主题 + 用户偏好
-    const sqlUiSettings = fs.readFileSync(SQL_UI_SETTINGS_PATH, 'utf8');
-    await pool.request().query(sqlUiSettings);
-
-    log?.info?.('[nav_menu_items] 已检查/创建表结构与默认数据（含报表扩展列、X_报工批次表、AI Prompt字段、语音动作字段、返修领料日志表、生产报工SQL日志表、用户角色表、AI Agent 表、消息提醒表、Bot 用户绑定表、定时报告表、警报推送表、Bot 消息日志表、Agent 中心表、BI 看板表、界面设置表）');
+    pool = await getPool();
   } catch (err) {
-    warn(
-      '[nav_menu_items] 自动建表失败：请用有 DDL 权限的账号连接，或手动依次执行 sql/ 目录下的 migrate-*.sql 文件（包含 migrate-nav-menu-ai-prompt.sql）',
-      err
-    );
+    warn('[nav_menu_items] 自动建表失败：无法连接数据库', err);
+    return;
+  }
+
+  const failed = [];
+  for (const file of scripts) {
+    const name = path.basename(file);
+    try {
+      await pool.request().query(fs.readFileSync(file, 'utf8'));
+    } catch (err) {
+      failed.push(name);
+      warn(`[nav_menu_items] 迁移脚本执行失败：${name}（请用有 DDL 权限的账号连接，或手动执行该脚本）`, err);
+    }
+  }
+
+  if (failed.length === 0) {
+    log?.info?.(`[nav_menu_items] 已检查/创建表结构（${scripts.length} 个迁移脚本）`);
+  } else {
+    warn(`[nav_menu_items] ${failed.length}/${scripts.length} 个迁移脚本失败：${failed.join('、')}；其余已执行`);
   }
 }
 

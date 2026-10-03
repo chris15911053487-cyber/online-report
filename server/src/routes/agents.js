@@ -130,8 +130,15 @@ async function agentsRoutes(fastify) {
       if (!d) return reply.code(400).send({ error: `关联的看板不存在：${parsed.value.dashboardKey}` });
     }
 
-    const saved = await upsertAgent(pool, parsed.value);
-    return { agent: saved };
+    try {
+      const saved = await upsertAgent(pool, parsed.value);
+      return { agent: saved };
+    } catch (err) {
+      if (err.code === 'AGENT_DASHBOARD_COLUMN_MISSING') {
+        return reply.code(500).send({ error: err.message, code: err.code });
+      }
+      throw err;
+    }
   });
 
   fastify.delete('/admin/agents/:agentKey', { preHandler: [fastify.requireAdmin] }, async (request, reply) => {

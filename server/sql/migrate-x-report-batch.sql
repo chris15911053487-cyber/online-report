@@ -28,12 +28,28 @@ BEGIN
     order_id BIGINT NOT NULL,
     operation_id BIGINT NOT NULL,
     sort_order INT NOT NULL CONSTRAINT DF_xrbl_sort DEFAULT (0),
-    CONSTRAINT fk_xrbl_batch FOREIGN KEY (batch_id) REFERENCES dbo.X_report_batch (id) ON DELETE CASCADE,
-    CONSTRAINT fk_xrbl_order FOREIGN KEY (order_id) REFERENCES dbo.production_orders (id),
-    CONSTRAINT fk_xrbl_op FOREIGN KEY (operation_id) REFERENCES dbo.order_operations (id)
+    CONSTRAINT fk_xrbl_batch FOREIGN KEY (batch_id) REFERENCES dbo.X_report_batch (id) ON DELETE CASCADE
   );
   CREATE UNIQUE INDEX uk_xrbl_batch_order_op ON dbo.X_report_batch_line (batch_id, order_id, operation_id);
   CREATE INDEX idx_xrbl_batch ON dbo.X_report_batch_line (batch_id);
+END;
+
+-- 工单/工序外键：仅当 production_orders / order_operations 存在时添加
+-- （SAP B1 等业务库没有这两张表，内联外键会让整个脚本失败）
+IF OBJECT_ID(N'dbo.X_report_batch_line', N'U') IS NOT NULL
+  AND OBJECT_ID(N'dbo.production_orders', N'U') IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_xrbl_order')
+BEGIN
+  ALTER TABLE dbo.X_report_batch_line
+    ADD CONSTRAINT fk_xrbl_order FOREIGN KEY (order_id) REFERENCES dbo.production_orders (id);
+END;
+
+IF OBJECT_ID(N'dbo.X_report_batch_line', N'U') IS NOT NULL
+  AND OBJECT_ID(N'dbo.order_operations', N'U') IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'fk_xrbl_op')
+BEGIN
+  ALTER TABLE dbo.X_report_batch_line
+    ADD CONSTRAINT fk_xrbl_op FOREIGN KEY (operation_id) REFERENCES dbo.order_operations (id);
 END;
 
 IF OBJECT_ID(N'dbo.X_task_logs', N'U') IS NULL

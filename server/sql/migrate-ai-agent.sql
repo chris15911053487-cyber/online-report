@@ -57,6 +57,17 @@ BEGIN
   CREATE INDEX idx_ai_conv_user ON dbo.ai_conversations (user_code, updated_at DESC);
 END;
 
+-- 补齐默认值（早期手工建的表可能缺默认值，插入时会报 updated_at 不能为 NULL）
+IF OBJECT_ID(N'dbo.ai_conversations', N'U') IS NOT NULL
+  AND EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.ai_conversations') AND name = N'title' AND default_object_id = 0)
+  ALTER TABLE dbo.ai_conversations ADD CONSTRAINT DF_ai_conv_title DEFAULT (N'新对话') FOR title;
+IF OBJECT_ID(N'dbo.ai_conversations', N'U') IS NOT NULL
+  AND EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.ai_conversations') AND name = N'created_at' AND default_object_id = 0)
+  ALTER TABLE dbo.ai_conversations ADD CONSTRAINT DF_ai_conv_created DEFAULT (DATEADD(HOUR, 8, SYSUTCDATETIME())) FOR created_at;
+IF OBJECT_ID(N'dbo.ai_conversations', N'U') IS NOT NULL
+  AND EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.ai_conversations') AND name = N'updated_at' AND default_object_id = 0)
+  ALTER TABLE dbo.ai_conversations ADD CONSTRAINT DF_ai_conv_updated DEFAULT (DATEADD(HOUR, 8, SYSUTCDATETIME())) FOR updated_at;
+
 -------------------------------------------------------------------------------
 -- 3) ai_messages：消息 + 工具调用审计
 -------------------------------------------------------------------------------
