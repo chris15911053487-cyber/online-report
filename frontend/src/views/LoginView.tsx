@@ -1,6 +1,10 @@
 import { useState } from 'react'
 import { useStore } from '../store'
-import { AlertCircle } from 'lucide-react'
+import { AlertCircle, Sparkles } from 'lucide-react'
+
+// 品牌信息：如需改名称/副标题，改这里即可
+const BRAND_NAME = 'AI 智能平台'
+const BRAND_SUBTITLE = '工厂智能报工 · AI 数据助手'
 
 export default function LoginView() {
   const { login, isLoading } = useStore()
@@ -11,7 +15,7 @@ export default function LoginView() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    
+
     try {
       await login(username, password)
     } catch (err: any) {
@@ -20,68 +24,74 @@ export default function LoginView() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-sky-100 text-sky-600 rounded-3xl text-4xl mb-6">
-            📋
+    <div className="login-hero">
+      {/* 背景层：流动极光 + 圆点科技底纹 */}
+      <div className="login-aurora" />
+      <div className="login-grid" />
+
+      <div className="relative z-10 w-full max-w-md">
+        {/* AI 科技动图：核心徽标 + 雷达式扩散脉冲 */}
+        <div className="relative mx-auto mb-8 h-32 w-32">
+          <div className="absolute inset-2">
+            <span className="ai-pulse" />
+            <span className="ai-pulse ai-pulse-2" />
+            <span className="ai-pulse ai-pulse-3" />
           </div>
-          <h1 className="text-3xl font-bold text-slate-900">生产报工</h1>
-          <p className="text-slate-500 mt-2">工厂智能报工系统</p>
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="ai-orb">
+              <Sparkles className="ai-orb-icon h-11 w-11" strokeWidth={1.8} />
+            </div>
+          </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="card">
+        <div className="text-center mb-8">
+          <h1 className="bg-gradient-to-r from-cyan-500 via-indigo-600 to-purple-600 bg-clip-text text-3xl font-bold tracking-wide text-transparent">
+            {BRAND_NAME}
+          </h1>
+          <p className="mt-2 text-sm text-slate-500">{BRAND_SUBTITLE}</p>
+        </div>
+
+        <form onSubmit={handleSubmit} className="login-card">
           <div className="space-y-6">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                用户名
-              </label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">用户名</label>
               <input
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full px-4 py-3 border border-slate-300 rounded-2xl focus:outline-none focus:border-sky-500"
+                className="login-input"
                 placeholder="请输入用户名"
                 required
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                密码
-              </label>
+              <label className="mb-1.5 block text-sm font-medium text-slate-700">密码</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 border border-slate-300 rounded-2xl focus:outline-none focus:border-sky-500"
+                className="login-input"
                 placeholder="请输入密码"
                 required
               />
             </div>
 
             {error && (
-              <div className="flex items-center gap-2 text-red-600 bg-red-50 p-3 rounded-2xl text-sm">
-                <AlertCircle className="w-4 h-4" />
+              <div className="flex items-center gap-2 rounded-2xl bg-red-50 p-3 text-sm text-red-600 ring-1 ring-red-200">
+                <AlertCircle className="h-4 w-4" />
                 {error}
               </div>
             )}
 
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="btn-primary w-full text-lg py-4 disabled:opacity-70"
-            >
-              {isLoading ? '登录中...' : '登录'}
+            <button type="submit" disabled={isLoading} className="login-btn disabled:opacity-70">
+              {isLoading ? '登录中...' : '登 录'}
             </button>
           </div>
         </form>
 
-        <div className="text-center mt-8 text-sm text-slate-500">
-          <a 
-            href="/download/android-app.apk" 
-            className="text-sky-600 hover:underline"
-          >
+        <div className="mt-8 text-center text-sm text-slate-500">
+          <a href="/download/android-app.apk" className="text-indigo-600 hover:text-indigo-700 hover:underline">
             下载安卓客户端
           </a>
         </div>

@@ -22,6 +22,95 @@
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 
+  /* ===== 登录页 · 明亮科技风（极光渐变 + 雷达脉冲） ===== */
+  .login-hero {
+    @apply relative min-h-screen flex items-center justify-center p-4 overflow-hidden;
+    background:
+      radial-gradient(1000px 520px at 12% -8%, rgba(45, 212, 191, 0.28), transparent 60%),
+      radial-gradient(900px 480px at 108% 6%, rgba(129, 140, 248, 0.28), transparent 58%),
+      radial-gradient(820px 620px at 50% 118%, rgba(56, 189, 248, 0.24), transparent 60%),
+      linear-gradient(160deg, #f0f9ff 0%, #eef2ff 45%, #f5f3ff 100%);
+  }
+
+  /* 缓慢流动的极光光斑 */
+  .login-aurora {
+    @apply pointer-events-none absolute inset-0;
+    background:
+      radial-gradient(560px 300px at 22% 28%, rgba(20, 184, 166, 0.30), transparent 62%),
+      radial-gradient(520px 280px at 78% 72%, rgba(139, 92, 246, 0.28), transparent 62%);
+    filter: blur(36px);
+    animation: login-aurora-move 16s ease-in-out infinite alternate;
+  }
+
+  /* 圆点科技底纹 */
+  .login-grid {
+    @apply pointer-events-none absolute inset-0 opacity-[0.5];
+    background-image: radial-gradient(rgba(99, 102, 241, 0.22) 1.3px, transparent 1.3px);
+    background-size: 26px 26px;
+    mask-image: radial-gradient(circle at 50% 42%, black, transparent 72%);
+    -webkit-mask-image: radial-gradient(circle at 50% 42%, black, transparent 72%);
+  }
+
+  /* AI 核心徽标 */
+  .ai-orb {
+    @apply relative flex items-center justify-center w-24 h-24 mx-auto rounded-[28px];
+    background: linear-gradient(135deg, #22d3ee 0%, #6366f1 55%, #a855f7 100%);
+    box-shadow:
+      0 14px 34px rgba(99, 102, 241, 0.4),
+      0 6px 16px rgba(34, 211, 238, 0.35),
+      inset 0 1px 2px rgba(255, 255, 255, 0.6);
+    animation: ai-orb-float 4s ease-in-out infinite;
+  }
+  .ai-orb-icon {
+    @apply relative z-10 text-white;
+    filter: drop-shadow(0 2px 6px rgba(30, 27, 75, 0.35));
+  }
+
+  /* 雷达式扩散脉冲（多层同心圆向外扩散淡出） */
+  .ai-pulse {
+    @apply pointer-events-none absolute rounded-full;
+    inset: 0;
+    border: 2px solid rgba(99, 102, 241, 0.45);
+    animation: ai-pulse-out 3s ease-out infinite;
+  }
+  .ai-pulse-2 { animation-delay: 1s; border-color: rgba(34, 211, 238, 0.5); }
+  .ai-pulse-3 { animation-delay: 2s; border-color: rgba(168, 85, 247, 0.4); }
+
+  .login-card {
+    @apply relative w-full max-w-md rounded-3xl p-7;
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: 1px solid rgba(255, 255, 255, 0.9);
+    box-shadow:
+      0 24px 60px rgba(79, 70, 229, 0.14),
+      0 2px 8px rgba(15, 23, 42, 0.06),
+      inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  }
+
+  .login-input {
+    @apply w-full px-4 py-3 rounded-2xl text-slate-800 placeholder-slate-400 transition;
+    background: rgba(255, 255, 255, 0.85);
+    border: 1px solid rgba(148, 163, 184, 0.35);
+  }
+  .login-input:focus {
+    @apply outline-none;
+    border-color: rgba(99, 102, 241, 0.75);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.16);
+  }
+
+  .login-btn {
+    @apply w-full text-lg py-4 rounded-2xl font-semibold text-white transition;
+    background: linear-gradient(135deg, #22d3ee, #6366f1 55%, #a855f7);
+    box-shadow: 0 12px 28px rgba(99, 102, 241, 0.35);
+  }
+  .login-btn:hover {
+    filter: brightness(1.05);
+  }
+  .login-btn:active {
+    transform: scale(0.985);
+  }
+
   /* AI 助手回复：通用富文本（Markdown / 表格 / 列表 / 代码 / 键值） */
   .chat-markdown {
     @apply min-w-0 text-sm text-slate-800 leading-relaxed;
@@ -111,5 +200,24 @@
   }
   .chat-md-td {
     @apply px-3 py-2 text-slate-700 align-top break-words min-w-[3.5rem] max-w-[280px];
+  }
+}
+
+@keyframes ai-orb-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+@keyframes ai-pulse-out {
+  0% { transform: scale(1); opacity: 0.7; }
+  100% { transform: scale(2.1); opacity: 0; }
+}
+@keyframes login-aurora-move {
+  from { transform: translate3d(-4%, -2%, 0) scale(1); }
+  to { transform: translate3d(4%, 3%, 0) scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-aurora, .ai-orb, .ai-pulse, .ai-pulse-2, .ai-pulse-3 {
+    animation: none !important;
   }
 }
