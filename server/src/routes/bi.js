@@ -8,6 +8,7 @@
  *   - /admin/bi/queries     查询库增删改查 + 试运行（不走缓存）
  *   - /admin/bi/charts      图表库增删改查（图表引用查询；看板引用图表）
  *   - /admin/bi/dashboards  看板增删改查
+ *   - POST /admin/bi/ai/draft  AI 起草查询 + 图表（读表结构、试运行、自我修正），只返回草稿不保存
  */
 const { getPool } = require('../db');
 const { getUserRolesFromRequest, resolveUserRoles, loadKnownRoleKeys } = require('../roles');
@@ -22,6 +23,8 @@ const {
   toPublicQuery,
 } = require('../bi-queries');
 const { runNamedQuery, testRunQuery, BiParamError } = require('../bi-exec');
+const { draftQueryAndChart, DraftError } = require('../bi-draft');
+const { aiService } = require('../ai');
 const {
   listAllDashboards,
   validateDashboardInput,
@@ -216,6 +219,29 @@ async function biRoutes(fastify) {
     const removed = await deleteChart(pool, key);
     if (!removed) return reply.code(404).send({ error: '图表不存在' });
     return { success: true };
+  });
+
+  // ---------- 管理侧：AI 起草 ----------
+
+  fastify.post('/admin/bi/ai/draft', { preHandler: [fastify.requireAdmin] }, async (request, reply) => {
+    const pool = await getPool();
+    const [existingQueries, existingCharts] = await Promise.all([listAllQueries(pool), listAllCharts(pool)]);
+    const llm = async (messages) => {
+      const r = await aiService.generateChat(messages, { maxTokens: 4000, temperature: 0.2 });
+      if (!r.success) throw new DraftError(r.fallback || r.error || 'AI 服务不可用');
+      return r.content;
+    };
+    try {
+      const draft = await draftQueryAndChart(
+        { pool, llm, existingQueries, existingCharts, testRun: (q, params) => testRunQuery(pool, q, params, 50) },
+        (request.body || {}).requirement,
+      );
+      return { draft };
+    } catch (err) {
+      if (err instanceof DraftError) return reply.code(400).send({ error: err.message, code: err.code });
+      request.log.error({ err: err.message }, '[bi] AI 起草失败');
+      return reply.code(500).send({ error: `AI 起草失败：${err.message}`, code: 'BI_DRAFT_FAILED' });
+    }
   });
 
   // ---------- 管理侧：看板 ----------

@@ -104,6 +104,7 @@ cd frontend && npm run lint
 - 查询库是语义层：`bi_queries.columns_json`（输出列语义：role = dimension / measure / time / attr，format / unit / scale）+ `sample_questions_json`；维度 `dimensions` 由 dimension / time 列推导。卡片 encoding 没写的格式/单位/列名在前端经 `withColumnSemantics()` 继承列语义
 - 引用完整性：`bi-charts.js` 的 `checkCardRefs()`（参数存在、必填参数有来源、encoding / bind 的列在输出列中）；保存图表时不要求必填参数有来源（由看板同名筛选提供），保存看板时展开后完整检查；保存查询 / 图表时对下游做影响分析（返回 `warnings`）。前端 `utils/biAdmin.ts` 的 `cardProblems()` / `chartProblems()` / `refProblems()` 规则须与之一致
 - 管理页 `views/BiAdminView.tsx`（查询 / 图表 / 看板三个页签）+ `components/bi/admin/`（`QueryEditor`：SQL → 自动识别参数 → 试运行识别输出列 → 标注语义；`ChartEditor` + `ChartForm`：选查询、列下拉、固定参数、下钻、实时预览；`DashboardEditor`：筛选表格、添加图表、参数来源展示与覆盖、整板预览、JSON 模式）。预览复用 `DashboardPanel.tsx` 导出的 `DashboardView`
+- AI 起草：`bi-draft.js`（选表 → 读 INFORMATION_SCHEMA / CUFD → 生成查询 + 图表 → 只读校验 + 试运行 → 报错交回 AI 修正，≤3 轮），`POST /admin/bi/ai/draft` 只返回草稿；前端 `AiDraftModal` → `QueryEditor` → `ChartEditor` 依次确认保存。禁用表清单在 `bi-draft.js` 的 `DENY_*`
 
 ### IM 与消息
 

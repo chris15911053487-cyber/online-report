@@ -46,12 +46,19 @@ export default function QueryEditor({
   initial,
   isNew,
   availableRoles,
+  initialTestValues,
+  banner,
   onDone,
 }: {
   initial: BiQueryAdmin
   isNew: boolean
   availableRoles: string[]
-  onDone: (changed: boolean) => void
+  /** 试运行参数的初始值（AI 草稿带来的示例参数） */
+  initialTestValues?: Record<string, string>
+  /** 页面顶部的提示（如 AI 草稿说明） */
+  banner?: React.ReactNode
+  /** savedKey：保存过时为最终的 queryKey（AI 草稿据此接着打开图表编辑） */
+  onDone: (changed: boolean, savedKey?: string) => void
 }) {
   const showToast = useStore((s) => s.showToast)
   const [d, setD] = useState<BiQueryAdmin>(initial)
@@ -61,7 +68,7 @@ export default function QueryEditor({
   const [saving, setSaving] = useState(false)
   const [warnings, setWarnings] = useState<string[]>([])
   const [testValues, setTestValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(initial.params.map((p) => [p.name, p.default == null ? '' : String(p.default)])),
+    Object.fromEntries(initial.params.map((p) => [p.name, initialTestValues?.[p.name] ?? (p.default == null ? '' : String(p.default))])),
   )
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
@@ -89,7 +96,7 @@ export default function QueryEditor({
       const w = r.warnings || []
       if (w.length === 0) {
         showToast('已保存')
-        onDone(true)
+        onDone(true, d.queryKey.trim().toLowerCase())
         return
       }
       showToast('已保存，但有图表 / 看板需要调整')
@@ -137,6 +144,7 @@ export default function QueryEditor({
       onBack={() => onDone(savedOnce)}
       withActionBar
     >
+      {banner}
       {warnings.length > 0 && (
         <Notice tone="warning">
           <p className="font-medium mb-1">已保存。以下图表 / 看板与新定义对不上，请到「图表」「看板」里调整：</p>

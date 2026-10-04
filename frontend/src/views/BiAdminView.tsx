@@ -8,7 +8,7 @@
  * 编辑器在 components/bi/admin/。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Pencil, Plus, Trash2 } from 'lucide-react'
+import { Pencil, Plus, Sparkles, Trash2 } from 'lucide-react'
 import { useStore } from '../store'
 import { apiFetch } from '../utils/api'
 import { AdminPage, Badge, Button, Card, Code, EmptyState, IconButton, Notice, RecordRow, Skeleton, Tabs } from '../ui'
@@ -16,6 +16,7 @@ import { confirmDelete } from '../ui/confirm'
 import QueryEditor from '../components/bi/admin/QueryEditor'
 import ChartEditor from '../components/bi/admin/ChartEditor'
 import DashboardEditor from '../components/bi/admin/DashboardEditor'
+import AiDraftModal, { type BiDraft } from '../components/bi/admin/AiDraftModal'
 import { EMPTY_DASHBOARD, EMPTY_QUERY, errMsg, type BiChartAdmin, type BiDashboardAdmin, type BiQueryAdmin, type QueryOption } from '../components/bi/admin/types'
 import { newChart } from '../utils/biAdmin'
 
@@ -37,8 +38,9 @@ export default function BiAdminView() {
   const [availableQueries, setAvailableQueries] = useState<QueryOption[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [editQuery, setEditQuery] = useState<{ draft: BiQueryAdmin; isNew: boolean } | null>(null)
-  const [editChart, setEditChart] = useState<{ draft: BiChartAdmin; isNew: boolean } | null>(null)
+  const [editQuery, setEditQuery] = useState<{ draft: BiQueryAdmin; isNew: boolean; ai?: BiDraft } | null>(null)
+  const [editChart, setEditChart] = useState<{ draft: BiChartAdmin; isNew: boolean; ai?: BiDraft } | null>(null)
+  const [aiOpen, setAiOpen] = useState(false)
   const [editDashboard, setEditDashboard] = useState<{ draft: BiDashboardAdmin; isNew: boolean } | null>(null)
 
   // 递增即重新加载（保存/删除后在事件里调用 load()）；effect 内只在 Promise 回调里 setState
@@ -85,14 +87,26 @@ export default function BiAdminView() {
   }
 
   if (editQuery) {
+    const ai = editQuery.ai
     return (
       <QueryEditor
         initial={editQuery.draft}
         isNew={editQuery.isNew}
         availableRoles={availableRoles}
-        onDone={(changed) => {
+        initialTestValues={ai ? Object.fromEntries(Object.entries(ai.sampleParams).map(([k, v]) => [k, v == null ? '' : String(v)])) : undefined}
+        banner={
+          ai && (
+            <Notice tone="info">
+              <p className="font-medium">AI 草稿 · 第 1 步 / 共 2 步：确认查询</p>
+              <p>核对 SQL、口径、列的中文名与角色、可见角色后保存；保存后自动打开图表草稿。{ai.notes ? `AI 的假设：${ai.notes}` : ''}</p>
+            </Notice>
+          )
+        }
+        onDone={(changed, savedKey) => {
           setEditQuery(null)
           if (changed) load()
+          // AI 草稿：查询保存后接着打开图表草稿（查询标识以实际保存的为准）
+          if (ai && changed && savedKey) setEditChart({ draft: { ...ai.chart, queryKey: savedKey }, isNew: true, ai })
         }}
       />
     )
@@ -103,6 +117,15 @@ export default function BiAdminView() {
         initial={editChart.draft}
         isNew={editChart.isNew}
         availableQueries={availableQueries}
+        previewDefaults={editChart.ai?.sampleParams}
+        banner={
+          editChart.ai && (
+            <Notice tone="info">
+              <p className="font-medium">AI 草稿 · 第 2 步 / 共 2 步：确认图表</p>
+              <p>查询已保存。看右侧预览，调整类型、列与标题后保存；之后到「③ 看板」里把它加进看板。</p>
+            </Notice>
+          )
+        }
         onDone={(changed) => {
           setEditChart(null)
           if (changed) load()
@@ -139,11 +162,26 @@ export default function BiAdminView() {
       title="BI 看板管理"
       description="查询（数据与口径）→ 图表（怎么展示，可复用）→ 看板（选图表、设筛选、排版）；看板在「Agent 配置」里关联到 Agent"
       actions={
-        <Button icon={<Plus className="w-4 h-4" />} onClick={openNew}>
-          {tab === 'queries' ? '新增查询' : tab === 'charts' ? '新增图表' : '新增看板'}
-        </Button>
+        <div className="flex items-center gap-2">
+          {tab !== 'dashboards' && (
+            <Button variant="soft" icon={<Sparkles className="w-4 h-4" />} onClick={() => setAiOpen(true)}>
+              AI 起草
+            </Button>
+          )}
+          <Button icon={<Plus className="w-4 h-4" />} onClick={openNew}>
+            {tab === 'queries' ? '新增查询' : tab === 'charts' ? '新增图表' : '新增看板'}
+          </Button>
+        </div>
       }
     >
+      <AiDraftModal
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        onAccept={(d) => {
+          setAiOpen(false)
+          setEditQuery({ draft: { ...EMPTY_QUERY, ...d.query }, isNew: true, ai: d })
+        }}
+      />
       <Tabs
         value={tab}
         onChange={setTab}

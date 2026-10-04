@@ -8,7 +8,7 @@
 import { useMemo, useState } from 'react'
 import { useStore } from '../../../store'
 import { apiFetch } from '../../../utils/api'
-import type { BiChartDef, BiDashboard, BiQueryMeta } from '../../../utils/bi'
+import type { BiChartDef, BiDashboard, BiQueryMeta, BiScalar } from '../../../utils/bi'
 import { chartAsCard, chartProblems, filterFromParam, resolveCard, suggestFilterParams, type QueryRef } from '../../../utils/biAdmin'
 import { AdminPage, Card, Checkbox, EditorActions, Field, Input, Notice, Section, Textarea } from '../../../ui'
 import { DashboardView } from '../DashboardPanel'
@@ -19,11 +19,17 @@ export default function ChartEditor({
   initial,
   isNew,
   availableQueries,
+  banner,
+  previewDefaults,
   onDone,
 }: {
   initial: BiChartAdmin
   isNew: boolean
   availableQueries: QueryOption[]
+  /** 页面顶部的提示（如 AI 草稿说明） */
+  banner?: React.ReactNode
+  /** 预览筛选的默认值（AI 草稿试运行用过的参数，保证预览有数据） */
+  previewDefaults?: Record<string, BiScalar>
   onDone: (changed: boolean) => void
 }) {
   const showToast = useStore((s) => s.showToast)
@@ -40,12 +46,14 @@ export default function ChartEditor({
   // 预览：为没有固定值的参数临时生成筛选，展开成一张整行卡片
   const preview = useMemo((): BiDashboard | null => {
     if (problems.length > 0) return null
-    const filters = suggestFilterParams([chartAsCard(c)], queryMap, []).map(filterFromParam)
+    const filters = suggestFilterParams([chartAsCard(c)], queryMap, [])
+      .map(filterFromParam)
+      .map((f) => (previewDefaults?.[f.name] != null ? { ...f, default: previewDefaults[f.name] } : f))
     const queries: Record<string, BiQueryMeta> = {}
     for (const q of availableQueries) queries[q.queryKey] = q
     const card = resolveCard({ id: 'preview', chartKey: c.chartKey }, c, filters, queryMap)
     return { dashboardKey: '_preview', label: c.label, filters, cards: [{ ...card, layout: { ...card.layout, w: 12 } }], queries, hiddenCards: 0 }
-  }, [c, problems, queryMap, availableQueries])
+  }, [c, problems, queryMap, availableQueries, previewDefaults])
 
   const save = async () => {
     if (problems.length > 0) return showToast(`还有 ${problems.length} 个问题`)
@@ -79,6 +87,7 @@ export default function ChartEditor({
       onBack={() => onDone(savedOnce)}
       withActionBar
     >
+      {banner}
       {warnings.length > 0 && (
         <Notice tone="warning">
           <p className="font-medium mb-1">已保存。以下看板与新定义对不上，请到「看板」里调整：</p>
