@@ -5,13 +5,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Info, RotateCw } from 'lucide-react'
 import { apiFetch } from '../../utils/api'
-import { changeRatio, formatValue, withColumnSemantics, type BiCard, type BiColumnDef, type BiFilterValues, type BiQueryMeta, type BiQueryResult } from '../../utils/bi'
+import { BI_CARD_HEIGHT, changeRatio, formatValue, withColumnSemantics, type BiCard, type BiColumnDef, type BiFilterValues, type BiQueryMeta, type BiQueryResult } from '../../utils/bi'
 import { buildChartModel, columnLabel, type BiRow } from '../../utils/biOption'
 import { canDrillFrom, levelView, nextDrillLabel, popDrillTo, pushDrill, rootStack, type DrillFrame } from '../../utils/biDrill'
 import type { BiPick } from '../../utils/biContext'
 import BiChart from './BiChart'
 
-const CHART_HEIGHT: Record<number, number> = { 1: 170, 2: 260, 3: 360, 4: 460 }
 
 interface Props {
   card: BiCard
@@ -94,7 +93,7 @@ export default function BiCardView({ card, filters, queries, onPick }: Props) {
     [rows, view.type, encoding, clickable],
   )
 
-  const height = CHART_HEIGHT[card.layout.h] ?? CHART_HEIGHT[2]
+  const height = BI_CARD_HEIGHT[card.layout.h] ?? BI_CARD_HEIGHT[2]
 
   return (
     <section

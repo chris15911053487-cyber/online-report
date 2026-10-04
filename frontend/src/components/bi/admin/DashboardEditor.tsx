@@ -1,5 +1,5 @@
 /**
- * 看板编辑器：基本信息 + 全局筛选（表格）+ 卡片（左列表 / 中设置 / 右实时预览）+ 整板预览。
+ * 看板编辑器：基本信息 + 全局筛选（表格）+ 看板画布（真实排版与数据，拖动换位置 / 改宽高）+ 右侧卡片设置。
  *
  * - 卡片 = 从图表库选一张图表；图表的参数默认由同名筛选自动提供，需要时再覆盖（筛选 / 固定值）、改标题与尺寸
  * - 筛选可从图表查询的参数一键生成；改名 / 删除同步更新卡片里的覆盖引用
@@ -8,17 +8,16 @@
  * - 高级：JSON 模式，与表单双向切换
  */
 import { useMemo, useState } from 'react'
-import { AlertTriangle, BarChart3, Eye, EyeOff, LineChart, PieChart, Plus, Sparkles, Table2, Trash2, Hash, ArrowUp, ArrowDown } from 'lucide-react'
+import { Plus, Sparkles, Trash2, ArrowUp, ArrowDown } from 'lucide-react'
 import { useStore } from '../../../store'
 import { apiFetch } from '../../../utils/api'
-import { parseJsonField, toJsonText, type BiCard, type BiCardRef, type BiCardType, type BiChartDef, type BiDashboard, type BiFilter, type BiQueryMeta, type BiScalar } from '../../../utils/bi'
+import { parseJsonField, toJsonText, type BiCard, type BiCardRef, type BiCardType, type BiChartDef, type BiFilter, type BiQueryMeta, type BiScalar } from '../../../utils/bi'
 import { effectiveSource, filterFromParam, nextRefId, refProblems, renameFilterRefs, resolveCard, suggestFilterParams, type QueryRef } from '../../../utils/biAdmin'
 import { AdminPage, Badge, Button, Card, Checkbox, EditorActions, EmptyState, Field, IconButton, Input, JsonField, Notice, Section, Segmented, Textarea } from '../../../ui'
 import { cn, compactInputClass, tableClass, tdClass, thClass } from '../../../ui/classes'
-import { DashboardView } from '../DashboardPanel'
+import DashboardCanvas from './DashboardCanvas'
 import { errMsg, type BiDashboardAdmin, type QueryOption } from './types'
 
-const TYPE_ICON: Record<BiCardType, typeof Hash> = { kpi: Hash, bar: BarChart3, line: LineChart, pie: PieChart, table: Table2 }
 const TYPE_LABEL: Record<BiCardType, string> = { kpi: 'KPI', bar: '柱状', line: '折线', pie: '饼图', table: '表格' }
 const FILTER_TYPES: { value: BiFilter['type']; label: string }[] = [
   { value: 'month', label: '月份' },
@@ -393,7 +392,6 @@ export default function DashboardEditor({
   const [saving, setSaving] = useState(false)
   const [mode, setMode] = useState<'form' | 'json'>('form')
   const [json, setJson] = useState({ filters: '', cards: '' })
-  const [showBoard, setShowBoard] = useState(false)
   const patch = (p: Partial<BiDashboardAdmin>) => setD((cur) => ({ ...cur, ...p }))
 
   const queryMap = useMemo(() => new Map<string, QueryRef>(availableQueries.map((q) => [q.queryKey, q])), [availableQueries])
@@ -413,27 +411,41 @@ export default function DashboardEditor({
     for (const q of availableQueries) out[q.queryKey] = q
     return out
   }, [availableQueries])
-  const toPreview = (cards: BiCard[]): BiDashboard => ({ dashboardKey: d.dashboardKey, label: d.label, description: d.description, filters: d.filters, cards, queries: previewQueries, hiddenCards: 0 })
 
   // 卡片操作
   const setRef = (i: number, r: BiCardRef) => patch({ cards: d.cards.map((x, j) => (j === i ? r : x)) })
   const addChart = (chartKey: string) => {
     const c = chartMap.get(chartKey)
     if (!c) return
-    patch({ cards: [...d.cards, { id: nextRefId(chartKey, d.cards.map((x) => x.id)), chartKey, layout: { ...c.size } }] })
-    setSelected(d.cards.length)
+    const ref: BiCardRef = { id: nextRefId(chartKey, d.cards.map((x) => x.id)), chartKey, layout: { ...c.size } }
+    // KPI 并排放在最前面那一排（排在已有的开头 KPI 之后）；其它追加到末尾
+    let at = d.cards.length
+    if (c.type === 'kpi') {
+      at = d.cards.findIndex((r) => chartMap.get(r.chartKey)?.type !== 'kpi')
+      if (at < 0) at = d.cards.length
+    }
+    const cards = [...d.cards]
+    cards.splice(at, 0, ref)
+    patch({ cards })
+    setSelected(at)
   }
   const removeCard = (i: number) => {
     patch({ cards: d.cards.filter((_, j) => j !== i) })
     setSelected((s) => Math.max(0, Math.min(s, d.cards.length - 2)))
   }
+  /** 把 from 移到插入位置 to（to 按移除前的下标计） */
+  const moveTo = (from: number, to: number) => {
+    const cards = [...d.cards]
+    const [x] = cards.splice(from, 1)
+    const at = to > from ? to - 1 : to
+    cards.splice(at, 0, x)
+    patch({ cards })
+    setSelected(at)
+  }
   const moveCard = (i: number, dir: -1 | 1) => {
     const j = i + dir
     if (j < 0 || j >= d.cards.length) return
-    const cards = [...d.cards]
-    ;[cards[i], cards[j]] = [cards[j], cards[i]]
-    patch({ cards })
-    setSelected(j)
+    moveTo(i, dir < 0 ? j : j + 1)
   }
 
   // 筛选操作（同名参数自动绑定；改名 / 删除同步卡片里的覆盖）
@@ -504,7 +516,6 @@ export default function DashboardEditor({
   }
 
   const problemCount = problems.filter((p) => p.length > 0).length
-  const previewCard = expanded[selected]
 
   return (
     <AdminPage
@@ -572,116 +583,76 @@ export default function DashboardEditor({
           <JsonField label="卡片定义" expect="array" rows={20} value={json.cards} onChange={(v) => setJson((j) => ({ ...j, cards: v }))} />
         </Section>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)] xl:grid-cols-[16rem_minmax(0,1fr)_minmax(0,1fr)] items-start">
-          {/* 卡片列表 */}
-          <Card className="overflow-hidden lg:sticky lg:top-20">
-            <div className="flex flex-col gap-2 px-3 py-2 border-b border-line">
-              <span className="text-[13px] font-semibold text-fg">
-                卡片 <span className="text-subtle font-normal">{d.cards.length}</span>
-              </span>
+        <Section
+          title={
+            <span>
+              看板画布 <span className="text-subtle font-normal">{d.cards.length} 张卡片</span>
+            </span>
+          }
+          hint="与 Agent 里看到的一致（真实数据）。拖 ⠿ 换位置，拖右边缘改宽度、下边缘改高度，点卡片在右侧设置。"
+          actions={
+            <div className="w-64">
               <ChartSelect ariaLabel="添加图表" charts={availableCharts} value="" placeholder="＋ 添加图表…" onChange={addChart} />
             </div>
-            {d.cards.length === 0 ? (
-              <EmptyState title="还没有卡片" description={availableCharts.length ? '从上面的下拉里选图表' : '图表库为空：请先到「② 图表」新增'} />
-            ) : (
-              <ul className="max-h-[60vh] overflow-y-auto">
-                {d.cards.map((r, i) => {
-                  const c = chartMap.get(r.chartKey)
-                  const Icon = c ? TYPE_ICON[c.type] : Hash
-                  const bad = problems[i].length > 0
-                  return (
-                    <li key={r.id + i}>
-                      <button
-                        type="button"
-                        onClick={() => setSelected(i)}
-                        className={cn('w-full flex items-center gap-2 px-3 py-2 text-left border-b border-line last:border-b-0 transition-colors', i === selected ? 'bg-primary-soft' : 'hover:bg-surface-2')}
-                      >
-                        <Icon className={cn('w-4 h-4 shrink-0', i === selected ? 'text-primary' : 'text-subtle')} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-[13px] text-fg truncate">{r.title || c?.label || <span className="text-subtle">（未选图表）</span>}</span>
-                          <span className="block text-[11px] text-subtle truncate">
-                            {c ? TYPE_LABEL[c.type] : '—'} · {(r.layout || c?.size)?.w ?? '-'}/12{c?.drill.length ? ` · 下钻 ${c.drill.length} 级` : ''}
-                          </span>
-                        </span>
-                        {bad && <AlertTriangle className="w-4 h-4 text-warning shrink-0" aria-label="有问题" />}
-                      </button>
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
-          </Card>
-
-          {/* 卡片设置 */}
-          {ref ? (
-            <Section
-              title={ref.title || refChart?.label || '未选图表'}
-              hint={<span className="font-mono">{ref.id}</span>}
-              actions={
-                <div className="flex items-center">
-                  <IconButton label="上移" disabled={selected === 0} onClick={() => moveCard(selected, -1)}>
-                    <ArrowUp className="w-4 h-4" />
-                  </IconButton>
-                  <IconButton label="下移" disabled={selected === d.cards.length - 1} onClick={() => moveCard(selected, 1)}>
-                    <ArrowDown className="w-4 h-4" />
-                  </IconButton>
-                  <IconButton label="移除卡片" className="hover:text-danger" onClick={() => removeCard(selected)}>
-                    <Trash2 className="w-4 h-4" />
-                  </IconButton>
-                </div>
-              }
-            >
-              <CardRefEditor
-                cardRef={ref}
-                charts={availableCharts}
-                chart={refChart}
-                query={refChart ? availableQueries.find((q) => q.queryKey === refChart.queryKey) : undefined}
-                filters={d.filters}
-                problems={problems[selected]}
-                onChange={(r) => setRef(selected, r)}
-              />
-            </Section>
-          ) : (
-            <Card className="p-8">
-              <EmptyState title="选择或添加一张卡片" />
-            </Card>
-          )}
-
-          {/* 单卡实时预览（宽屏第三列，其余放在编辑区下方） */}
-          {ref && (
-            <div className="lg:col-start-2 xl:col-start-auto xl:sticky xl:top-20 flex flex-col gap-2 min-w-0">
-              <p className="text-[12px] text-subtle">实时预览（真实数据，筛选取默认值）</p>
-              {problems[selected].length > 0 || !previewCard ? (
-                <Card className="p-6 text-center text-[13px] text-subtle">配置完成后显示预览</Card>
-              ) : (
-                <DashboardView
-                  key={JSON.stringify([previewCard.queryKey, previewCard.params, previewCard.type, previewCard.drill, d.filters])}
-                  dashboard={toPreview([{ ...previewCard, layout: { ...previewCard.layout, w: 12 } }])}
-                  pcMode
-                  showHeader={false}
-                />
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {mode === 'form' && d.cards.length > 0 && (
-        <Section
-          title="整板预览"
-          hint="按实际栅格排版，与 Agent 里看到的一致"
-          actions={
-            <Button size="sm" variant="ghost" icon={showBoard ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />} onClick={() => setShowBoard((v) => !v)}>
-              {showBoard ? '收起' : '展开'}
-            </Button>
           }
         >
-          {showBoard &&
-            (problemCount > 0 ? (
-              <Notice tone="warning">有 {problemCount} 张卡片配置未完成，修正后再预览。</Notice>
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem] items-start">
+            {d.cards.length === 0 ? (
+              <EmptyState title="还没有卡片" description={availableCharts.length ? '从右上角「添加图表」选图表放进来' : '图表库为空：请先到「② 图表」新增'} />
             ) : (
-              <DashboardView key={JSON.stringify([expanded, d.filters])} dashboard={toPreview(expanded.filter((c): c is BiCard => !!c))} pcMode />
-            ))}
+              <div className="min-w-0 pt-3">
+                <DashboardCanvas
+                  key={JSON.stringify(d.filters)}
+                  refs={d.cards}
+                  cards={expanded}
+                  problems={problems}
+                  filters={d.filters}
+                  queries={previewQueries}
+                  selected={selected}
+                  onSelect={setSelected}
+                  onMove={moveTo}
+                  onResize={(i, layout) => setRef(i, { ...d.cards[i], layout })}
+                  onRemove={removeCard}
+                />
+              </div>
+            )}
+
+            {/* 选中卡片的设置 */}
+            <Card className="p-4 lg:sticky lg:top-20 flex flex-col gap-3">
+              {ref ? (
+                <>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0">
+                      <span className="block text-[13.5px] font-semibold text-fg truncate">{ref.title || refChart?.label || '未选图表'}</span>
+                      <span className="block text-[11px] text-subtle font-mono truncate">{ref.id}</span>
+                    </span>
+                    <div className="flex items-center shrink-0">
+                      <IconButton label="前移" disabled={selected === 0} onClick={() => moveCard(selected, -1)}>
+                        <ArrowUp className="w-4 h-4" />
+                      </IconButton>
+                      <IconButton label="后移" disabled={selected === d.cards.length - 1} onClick={() => moveCard(selected, 1)}>
+                        <ArrowDown className="w-4 h-4" />
+                      </IconButton>
+                      <IconButton label="从看板移除" className="hover:text-danger" onClick={() => removeCard(selected)}>
+                        <Trash2 className="w-4 h-4" />
+                      </IconButton>
+                    </div>
+                  </div>
+                  <CardRefEditor
+                    cardRef={ref}
+                    charts={availableCharts}
+                    chart={refChart}
+                    query={refChart ? availableQueries.find((q) => q.queryKey === refChart.queryKey) : undefined}
+                    filters={d.filters}
+                    problems={problems[selected]}
+                    onChange={(r) => setRef(selected, r)}
+                  />
+                </>
+              ) : (
+                <p className="text-[13px] text-subtle">点画布上的卡片进行设置</p>
+              )}
+            </Card>
+          </div>
         </Section>
       )}
 

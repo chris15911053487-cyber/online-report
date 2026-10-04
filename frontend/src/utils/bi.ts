@@ -142,6 +142,17 @@ export interface BiQueryResult {
 
 export type BiFilterValues = Record<string, BiScalar>
 
+/** 卡片高度档位（layout.h 1~4）对应的图表内容高度（px） */
+export const BI_CARD_HEIGHT: Record<number, number> = { 1: 170, 2: 260, 3: 360, 4: 460 }
+
+/** 按图表类型的默认尺寸（12 栅格）：KPI 1/4 矮；折线 / 表格整行；柱状半宽；饼图 1/3 */
+export function defaultChartSize(type: BiCardType): { w: number; h: number } {
+  if (type === 'kpi') return { w: 3, h: 1 }
+  if (type === 'line' || type === 'table') return { w: 12, h: 2 }
+  if (type === 'pie') return { w: 4, h: 2 }
+  return { w: 6, h: 2 }
+}
+
 // ─── 筛选默认值 ───────────────────────────────────────────────────────────────
 
 const pad = (n: number) => String(n).padStart(2, '0')

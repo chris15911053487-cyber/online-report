@@ -3,6 +3,7 @@
  * 图表默认配置、看板引用展开、引用完整性检查。
  * 与后端 bi-queries.js / bi-charts.js / bi-dashboards.js 的规则保持一致。
  */
+import { defaultChartSize } from './bi'
 import type {
   BiCard,
   BiCardRef,
@@ -393,7 +394,7 @@ export function renameFilterRefs<T extends { params?: Record<string, BiScalar> }
 }
 
 /**
- * 建议建成全局筛选的参数：卡片 / 下钻所用查询里，既没有取值来源、又没有同名筛选的参数
+ * 建议建成全局筛选的参数：卡片 / 下钻所用查询里，没有取值来源、没有同名筛选、也没有默认值的参数
  * （按名称去重，必填的排前面）。cards 为展开后的完整卡片。
  */
 export function suggestFilterParams(cards: BiCard[], queries: Map<string, QueryRef>, filters: BiFilter[]): BiParamDef[] {
@@ -404,7 +405,8 @@ export function suggestFilterParams(cards: BiCard[], queries: Map<string, QueryR
     const given = new Set(provided.map((k) => k.toLowerCase()))
     for (const p of q.params) {
       const k = p.name.toLowerCase()
-      if (have.has(k) || given.has(k) || out.has(k)) continue
+      // 有默认值的参数（如 Top N）不建议做成筛选
+      if (have.has(k) || given.has(k) || out.has(k) || p.default != null) continue
       out.set(k, p)
     }
   }
@@ -422,7 +424,7 @@ export function suggestFilterParams(cards: BiCard[], queries: Map<string, QueryR
 // ─── 图表与看板引用（与后端 bi-charts.js 一致） ─────────────────────────────
 
 export function newChart(): BiChartDef {
-  return { chartKey: '', label: '', type: 'bar', queryKey: '', params: {}, encoding: {}, drill: [], size: { w: 6, h: 2 }, enabled: true }
+  return { chartKey: '', label: '', type: 'bar', queryKey: '', params: {}, encoding: {}, drill: [], size: defaultChartSize('bar'), enabled: true }
 }
 
 /** 图表当作一张独立卡片（编辑器预览、问题检查用） */

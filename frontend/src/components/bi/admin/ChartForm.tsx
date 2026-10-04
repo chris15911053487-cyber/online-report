@@ -4,7 +4,7 @@
  * 格式 / 单位 / 缩放不填时继承查询列语义（占位符里显示继承值）。
  */
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
-import type { BiCardType, BiChartDef, BiColumnRole, BiColumnSemantic, BiDrillLevel, BiEncoding, BiFormat, BiScalar } from '../../../utils/bi'
+import { defaultChartSize, type BiCardType, type BiChartDef, type BiColumnRole, type BiColumnSemantic, type BiDrillLevel, type BiEncoding, type BiFormat, type BiScalar } from '../../../utils/bi'
 import {
   COLUMN_ROLE_LABEL,
   FORMAT_LABEL,
@@ -356,8 +356,8 @@ export default function ChartForm({
   const set = (p: Partial<BiChartDef>) => onChange({ ...chart, ...p })
 
   const changeType = (type: BiCardType) => {
-    const size = type === 'kpi' ? { w: Math.min(chart.size.w, 4), h: 1 } : chart.type === 'kpi' ? { w: 6, h: 2 } : chart.size
-    set({ type, encoding: defaultEncoding(type, cols, cleanEncoding(type, chart.encoding)), size })
+    // 尺寸跟随类型的默认值（KPI 1/4、折线 / 表格整行、柱状半宽、饼图 1/3）
+    set({ type, encoding: defaultEncoding(type, cols, cleanEncoding(type, chart.encoding)), size: defaultChartSize(type) })
   }
   const changeQuery = (queryKey: string) => {
     const q = byKey.get(queryKey)

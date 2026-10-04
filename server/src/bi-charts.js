@@ -158,10 +158,12 @@ function normalizeDrill(input, knownQueries, where) {
   return { ok: true, value: out };
 }
 
-/** 默认尺寸：KPI 1/4 宽 × 矮；图表 / 表格半宽 × 中 */
+/** 按类型的默认宽度（12 栅格）：KPI 1/4；折线 / 表格整行；饼图 1/3；柱状半宽（与前端 defaultChartSize 一致） */
+const DEFAULT_WIDTH = { kpi: 3, line: 12, table: 12, pie: 4, bar: 6 };
+
 function normalizeSize(input, type) {
   const s = isPlainObject(input) ? input : {};
-  const w = Math.min(12, Math.max(1, Math.floor(Number(s.w) || (type === 'kpi' ? 3 : 6))));
+  const w = Math.min(12, Math.max(1, Math.floor(Number(s.w) || DEFAULT_WIDTH[type] || 6)));
   const h = type === 'kpi' ? 1 : Math.min(4, Math.max(1, Math.floor(Number(s.h) || 2)));
   return { w, h };
 }

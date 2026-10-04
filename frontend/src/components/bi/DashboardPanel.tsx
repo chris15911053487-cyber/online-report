@@ -92,13 +92,7 @@ export function DashboardView({
         ) : (
           <span />
         )}
-        {dashboard.filters.length > 0 && (
-          <div className="flex items-end gap-2 flex-wrap" role="group" aria-label="看板筛选">
-            {dashboard.filters.map((f) => (
-              <FilterInput key={f.name} filter={f} value={filters[f.name] ?? null} onChange={(v) => setFilter(f.name, v)} />
-            ))}
-          </div>
-        )}
+        <FilterBar filters={dashboard.filters} values={filters} onChange={setFilter} />
       </div>
 
       {dashboard.cards.length === 0 ? (
@@ -123,6 +117,18 @@ export function DashboardView({
       {dashboard.hiddenCards > 0 && (
         <p className="text-[11px] text-subtle">另有 {dashboard.hiddenCards} 张卡片因权限未显示</p>
       )}
+    </div>
+  )
+}
+
+/** 看板筛选条（Agent 看板与管理端画布共用） */
+export function FilterBar({ filters, values, onChange }: { filters: BiFilter[]; values: BiFilterValues; onChange: (name: string, v: BiScalar) => void }) {
+  if (filters.length === 0) return null
+  return (
+    <div className="flex items-end gap-2 flex-wrap" role="group" aria-label="看板筛选">
+      {filters.map((f) => (
+        <FilterInput key={f.name} filter={f} value={values[f.name] ?? null} onChange={(v) => onChange(f.name, v)} />
+      ))}
     </div>
   )
 }

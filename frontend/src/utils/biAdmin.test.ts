@@ -166,6 +166,8 @@ describe('筛选维护', () => {
   it('建议筛选：未绑定且无同名筛选的参数', () => {
     expect(suggestFilterParams([card], queries, []).map((p) => p.name)).toEqual(['whs'])
     expect(suggestFilterParams([{ ...card, params: {} }], queries, []).map((p) => p.name)).toEqual(['period', 'whs'])
+    const withDefault = new Map<string, QueryRef>([['ar', { ...queries.get('ar')!, params: [...queries.get('ar')!.params, { name: 'top', type: 'number', default: 10 }] }]])
+    expect(suggestFilterParams([card], withDefault, []).map((p) => p.name)).toEqual(['whs'])
   })
 
 
