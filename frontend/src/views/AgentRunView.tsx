@@ -16,14 +16,16 @@
  *   - 进入即显示看板（读缓存，秒开），不再自动执行 defaultPrompt
  *   - PC 右栏为「看板 / 当前结果」两个页签，回答出来后自动切到「当前结果」
  *   - 移动端顶部为「看板 / 对话」页签，提问后自动切到「对话」
+ *   - 看板右上角可切换全屏（铺满视口并尽量进入浏览器全屏），Esc 退出
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Bot, Plus, ChevronRight, Loader2, PanelLeftClose, PanelLeftOpen,
+  Bot, Plus, ChevronRight, Loader2, PanelLeftClose, PanelLeftOpen, Maximize2, Minimize2,
 } from 'lucide-react'
 import { useStore } from '../store'
 import { tv } from '../theme'
 import { useIsPc } from '../hooks/useMediaQuery'
+import { usePageFullscreen } from '../hooks/usePageFullscreen'
 import { apiFetch } from '../utils/api'
 import { attachToolResults, createLiveFeed, streamAgentChat, type LiveState } from '../utils/agentStream'
 import ChartRenderer from '../components/ChartRenderer'
@@ -590,6 +592,12 @@ export default function AgentRunView() {
   // 关联看板时的页签：PC 右栏「看板 / 当前结果」；移动端「看板 / 对话」
   const [rightTab, setRightTab] = useState<'dashboard' | 'result'>('dashboard')
   const [mobileTab, setMobileTab] = useState<'dashboard' | 'chat'>('dashboard')
+  // 看板全屏：同一个容器切换为铺满视口，不卸载（保留筛选与下钻）
+  const { fullscreen: dashFullscreen, toggle: toggleDashFullscreen, exit: exitDashFullscreen } = usePageFullscreen()
+  const dashVisible = isPc ? rightTab === 'dashboard' : mobileTab === 'dashboard'
+  useEffect(() => {
+    if (!dashVisible) exitDashFullscreen()
+  }, [dashVisible, exitDashFullscreen])
 
   // 看板点击：浮层 + 「问点别的」时挂在输入框上方的上下文胶囊
   const [biPopover, setBiPopover] = useState<{ pick: BiPick; dashboard: BiDashboard; filters: BiFilterValues } | null>(null)
@@ -838,6 +846,7 @@ export default function AgentRunView() {
       showToast('上一个问题还在分析中，请稍候')
       return
     }
+    exitDashFullscreen()
     if (isPc) setPcLeftCollapsed(false)
     void doSend(explainPrompt(ctx), { context: ctx, mode: 'fast' })
   }
@@ -848,6 +857,7 @@ export default function AgentRunView() {
     const ctx = buildBiContext(biPopover.pick, biPopover.dashboard, biPopover.filters, 'ask')
     setBiPopover(null)
     setPendingContext(ctx)
+    exitDashFullscreen()
     if (isPc) {
       setPcLeftCollapsed(false)
       setTimeout(() => pcInputRef.current?.focus(), 50)
@@ -883,6 +893,21 @@ export default function AgentRunView() {
       </span>
     </div>
   ) : null
+
+  const fullscreenBtn = (
+    <button
+      type="button"
+      onClick={toggleDashFullscreen}
+      className="h-8 px-2.5 rounded-lg border border-line bg-surface text-[12.5px] text-fg-2 hover:border-primary hover:text-primary flex items-center gap-1 transition-colors"
+      title={dashFullscreen ? '退出全屏（Esc）' : '全屏显示看板'}
+      aria-pressed={dashFullscreen}
+    >
+      {dashFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+      {dashFullscreen ? '退出全屏' : '全屏'}
+    </button>
+  )
+  /** 全屏时看板容器铺满视口（盖住侧栏、顶栏、底部 Tab；点击浮层与提示层级更高，仍可见） */
+  const fullscreenCls = 'fixed inset-0 z-[90] bg-bg'
 
   const popoverEl = biPopover ? (
     <BiPickPopover
@@ -1173,11 +1198,11 @@ export default function AgentRunView() {
             {/* 看板：切走时只隐藏不卸载，保留筛选、下钻与已加载的数据 */}
             {hasDashboard && currentAgentKey && (
               <div
-                className="flex-1 overflow-y-auto agent-scrollbar"
+                className={`${dashFullscreen ? fullscreenCls : 'flex-1'} overflow-y-auto agent-scrollbar`}
                 role="tabpanel"
                 style={{ padding: '20px 28px 28px', display: rightTab === 'dashboard' ? 'block' : 'none' }}
               >
-                <DashboardPanel agentKey={currentAgentKey} pcMode onPick={handleBiPick} />
+                <DashboardPanel agentKey={currentAgentKey} pcMode onPick={handleBiPick} actions={fullscreenBtn} />
               </div>
             )}
 
@@ -1255,8 +1280,8 @@ export default function AgentRunView() {
 
         {/* 看板（移动端单列）；切走时只隐藏不卸载 */}
         {hasDashboard && currentAgentKey && (
-          <div className="flex-1 min-h-0 overflow-y-auto agent-scrollbar" style={{ display: mobileTab === 'dashboard' ? 'block' : 'none', padding: 16 }}>
-            <DashboardPanel agentKey={currentAgentKey} pcMode={false} onPick={handleBiPick} />
+          <div className={`${dashFullscreen ? `${fullscreenCls} safe-bottom` : 'flex-1 min-h-0'} overflow-y-auto agent-scrollbar`} style={{ display: mobileTab === 'dashboard' ? 'block' : 'none', padding: 16 }}>
+            <DashboardPanel agentKey={currentAgentKey} pcMode={false} onPick={handleBiPick} actions={fullscreenBtn} />
           </div>
         )}
 

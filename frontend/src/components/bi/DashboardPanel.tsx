@@ -15,11 +15,13 @@ interface Props {
   agentKey: string
   pcMode: boolean
   onPick?: (pick: BiPick, ctx: { dashboard: BiDashboard; filters: BiFilterValues }) => void
+  /** 标题行右侧的附加按钮（如全屏切换） */
+  actions?: React.ReactNode
 }
 
 type LoadState = { key: string; dashboard?: BiDashboard; error?: string; filters?: BiFilterValues }
 
-export default function DashboardPanel({ agentKey, pcMode, onPick }: Props) {
+export default function DashboardPanel({ agentKey, pcMode, onPick, actions }: Props) {
   const [state, setState] = useState<LoadState | null>(null)
   const [filters, setFilters] = useState<BiFilterValues>({})
 
@@ -49,7 +51,7 @@ export default function DashboardPanel({ agentKey, pcMode, onPick }: Props) {
     return <div className="rounded-xl bg-danger-soft border border-danger/25 text-danger text-[13px] p-4">{state.error || '看板不可用'}</div>
   }
 
-  return <DashboardView dashboard={state.dashboard} pcMode={pcMode} onPick={onPick} filters={filters} onFiltersChange={setFilters} />
+  return <DashboardView dashboard={state.dashboard} pcMode={pcMode} onPick={onPick} filters={filters} onFiltersChange={setFilters} actions={actions} />
 }
 
 /**
@@ -63,6 +65,7 @@ export function DashboardView({
   filters: controlled,
   onFiltersChange,
   showHeader = true,
+  actions,
 }: {
   dashboard: BiDashboard
   pcMode: boolean
@@ -71,6 +74,7 @@ export function DashboardView({
   filters?: BiFilterValues
   onFiltersChange?: (f: BiFilterValues) => void
   showHeader?: boolean
+  actions?: React.ReactNode
 }) {
   const [localFilters, setLocalFilters] = useState<BiFilterValues>(() => initialFilterValues(dashboard.filters || []))
   const filters = controlled ?? localFilters
@@ -92,7 +96,10 @@ export function DashboardView({
         ) : (
           <span />
         )}
-        <FilterBar filters={dashboard.filters} values={filters} onChange={setFilter} />
+        <div className="flex items-end gap-2 flex-wrap">
+          <FilterBar filters={dashboard.filters} values={filters} onChange={setFilter} />
+          {actions}
+        </div>
       </div>
 
       {dashboard.cards.length === 0 ? (
