@@ -20,7 +20,7 @@ const rightTabs: Tab[] = [
 
 /** 手机底部导航（PC 用侧边栏，见 Sidebar） */
 export default function BottomNav() {
-  const { currentView, setView, messageSummary } = useStore()
+  const { currentView, setView, openWorkbench, messageSummary } = useStore()
   const unreadCount = messageSummary?.totalUnread || 0
 
   const renderTab = ({ id, label, icon: Icon }: Tab) => (
@@ -28,7 +28,7 @@ export default function BottomNav() {
       key={id}
       data-nav-tab={id}
       data-voice-nav-label={label}
-      onClick={() => setView(id)}
+      onClick={() => (id === 'catalog' ? openWorkbench() : setView(id))}
       className={cn('flex-1 flex flex-col items-center py-2 transition-colors', currentView === id ? 'text-chrome-active' : 'text-chrome-muted hover:text-chrome-fg')}
     >
       <span className="relative">

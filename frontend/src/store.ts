@@ -31,6 +31,8 @@ interface AppState {
   // Dynamic report context
   activeMenu: NavMenuItem | null
   proSignMode: boolean
+  /** 从报表页切去其它一级页面（设置 / Agent 等）时记下报表，点「工作台」时回到它；回过工作台列表或打开别的报表后清空 */
+  workbenchResume: { menu: NavMenuItem; proSignMode: boolean } | null
   /** 语音/外部跳转时预填的筛选条件（{字段name: 值}），由 DynamicReportView 消费一次后清空 */
   prefilledFilters: Record<string, any> | null
   /** 预填后是否自动执行查询 */
@@ -75,6 +77,8 @@ interface AppState {
   login: (username: string, password: string) => Promise<void>
   logout: () => void
   setView: (view: ViewName) => void
+  /** 点「工作台」入口：有被切走的报表就回到报表，否则回到工作台列表 */
+  openWorkbench: () => void
   navigateTo: (view: ViewName) => void
   goBack: () => void
   fetchMenus: () => Promise<void>
@@ -104,6 +108,9 @@ interface AppState {
   dingtalkAutoLogin: () => Promise<void>
 }
 
+/** 切到这些一级页面时，记住正在看的报表，点「工作台」可回来 */
+const ROOT_TAB_VIEWS = new Set<ViewName>(['ai', 'agent-hub', 'agent-run', 'messages', 'settings', 'help', 'admin'])
+
 export const useStore = create<AppState>((set, get) => ({
   isAuthenticated: false,
   user: null,
@@ -117,6 +124,7 @@ export const useStore = create<AppState>((set, get) => ({
   messageSummary: null,
   activeMenu: null,
   proSignMode: false,
+  workbenchResume: null,
   prefilledFilters: null,
   prefilledAutoQuery: false,
   reportDetailRouteKey: '',
@@ -279,6 +287,7 @@ export const useStore = create<AppState>((set, get) => ({
       viewHistory: [],
       activeMenu: null,
       proSignMode: false,
+      workbenchResume: null,
       proSignOrderDetailOrderNo: null,
       workRegBatchId: null,
       proSignMergeItems: null,
@@ -297,7 +306,24 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setView: (view: ViewName) => {
-    set({ currentView: view })
+    const { currentView, activeMenu, proSignMode } = get()
+    if (currentView === 'dynamic-report' && activeMenu && view !== 'dynamic-report' && view !== 'catalog' && ROOT_TAB_VIEWS.has(view)) {
+      set({ currentView: view, workbenchResume: { menu: activeMenu, proSignMode } })
+    } else if (view === 'catalog') {
+      set({ currentView: view, workbenchResume: null })
+    } else {
+      set({ currentView: view })
+    }
+  },
+
+  openWorkbench: () => {
+    const { currentView, workbenchResume, openMenu, openProSign, setView } = get()
+    if (workbenchResume && currentView !== 'catalog' && currentView !== 'dynamic-report') {
+      if (workbenchResume.proSignMode) openProSign(workbenchResume.menu)
+      else openMenu(workbenchResume.menu)
+      return
+    }
+    setView('catalog')
   },
 
   navigateTo: (view: ViewName) => {
@@ -426,6 +452,7 @@ export const useStore = create<AppState>((set, get) => ({
     set({
       activeMenu: menu,
       proSignMode: false,
+      workbenchResume: null,
       currentView: 'dynamic-report',
       shouldRefreshProSignListAfterReceive: false,
       prefilledFilters: opts?.prefilledFilters ? { ...opts.prefilledFilters } : null,
@@ -438,6 +465,7 @@ export const useStore = create<AppState>((set, get) => ({
     set({
       activeMenu: menu,
       proSignMode: true,
+      workbenchResume: null,
       currentView: 'dynamic-report',
       shouldRefreshProSignListAfterReceive: false,
       prefilledFilters: opts?.prefilledFilters ? { ...opts.prefilledFilters } : null,

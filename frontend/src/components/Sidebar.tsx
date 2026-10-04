@@ -27,7 +27,7 @@ interface NavItem {
 }
 
 export default function Sidebar({ collapsed }: { collapsed: boolean }) {
-  const { currentView, setView, navMenus, activeMenu, openMenuItem, messageSummary, user } = useStore()
+  const { currentView, setView, openWorkbench, navMenus, activeMenu, openMenuItem, messageSummary, user } = useStore()
   const unread = messageSummary?.totalUnread || 0
   const isAdmin = isAdminUser(user)
   const reportViews: ViewName[] = ['dynamic-report', 'report-row-detail', 'pro-sign-receive', 'pro-sign-order-detail', 'work-registration']
@@ -43,7 +43,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
   }, [navMenus, activeMenu])
 
   const main: NavItem[] = [
-    { key: 'catalog', label: '工作台', icon: Home, active: currentView === 'catalog', onClick: () => setView('catalog'), href: '/', dataTab: 'catalog' },
+    { key: 'catalog', label: '工作台', icon: Home, active: currentView === 'catalog', onClick: openWorkbench, href: '/', dataTab: 'catalog' },
     { key: 'agent', label: 'Agent', icon: Bot, active: currentView === 'agent-hub' || currentView === 'agent-run', onClick: () => setView('agent-hub'), href: '/agents', dataTab: 'agent-hub' },
     { key: 'ai', label: 'AI 助手', icon: BrainCircuit, active: currentView === 'ai', onClick: () => setView('ai'), href: '/ai', dataTab: 'ai' },
     { key: 'messages', label: '消息', icon: MessageCircle, active: currentView === 'messages', onClick: () => setView('messages'), href: '/messages', badge: unread, dataTab: 'messages' },
