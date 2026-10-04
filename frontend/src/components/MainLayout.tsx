@@ -64,7 +64,7 @@ function getPageTitle(
   reportDetailRouteKey?: string,
 ): string {
   const titles: Record<string, string> = {
-    catalog: '菜单',
+    catalog: '工作台',
     admin: '管理后台',
     ai: 'AI 助手',
     'agent-hub': 'Agent',

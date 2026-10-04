@@ -9,6 +9,8 @@ import type { ViewName } from '../types'
 import { cn } from '../ui/classes'
 import { isAdminUser } from '../utils/helpers'
 import { getRecentMenus } from '../utils/recentMenus'
+import { menuLucideIcon } from '../utils/menuIcon'
+import { BRAND_NAME } from '../utils/brand'
 import { ADMIN_VIEWS } from './adminEntries'
 
 interface NavItem {
@@ -46,7 +48,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
   const recentItems: NavItem[] = recent.map((m) => ({
     key: `menu-${m.routeKey}`,
     label: m.label,
-    icon: m.routeKey === 'pro-sign' ? Factory : FileText,
+    icon: menuLucideIcon(m) ?? FileText,
     active: inReport && activeMenu?.routeKey === m.routeKey,
     onClick: () => openMenuItem(m),
   }))
@@ -93,7 +95,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
         <span className="w-8 h-8 rounded-lg bg-ai text-primary-fg flex items-center justify-center flex-shrink-0">
           <Factory className="w-4 h-4" />
         </span>
-        {!collapsed && <span className="font-display text-[15px] font-semibold text-chrome-fg truncate">在线报表</span>}
+        {!collapsed && <span className="font-display text-[15px] font-semibold text-chrome-fg truncate">{BRAND_NAME}</span>}
       </div>
 
       <nav className="flex-1 overflow-y-auto scrollbar-none flex flex-col gap-0.5 py-2">

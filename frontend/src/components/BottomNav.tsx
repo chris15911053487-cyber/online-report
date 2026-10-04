@@ -9,7 +9,7 @@ type Tab = { id: ViewName; label: string; icon: typeof Home }
 const centerTab: Tab = { id: 'agent-hub', label: 'Agent', icon: Bot }
 
 const leftTabs: Tab[] = [
-  { id: 'catalog', label: '菜单', icon: Home },
+  { id: 'catalog', label: '工作台', icon: Home },
   { id: 'ai', label: 'AI', icon: Sparkles },
 ]
 

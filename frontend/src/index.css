@@ -44,51 +44,13 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* ===== 登录页：按主题取色的柔和光斑 + 徽标脉冲 ===== */
+  /* ===== 登录页：按主题取色的柔和光斑 ===== */
   .login-hero {
     @apply relative min-h-screen flex items-center justify-center p-4 overflow-hidden bg-bg;
     background-image:
       radial-gradient(1000px 520px at 12% -8%, rgb(var(--c-chart-2) / 0.22), transparent 60%),
       radial-gradient(900px 480px at 108% 6%, rgb(var(--c-primary) / 0.18), transparent 58%),
       radial-gradient(820px 620px at 50% 118%, rgb(var(--c-chart-3) / 0.16), transparent 60%);
-  }
-  .login-aurora {
-    @apply pointer-events-none absolute inset-0;
-    background:
-      radial-gradient(560px 300px at 22% 28%, rgb(var(--c-chart-2) / 0.22), transparent 62%),
-      radial-gradient(520px 280px at 78% 72%, rgb(var(--c-primary) / 0.2), transparent 62%);
-    filter: blur(36px);
-    animation: login-aurora-move 16s ease-in-out infinite alternate;
-  }
-  .login-grid {
-    @apply pointer-events-none absolute inset-0 opacity-50;
-    background-image: radial-gradient(rgb(var(--c-line-strong) / 0.7) 1.3px, transparent 1.3px);
-    background-size: 26px 26px;
-    mask-image: radial-gradient(circle at 50% 42%, black, transparent 72%);
-    -webkit-mask-image: radial-gradient(circle at 50% 42%, black, transparent 72%);
-  }
-  .ai-orb {
-    @apply relative flex items-center justify-center w-24 h-24 mx-auto rounded-[28px] bg-ai;
-    box-shadow:
-      0 14px 34px rgb(var(--c-primary) / 0.32),
-      inset 0 1px 2px rgb(var(--c-primary-fg) / 0.5);
-    animation: ai-orb-float 4s ease-in-out infinite;
-  }
-  .ai-orb-icon {
-    @apply relative z-10 text-primary-fg;
-  }
-  .ai-pulse {
-    @apply pointer-events-none absolute rounded-full inset-0;
-    border: 2px solid rgb(var(--c-primary) / 0.4);
-    animation: ai-pulse-out 3s ease-out infinite;
-  }
-  .ai-pulse-2 {
-    animation-delay: 1s;
-    border-color: rgb(var(--c-chart-2) / 0.45);
-  }
-  .ai-pulse-3 {
-    animation-delay: 2s;
-    border-color: rgb(var(--c-accent) / 0.4);
   }
   .login-card {
     @apply relative w-full max-w-md rounded-2xl p-7 border border-line;
@@ -105,7 +67,7 @@
     box-shadow: 0 0 0 3px rgb(var(--c-primary) / 0.16);
   }
   .login-btn {
-    @apply w-full text-lg py-4 rounded-xl font-semibold text-primary-fg bg-primary transition hover:bg-primary-hover active:scale-[0.985];
+    @apply w-full h-12 text-[15px] rounded-xl font-semibold text-primary-fg bg-primary transition hover:bg-primary-hover active:scale-[0.985];
   }
 
   /* ===== AI 助手回复：通用富文本（Markdown / 表格 / 列表 / 代码 / 键值） ===== */
@@ -211,40 +173,3 @@
   }
 }
 
-@keyframes ai-orb-float {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-8px);
-  }
-}
-@keyframes ai-pulse-out {
-  0% {
-    transform: scale(1);
-    opacity: 0.7;
-  }
-  100% {
-    transform: scale(2.1);
-    opacity: 0;
-  }
-}
-@keyframes login-aurora-move {
-  from {
-    transform: translate3d(-4%, -2%, 0) scale(1);
-  }
-  to {
-    transform: translate3d(4%, 3%, 0) scale(1.08);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .login-aurora,
-  .ai-orb,
-  .ai-pulse,
-  .ai-pulse-2,
-  .ai-pulse-3 {
-    animation: none !important;
-  }
-}
