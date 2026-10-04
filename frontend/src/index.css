@@ -5,6 +5,10 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    /* PC 侧边栏宽度，MainLayout 收起/展开时改写 */
+    --sidebar-w: 14rem;
+  }
   html {
     background: rgb(var(--c-bg));
   }

@@ -6,6 +6,7 @@ import { Button, Card, EmptyState } from '../ui'
 import { cn, inputClass } from '../ui/classes'
 import { menuIcon, menuKindLabel } from '../utils/menuIcon'
 import { getRecentMenus } from '../utils/recentMenus'
+import { isPlainClick, menuPath } from '../router'
 
 /** 菜单多于这个数才显示搜索框 */
 const SEARCH_THRESHOLD = 8
@@ -30,6 +31,32 @@ function MenuGlyph({ menu, className }: { menu: NavMenuItem; className?: string 
     <span className={cn('flex items-center justify-center rounded-lg bg-primary-soft text-primary flex-shrink-0 select-none', className)}>
       {'Icon' in g ? <g.Icon className="w-5 h-5" strokeWidth={1.8} /> : <span className="text-lg leading-none">{g.text}</span>}
     </span>
+  )
+}
+
+/** 菜单入口渲染成链接：普通点击页内打开，右键 / Ctrl / 中键可在新标签页或新窗口打开 */
+function MenuLink({ menu, onOpen, className, children, ...rest }: { menu: NavMenuItem; onOpen: (m: NavMenuItem) => void; className: string; children: React.ReactNode } & { [k: `data-${string}`]: string }) {
+  const href = menuPath(menu)
+  if (!href) {
+    return (
+      <button type="button" onClick={() => onOpen(menu)} className={className} {...rest}>
+        {children}
+      </button>
+    )
+  }
+  return (
+    <a
+      href={href}
+      onClick={(e) => {
+        if (!isPlainClick(e)) return
+        e.preventDefault()
+        onOpen(menu)
+      }}
+      className={className}
+      {...rest}
+    >
+      {children}
+    </a>
   )
 }
 
@@ -112,12 +139,12 @@ export default function CatalogView() {
 
           <div className="grid grid-cols-3 gap-2.5 lg:grid-cols-2 xl:grid-cols-3 lg:gap-3" data-voice-catalog-grid>
             {shown.map((menu) => (
-              <button
+              <MenuLink
                 key={menu.id || menu.routeKey}
-                type="button"
+                menu={menu}
+                onOpen={openMenuItem}
                 data-route-key={menu.routeKey}
                 data-menu-label={menu.label}
-                onClick={() => openMenuItem(menu)}
                 className={cn(
                   'group rounded-xl border border-line bg-surface shadow-sm transition-[box-shadow,border-color] duration-200 hover:border-primary/30 hover:shadow active:scale-[0.98]',
                   // 手机：竖排小方块；PC：横排卡片，带类型说明
@@ -131,7 +158,7 @@ export default function CatalogView() {
                   <span className="hidden lg:block mt-0.5 text-xs text-subtle">{menuKindLabel(menu)}</span>
                 </span>
                 <ChevronRight className="hidden lg:block w-4 h-4 text-subtle opacity-0 transition-opacity group-hover:opacity-100 flex-shrink-0" />
-              </button>
+              </MenuLink>
             ))}
           </div>
 
@@ -145,16 +172,16 @@ export default function CatalogView() {
             <h3 className="text-[13px] font-medium text-muted mb-2.5">最近使用</h3>
             <Card className="p-1">
               {recent.map((menu) => (
-                <button
+                <MenuLink
                   key={menu.routeKey}
-                  type="button"
-                  onClick={() => openMenuItem(menu)}
+                  menu={menu}
+                  onOpen={openMenuItem}
                   className="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-surface-2"
                 >
                   <Clock className="w-3.5 h-3.5 text-subtle flex-shrink-0" />
                   <span className="flex-1 min-w-0 text-[13px] text-fg truncate">{menu.label}</span>
                   <ChevronRight className="w-3.5 h-3.5 text-subtle flex-shrink-0" />
-                </button>
+                </MenuLink>
               ))}
             </Card>
           </section>

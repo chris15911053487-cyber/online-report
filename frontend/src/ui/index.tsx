@@ -365,7 +365,7 @@ export function AdminPage({ title, description, actions, onBack, backLabel = '�
 /** 固定在页面底部的操作栏（PC 让出左侧导航） */
 export function StickyActions({ children, leading }: { children: ReactNode; leading?: ReactNode }) {
   return (
-    <div className="fixed bottom-0 left-0 right-0 lg:left-56 z-30 bg-surface border-t border-line shadow-sm safe-bottom">
+    <div className="fixed bottom-0 left-0 right-0 lg:left-[var(--sidebar-w)] z-30 bg-surface border-t border-line shadow-sm safe-bottom">
       <div className="flex items-center gap-2 px-4 py-3 lg:px-6">
         <div className="flex-1 min-w-0 flex items-center gap-2">{leading}</div>
         {children}

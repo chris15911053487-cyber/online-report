@@ -122,7 +122,7 @@ cd frontend && npm run lint
 - 外壳：`MainLayout` —— PC（≥1024px，`hooks/useMediaQuery.ts` 的 `useIsPc`）左侧 `Sidebar` + 面包屑顶栏；手机顶栏 + `BottomNav`。管理入口集中在「管理后台」`AdminHubView`（入口清单 `components/adminEntries.ts`）
 - 管理后台只在 PC 上用：管理页用 `ui` 的 `AdminPage`（页头/返回）+ `Section` 双栏（`lg:grid-cols-2`）+ `EditorActions`（底部固定取消/保存）+ `RecordRow` 列表；JSON 配置用 `JsonField`，角色多选用 `ChipSelect`；删除等确认用 `ui/confirm.ts` 的 `confirmDelete` / `confirmAsync`，不要用 `window.confirm`
 - 页面需兼顾 PC 与手机宽度（AgentRunView：PC 左对话右看板，移动端顶部页签）；PC 布局用 Tailwind `lg:` 断点或 `useIsPc`，不要读 `window.innerWidth`
-- 页面里 `position: fixed` 的底栏（输入框、操作按钮条）在 PC 上要加 `lg:left-56` 让出侧边栏（宽 14rem），并去掉为手机底部 Tab 预留的高度（`lg:bottom-0`）
+- 页面里 `position: fixed` 的底栏（输入框、操作按钮条）在 PC 上要加 `lg:left-[var(--sidebar-w)]` 让出侧边栏（展开 14rem、收起 4rem，由 `MainLayout` 写入 CSS 变量；顶栏左侧按钮切换，选择存本机 localStorage），并去掉为手机底部 Tab 预留的高度（`lg:bottom-0`）
 
 ### 界面主题（六套，可切换）
 

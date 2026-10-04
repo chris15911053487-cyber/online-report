@@ -434,7 +434,7 @@ export default function ReturnProPickDetail({
         })}
       </div>
 
-      <div className="fixed bottom-0 inset-x-0 lg:left-56 z-20 p-3 bg-surface/95 backdrop-blur border-t border-line shadow-[0_-4px_12px_rgba(0,0,0,0.06)] pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="fixed bottom-0 inset-x-0 lg:left-[var(--sidebar-w)] z-20 p-3 bg-surface/95 backdrop-blur border-t border-line shadow-[0_-4px_12px_rgba(0,0,0,0.06)] pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="max-w-2xl mx-auto">
           <button
             type="button"

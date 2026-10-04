@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parsePath, pathFor, type RouteState } from './router'
+import { isPlainClick, menuPath, parsePath, pathFor, type RouteState } from './router'
 import { resolveTheme } from './theme'
 
 const base: RouteState = {
@@ -33,6 +33,27 @@ describe('pathFor', () => {
     expect(pathFor(at({ currentView: 'work-registration', activeMenu: rk, workRegBatchId: 12 }))).toBe('/report/pro-sign/batch/12')
     expect(pathFor(at({ currentView: 'work-registration', workRegBatchId: 12 }))).toBe('/work-registration/12')
     expect(pathFor(at({ currentView: 'detail', currentOrderId: 7 }))).toBe('/orders/7')
+  })
+})
+
+describe('menuPath', () => {
+  it('与 openMenuItem 分支一致，且能被 parsePath 解析回去', () => {
+    expect(menuPath({ routeKey: 'orders', menuKind: 'builtin' })).toBe('/owor')
+    expect(menuPath({ routeKey: 'menu-settings', menuKind: 'builtin' })).toBe('/admin/menus')
+    expect(menuPath({ routeKey: 'pro-sign', menuKind: 'builtin' })).toBe('/report/pro-sign')
+    expect(menuPath({ routeKey: '库存 查询', menuKind: 'report' })).toBe('/report/%E5%BA%93%E5%AD%98%20%E6%9F%A5%E8%AF%A2')
+    expect(parsePath(menuPath({ routeKey: '库存 查询', menuKind: 'report' })!)).toEqual({ kind: 'report', routeKey: '库存 查询' })
+    expect(menuPath({ routeKey: 'unknown', menuKind: 'builtin' })).toBeNull()
+  })
+})
+
+describe('isPlainClick', () => {
+  const base = { button: 0, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false }
+  it('只有无修饰键的左键算页内点击', () => {
+    expect(isPlainClick(base)).toBe(true)
+    expect(isPlainClick({ ...base, ctrlKey: true })).toBe(false)
+    expect(isPlainClick({ ...base, metaKey: true })).toBe(false)
+    expect(isPlainClick({ ...base, button: 1 })).toBe(false)
   })
 })
 

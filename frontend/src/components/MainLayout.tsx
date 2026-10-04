@@ -1,5 +1,5 @@
-import { useEffect } from 'react'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useStore } from '../store'
 import BottomNav from './BottomNav'
 import Sidebar from './Sidebar'
@@ -97,6 +97,18 @@ function getPageTitle(
   return titles[view] || '生产报工'
 }
 
+/** PC 侧边栏收起：用户点过就记住（本机）；没选过时 Agent 运行页默认收起，给看板让出宽度 */
+const SIDEBAR_KEY = 'online_report_sidebar_collapsed'
+
+function readSidebarPref(): boolean | null {
+  try {
+    const v = localStorage.getItem(SIDEBAR_KEY)
+    return v === '1' ? true : v === '0' ? false : null
+  } catch {
+    return null
+  }
+}
+
 export default function MainLayout() {
   const {
     currentView,
@@ -112,6 +124,22 @@ export default function MainLayout() {
     messageSummary,
     isAuthenticated,
   } = useStore()
+  const [sidebarPref, setSidebarPref] = useState<boolean | null>(readSidebarPref)
+  const sidebarCollapsed = sidebarPref ?? currentView === 'agent-run'
+  const toggleSidebar = () => {
+    const next = !sidebarCollapsed
+    setSidebarPref(next)
+    try {
+      localStorage.setItem(SIDEBAR_KEY, next ? '1' : '0')
+    } catch {
+      /* 不可写时只在本次生效 */
+    }
+  }
+
+  // 固定定位的底栏用 lg:left-[var(--sidebar-w)] 让出侧边栏
+  useEffect(() => {
+    document.documentElement.style.setProperty('--sidebar-w', sidebarCollapsed ? '4rem' : '14rem')
+  }, [sidebarCollapsed])
 
   useEffect(() => {
     if (!isAuthenticated) return
@@ -157,11 +185,20 @@ export default function MainLayout() {
 
   return (
     <div className="min-h-screen bg-bg lg:flex">
-      <Sidebar collapsed={currentView === 'agent-run'} />
+      <Sidebar collapsed={sidebarCollapsed} />
 
       <div className="flex-1 min-w-0 flex flex-col">
         <header className="sticky top-0 z-40 h-14 bg-chrome text-chrome-fg border-b border-chrome-line">
           <div className="h-full flex items-center gap-2 px-4 max-w-2xl mx-auto md:max-w-none lg:px-6">
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              className="hidden lg:flex -ml-2 w-8 h-8 items-center justify-center rounded-lg text-chrome-muted hover:text-chrome-fg hover:bg-chrome-active-bg transition"
+              aria-label={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
+              title={sidebarCollapsed ? '展开侧边栏' : '收起侧边栏'}
+            >
+              {sidebarCollapsed ? <PanelLeftOpen className="w-[18px] h-[18px]" /> : <PanelLeftClose className="w-[18px] h-[18px]" />}
+            </button>
             {!isRootTab && (
               <button
                 onClick={goBack}

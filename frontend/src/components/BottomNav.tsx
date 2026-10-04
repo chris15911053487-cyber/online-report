@@ -1,5 +1,5 @@
 import { useStore } from '../store'
-import { Home, Sparkles, MessageCircle, Settings, Bot } from 'lucide-react'
+import { Home, BrainCircuit, MessageCircle, Settings, Bot } from 'lucide-react'
 import type { ViewName } from '../types'
 import { cn } from '../ui/classes'
 
@@ -10,7 +10,7 @@ const centerTab: Tab = { id: 'agent-hub', label: 'Agent', icon: Bot }
 
 const leftTabs: Tab[] = [
   { id: 'catalog', label: '工作台', icon: Home },
-  { id: 'ai', label: 'AI', icon: Sparkles },
+  { id: 'ai', label: 'AI 助手', icon: BrainCircuit },
 ]
 
 const rightTabs: Tab[] = [

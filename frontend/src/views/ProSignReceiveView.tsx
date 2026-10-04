@@ -361,7 +361,7 @@ export default function ProSignReceiveView() {
       </div>
 
       {/* Sticky save buttons */}
-      <div className="fixed bottom-0 inset-x-0 lg:left-56 p-3 bg-surface/90 backdrop-blur border-t border-line pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="fixed bottom-0 inset-x-0 lg:left-[var(--sidebar-w)] p-3 bg-surface/90 backdrop-blur border-t border-line pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         <div className="flex gap-2">
           {isCompletionFlow && (
             <button

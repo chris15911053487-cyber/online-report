@@ -83,6 +83,19 @@ export function pathFor(s: RouteState): string {
   }
 }
 
+/** 菜单的页面地址（与 store.openMenuItem 的分支一致）；未接入的内置菜单返回 null */
+export function menuPath(menu: Pick<NavMenuItem, 'routeKey' | 'menuKind'>): string | null {
+  if (menu.routeKey === 'orders') return '/owor'
+  if (menu.routeKey === 'menu-settings') return '/admin/menus'
+  if (menu.routeKey === 'pro-sign' || menu.menuKind === 'report') return `/report/${enc(menu.routeKey)}`
+  return null
+}
+
+/** 普通左键点击（无修饰键）才在当前页内切换；Ctrl/⌘/Shift/中键交给浏览器在新标签页/新窗口打开 */
+export function isPlainClick(e: { button: number; ctrlKey: boolean; metaKey: boolean; shiftKey: boolean; altKey: boolean }) {
+  return e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey
+}
+
 /** 地址 → 导航动作；无法识别的地址回到首页 */
 export function parsePath(pathname: string): Navigation {
   const clean = '/' + pathname.split('?')[0].split('#')[0].replace(/^\/+|\/+$/g, '')
