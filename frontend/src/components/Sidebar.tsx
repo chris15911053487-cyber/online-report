@@ -3,7 +3,7 @@
  * 手机端不渲染，改用 BottomNav。语音脚本依赖的 data-nav-tab 与底栏保持一致。
  */
 import { useMemo } from 'react'
-import { Bot, BrainCircuit, Factory, Home, MessageCircle, Settings, Shield, FileText, type LucideIcon } from 'lucide-react'
+import { BookOpen, Bot, BrainCircuit, Factory, Home, MessageCircle, Settings, Shield, FileText, type LucideIcon } from 'lucide-react'
 import { useStore } from '../store'
 import type { ViewName } from '../types'
 import { cn } from '../ui/classes'
@@ -58,6 +58,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
   }))
   const bottom: NavItem[] = [
     ...(isAdmin ? [{ key: 'admin', label: '管理后台', icon: Shield, active: ADMIN_VIEWS.has(currentView), onClick: () => setView('admin'), href: '/admin' }] : []),
+    { key: 'help', label: '使用说明', icon: BookOpen, active: currentView === 'help' || currentView === 'help-doc', onClick: () => setView('help'), href: '/help', dataTab: 'help' as ViewName },
     { key: 'settings', label: '设置', icon: Settings, active: currentView === 'settings', onClick: () => setView('settings'), href: '/settings', dataTab: 'settings' as ViewName },
   ]
 

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, ChevronRight, KeyRound, LogOut, Monitor, Shield } from 'lucide-react'
+import { BookOpen, Check, ChevronRight, KeyRound, LogOut, Monitor, Shield } from 'lucide-react'
 import AgentStatusBadge from '../components/AgentStatusBadge'
 import { useStore } from '../store'
 import { apiFetch } from '../utils/api'
@@ -98,6 +98,13 @@ export default function SettingsView() {
       </Card>
 
       <AgentStatusBadge variant="card" showAdminDetails={isAdmin} />
+
+      <section className="flex flex-col gap-2 lg:hidden">
+        <h3 className="text-xs text-muted tracking-wider px-1">帮助</h3>
+        <Card className="overflow-hidden">
+          <ListRow icon={<BookOpen className="w-4 h-4" />} title="使用说明" description="各功能的操作说明，也可以在 AI 助手里直接问" trailing={<ChevronRight className="w-4 h-4 text-subtle" />} onClick={() => navigateTo('help')} />
+        </Card>
+      </section>
 
       <section className="flex flex-col gap-2">
         <h3 className="text-xs text-muted tracking-wider px-1">外观</h3>

@@ -1,4 +1,5 @@
 <!-- tags: AI,LLM,大模型,架构,联网,网络,接口,调用,DeepSeek,OpenAI,Grok,Agent,降级,IM,机器人,定时报告,费用,出口,api -->
+<!-- audience: admin -->
 # AI / LLM 大模型架构说明
 
 本系统在多个环节使用了 LLM（大语言模型），所有 LLM 调用均通过 HTTPS 联网访问外部 API。

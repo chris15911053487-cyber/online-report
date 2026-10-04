@@ -65,6 +65,10 @@ interface AppState {
   currentAgentKey: string | null
   /** 当前 Agent 的显示名（运行页加载配置后写入，用于顶栏标题） */
   currentAgentLabel: string | null
+  /** 正在看的使用说明书（help-doc 页使用，server/help 的 slug） */
+  helpDocSlug: string | null
+  /** 当前说明书标题（阅读页加载后写入，用于顶栏标题） */
+  helpDocTitle: string | null
 
   // Actions
   initialize: () => Promise<void>
@@ -91,6 +95,9 @@ interface AppState {
   openAiChatWithSkill: (skillName: string) => void
   /** AiChatView 消费 pendingChatSkill 后清空 */
   consumePendingChatSkill: () => void
+  /** 打开一篇使用说明书（/help/:slug） */
+  openHelpDoc: (slug: string) => void
+  setHelpDocTitle: (title: string | null) => void
   /** 进入某个 Agent 的运行页 */
   openAgent: (agentKey: string) => void
   /** 钉钉环境自动免登 */
@@ -126,6 +133,8 @@ export const useStore = create<AppState>((set, get) => ({
   pendingChatSkill: null,
   currentAgentKey: null,
   currentAgentLabel: null,
+  helpDocSlug: null,
+  helpDocTitle: null,
 
   clearProSignListRefreshFlag: () => set({ shouldRefreshProSignListAfterReceive: false }),
 
@@ -138,6 +147,17 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   consumePendingChatSkill: () => set({ pendingChatSkill: null }),
+
+  setHelpDocTitle: (title) => set({ helpDocTitle: title }),
+
+  openHelpDoc: (slug: string) => {
+    set((s) => ({
+      helpDocSlug: slug,
+      helpDocTitle: null,
+      currentView: 'help-doc',
+      viewHistory: s.currentView === 'help-doc' ? s.viewHistory : [...s.viewHistory, s.currentView],
+    }))
+  },
 
   openAgent: (agentKey: string) => {
     set((s) => ({
@@ -323,6 +343,15 @@ export const useStore = create<AppState>((set, get) => ({
     }
     if (currentView === 'dynamic-report' && proSignMode) {
       set({ currentView: 'catalog', proSignMode: false, activeMenu: null })
+      return
+    }
+
+    if (currentView === 'help-doc') {
+      set((s) => ({
+        currentView: s.viewHistory.length > 0 ? s.viewHistory[s.viewHistory.length - 1] : 'help',
+        viewHistory: s.viewHistory.slice(0, -1),
+        helpDocSlug: null,
+      }))
       return
     }
 

@@ -23,6 +23,9 @@ import MessageAlertSettingsView from '../views/MessageAlertSettingsView'
 import ScheduledReportsView from '../views/ScheduledReportsView'
 import AlertPushView from '../views/AlertPushView'
 import AdminHubView from '../views/AdminHubView'
+import HelpView from '../views/HelpView'
+import HelpDocView from '../views/HelpDocView'
+import { useIsPc } from '../hooks/useMediaQuery'
 import type { ViewName } from '../types'
 import { isReturnProRoute } from '../views/ReturnProPickDetail'
 
@@ -45,6 +48,8 @@ const viewComponents: Record<string, React.ComponentType> = {
   'scheduled-reports': ScheduledReportsView,
   'alert-push': AlertPushView,
   admin: AdminHubView,
+  help: HelpView,
+  'help-doc': HelpDocView,
   'report-row-detail': ReportRowDetailView,
   'pro-sign-receive': ProSignReceiveView,
   'pro-sign-order-detail': ProSignOrderDetailView,
@@ -67,6 +72,8 @@ function getPageTitle(
     'bi-admin': 'BI 看板管理',
     messages: '消息',
     settings: '设置',
+    help: '使用说明',
+    'help-doc': '使用说明',
     'menu-settings': '菜单与角色',
     'ai-skills': 'AI Skill 管理',
     'message-alert-settings': '消息提醒',
@@ -111,6 +118,7 @@ export default function MainLayout() {
     proSignMode,
     reportDetailRouteKey,
     currentAgentLabel,
+    helpDocTitle,
     fetchMessageSummary,
     messageSummary,
     isAuthenticated,
@@ -148,19 +156,25 @@ export default function MainLayout() {
     }
   }, [currentView, isAuthenticated, fetchMessageSummary])
 
-  const isRootTab = rootTabs.includes(currentView)
+  const isPc = useIsPc()
+  // 使用说明：PC 在侧边栏里，算一级页面；手机从「设置」进入，带返回
+  const isRootTab = rootTabs.includes(currentView) || (isPc && currentView === 'help')
   const showBottomNav = isRootTab && currentView !== 'admin'
   const title =
     currentView === 'agent-run' && currentAgentLabel
       ? currentAgentLabel
-      : getPageTitle(currentView, activeMenu?.label, proSignMergeButtonLabel, reportDetailRouteKey)
+      : currentView === 'help-doc' && helpDocTitle
+        ? helpDocTitle
+        : getPageTitle(currentView, activeMenu?.label, proSignMergeButtonLabel, reportDetailRouteKey)
   // PC 面包屑的上一级（仅用于展示与快速返回）
   const crumbParent: { label: string; view: ViewName } | null =
     ADMIN_VIEWS.has(currentView) && currentView !== 'admin'
       ? { label: '管理后台', view: 'admin' }
       : currentView === 'agent-run'
         ? { label: 'Agent', view: 'agent-hub' }
-        : !isRootTab && currentView !== 'ai'
+        : currentView === 'help-doc'
+          ? { label: '使用说明', view: 'help' }
+          : !isRootTab && currentView !== 'help' && currentView !== 'ai'
           ? { label: '工作台', view: 'catalog' }
           : null
 

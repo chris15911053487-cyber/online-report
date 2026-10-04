@@ -144,6 +144,23 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 
 **知识库维护**：编辑 `server/help/` 下 Markdown（`<!-- tags: ... -->` 与同义词组用于检索）。改完后重启 Node 服务（或调用 `clearHelpCache()`）生效。
 
+### 使用说明书
+
+`server/help/*.md` 同时是前端可读的说明书：
+
+| 接口 | 说明 |
+|------|------|
+| `GET /help/docs` | 当前用户可读的说明书列表（`slug`、`title`、`audience`） |
+| `GET /help/docs/:slug` | 整篇 Markdown；`audience: admin` 的普通用户 403 |
+| `GET /help/images/*` | 配图（公开，`server/help/images/`） |
+
+- 文件头：`<!-- tags: 看板,bi -->`（第一行）+ 可选 `<!-- audience: admin -->`；slug 为文件名去掉序号前缀（`07-bi-dashboard.md` → `bi-dashboard`）
+- 配图写相对路径 `![说明](images/bi/xxx.png)`，前端 `HelpDocPanel` 改写到 `/api/help/images/`；AI 检索片段里换成「（配图：说明）」
+- 前台入口：PC 左侧菜单「使用说明」（「设置」上方）、手机「设置 → 帮助 → 使用说明」→ 列表（`/help`，按「功能说明 / 管理员」分组，简介取标题后第一段正文）→ 阅读页（`/help/:slug`，可刷新、收藏、返回）
+- BI 看板管理右上角「使用说明」：右侧滑出面板，边看边配置（`bi-admin` / `bi-dashboard`）
+- 仅管理员：`05-admin`、`06-ai-architecture`、`08-bi-admin`
+- 截图：本地起服务（另开端口）后用 Playwright 以 1440×900 截图；无头 Chrome 缺 emoji 字体时用自定义 `FONTCONFIG_FILE` 加载 Noto Color Emoji，不必装到系统
+
 **前端**：`AiChatView` 快捷提问、`sources` 参考章节、绿色按钮跳转（设置 / 菜单 / 生产报工）。
 
 ### AI Agent（独立容器）
@@ -234,6 +251,8 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 
 - **✨ AI 解读**：直接发送，使用快模型（`AI_FAST_MODEL`）；程序自动把卡片、点中的数据、当前筛选、口径、查询参数作为上下文带给 AI（注入本轮用户消息，不进 system prompt，不影响前缀缓存）；AI 优先用同一命名查询 + 参数复查
 - **⤵ 下钻到 xx**：按卡片配置的 `drill` 逐级展开（不经 AI），面包屑返回
+
+柱状图 / 折线图不必点准图形：点在绘图区内任意位置按所在类目算（`BiChart` 的 zrender 兜底；「按系列拆分」的多系列图仍需点中图形）。点击时收起 ECharts 悬浮提示，避免盖住浮层。
 - **问点别的…**：上下文以胶囊挂在输入框上方，用户补一句话再发（主模型）
 
 **✨ AI 辅助**（仅管理员；都只改表单、不自动保存，人确认后保存）：

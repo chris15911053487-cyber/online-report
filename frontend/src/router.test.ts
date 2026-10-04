@@ -17,6 +17,7 @@ describe('pathFor', () => {
     expect(pathFor(at({ currentView: 'ai' }))).toBe('/ai')
     expect(pathFor(at({ currentView: 'agent-hub' }))).toBe('/agents')
     expect(pathFor(at({ currentView: 'settings' }))).toBe('/settings')
+    expect(pathFor(at({ currentView: 'help' }))).toBe('/help')
     expect(pathFor(at({ currentView: 'admin' }))).toBe('/admin')
     expect(pathFor(at({ currentView: 'bi-admin' }))).toBe('/admin/bi')
     expect(pathFor(at({ currentView: 'menu-settings' }))).toBe('/admin/menus')
@@ -25,6 +26,8 @@ describe('pathFor', () => {
   it('带参数的页面，参数做 URL 编码', () => {
     const rk = { routeKey: 'pro-sign' }
     expect(pathFor(at({ currentView: 'agent-run', currentAgentKey: 'finance' }))).toBe('/agents/finance')
+    expect(pathFor(at({ currentView: 'help-doc', helpDocSlug: 'bi-admin' }))).toBe('/help/bi-admin')
+    expect(pathFor(at({ currentView: 'help-doc' }))).toBe('/help')
     expect(pathFor(at({ currentView: 'dynamic-report', activeMenu: rk }))).toBe('/report/pro-sign')
     expect(pathFor(at({ currentView: 'pro-sign-receive', activeMenu: rk }))).toBe('/report/pro-sign/merge')
     expect(pathFor(at({ currentView: 'report-row-detail', activeMenu: rk }))).toBe('/report/pro-sign/row')
@@ -58,6 +61,8 @@ describe('parsePath', () => {
     expect(parsePath('/')).toEqual({ kind: 'view', view: 'catalog' })
     expect(parsePath('/messages/')).toEqual({ kind: 'view', view: 'messages' })
     expect(parsePath('/admin')).toEqual({ kind: 'view', view: 'admin' })
+    expect(parsePath('/help')).toEqual({ kind: 'view', view: 'help' })
+    expect(parsePath('/help/bi-dashboard')).toEqual({ kind: 'help', slug: 'bi-dashboard' })
     expect(parsePath('/admin/skills')).toEqual({ kind: 'view', view: 'ai-skills' })
     expect(parsePath('/agents/finance')).toEqual({ kind: 'agent', agentKey: 'finance' })
     expect(parsePath('/report/pro-sign')).toEqual({ kind: 'report', routeKey: 'pro-sign' })

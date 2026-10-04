@@ -38,6 +38,7 @@ const { loadAndScheduleAlerts: startAlertScheduler } = require('./alert-schedule
 const { getPool } = require('./db');
 const ensureNavMenuSchema = require('./ensure-nav-menu-schema');
 const uiSettingsRoutes = require('./routes/ui-settings');
+const helpRoutes = require('./routes/help');
 const { stripApiPrefix, registerSpaFallback } = require('./spa');
 
 const PORT = Number(process.env.PORT || 3000);
@@ -136,6 +137,7 @@ async function build() {
   await fastify.register(alertAdminRoutes);
   await fastify.register(filesRoutes);
   await fastify.register(uiSettingsRoutes);
+  await fastify.register(helpRoutes);
 
   // 语音功能开关（默认启用，设 VOICE_ENABLED=false 关闭）
   const voiceEnabled = process.env.VOICE_ENABLED !== 'false';

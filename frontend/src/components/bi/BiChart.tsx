@@ -49,16 +49,40 @@ export default function BiChart({ option, height, onPick, ariaLabel }: Props) {
     if (!el) return
     const chart = echarts.init(el)
     chartRef.current = chart
+    // 悬浮提示会盖住点击浮层；提示本身也在这次点击里弹出，所以推迟一拍再收起
+    const hideTipSoon = () => setTimeout(() => chart.isDisposed() || chart.dispatchAction({ type: 'hideTip' }), 0)
     chart.on('click', (raw) => {
       const p = raw as EchartsClickParams
-      if (p.componentType !== 'series' || typeof p.dataIndex !== 'number') return
+      if (p.componentType !== 'series' || typeof p.dataIndex !== 'number' || !onPickRef.current) return
       const native = p.event?.event
       const rect = el.getBoundingClientRect()
-      onPickRef.current?.({
+      hideTipSoon()
+      onPickRef.current({
         dataIndex: p.dataIndex,
         seriesName: p.seriesName,
         x: native?.clientX ?? rect.left + rect.width / 2,
         y: native?.clientY ?? rect.top + rect.height / 2,
+      })
+    })
+    // 没点中任何图形（折线的小圆点、矮柱子很难点中）：点在绘图区内就按所在类目算。
+    // 点中图形时 e.target 有值，交给上面的系列 click 处理
+    chart.getZr().on('click', (e) => {
+      if (e.target || !onPickRef.current) return
+      const pt = [e.offsetX, e.offsetY]
+      if (!chart.containPixel({ gridIndex: 0 }, pt)) return
+      const opt = chart.getOption() as { xAxis?: { type?: string }[]; series?: { name?: string }[] }
+      const horizontal = opt.xAxis?.[0]?.type !== 'category'
+      const v = chart.convertFromPixel({ gridIndex: 0 }, pt) as number[] | null
+      const dataIndex = Math.round(Number(v?.[horizontal ? 1 : 0]))
+      if (!Number.isFinite(dataIndex) || dataIndex < 0) return
+      const series = opt.series ?? []
+      const native = e.event as unknown as { clientX?: number; clientY?: number }
+      hideTipSoon()
+      onPickRef.current({
+        dataIndex,
+        seriesName: series.length === 1 ? series[0].name : undefined,
+        x: native.clientX ?? 0,
+        y: native.clientY ?? 0,
       })
     })
     const ro = new ResizeObserver(() => chart.resize())

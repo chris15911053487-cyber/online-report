@@ -119,6 +119,8 @@ export type ViewName =
   | 'bi-admin'
   | 'messages'
   | 'settings'
+  | 'help'
+  | 'help-doc'
   | 'menu-settings'
   | 'ai-skills'
   | 'message-alert-settings'

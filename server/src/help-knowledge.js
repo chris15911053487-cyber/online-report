@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 
 const HELP_DIR = path.join(__dirname, '..', 'help');
-const HELP_DOC_VERSION = '2026-05-16';
+const HELP_DOC_VERSION = '2026-10-04';
 const TOP_K_CHUNKS = 5;
 
 /** 同义词组 → 检索用 token */
@@ -32,9 +32,12 @@ const SYNONYM_GROUPS = {
   voice: ['语音', '说话', '按住', '识别', '麦克风'],
   nav: ['菜单', '底部', 'tab', '返回', '首页', '登录', '退出'],
   admin: ['管理员', '菜单设置', '配置', '权限', '角色'],
+  bi: ['看板', 'bi', '图表', '下钻', '解读', '查询库', '卡片', '筛选', '口径', '每日要点'],
 };
 
 const TAGS_COMMENT_RE = /^<!--\s*tags:\s*([^>]+)\s*-->\s*\n?/i;
+
+const AUDIENCE_COMMENT_RE = /^<!--\s*audience:[^>]*-->\s*\n?/im;
 
 let cachedChunks = null;
 
@@ -74,7 +77,8 @@ function loadHelpChunks() {
     const fullPath = path.join(HELP_DIR, file);
     let raw = fs.readFileSync(fullPath, 'utf8');
     const fileTags = parseTagsFromComment(raw);
-    raw = fileTags.rest;
+    // 配图是给前端阅读用的，AI 拿到的片段里换成文字，免得回答里出现相对路径的坏图
+    raw = fileTags.rest.replace(AUDIENCE_COMMENT_RE, '').replace(/!\[([^\]]*)\]\([^)]*\)/g, (_, alt) => (alt ? `（配图：${alt}）` : ''));
 
     const fileBase = file.replace(/\.md$/i, '');
     const sections = raw.split(/^## /m);
@@ -249,6 +253,11 @@ const QUICK_TOPICS = [
     id: 'status-codes',
     question: 'Status 0、1、8 分别是什么意思？',
     keywords: ['status', '0', '1', '8'],
+  },
+  {
+    id: 'bi-explain',
+    question: '看板上怎么让 AI 解读、怎么下钻？',
+    keywords: ['看板', '解读', '下钻'],
   },
   {
     id: 'overview',

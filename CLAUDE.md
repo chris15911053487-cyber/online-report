@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **ai-agent/** — Python LangGraph Agent 独立服务（FastAPI/uvicorn，port 8080）
 - **mobile-webview/** — Expo WebView 壳 + 原生语音按钮
 
-README.md 有各功能的详细说明（配置字段、接口、环境变量），改功能时同步更新。
+README.md 有各功能的详细说明（配置字段、接口、环境变量），改功能时同步更新。面向用户的**使用说明书**在 `server/help/*.md`（见下文「使用说明书」），改了用户能看到的功能也要同步更新。
 
 ## 常用命令
 
@@ -136,6 +136,13 @@ cd frontend && npm run lint
 - `docker-compose.deploy.yml`：服务 `app`（server + 多阶段构建的 `frontend/dist`）与 `ai-agent`；加载 `server/.env` 或指定 `DEPLOY_ENV_FILE`
 - 本地仅跑 server 时需先 `npm run build`
 - APK 下载：`GET /download/android-app.apk`，按优先级尝试：`APK_PATH` → `server/public/apk/android-app.apk` → `APK_SHARE_ROOT + APK_FILENAME`
+
+### 使用说明书（`server/help/*.md`）
+
+- 一份 Markdown 两处用：前端整篇阅读（`routes/help.js` 的 `GET /help/docs`、`/help/docs/:slug`，`help-docs.js`；前台入口：说明书列表 `views/HelpView.tsx`（`/help`，PC 左侧菜单「设置」上方，手机「设置」页「帮助」）→ 阅读页 `HelpDocView`（`/help/:slug`，store `openHelpDoc`）；页内侧栏 `components/HelpDocPanel.tsx`（BI 看板管理右上角「使用说明」），正文渲染共用 `HelpDocContent`），AI 按章节检索（`help-knowledge.js`：`/ai/chat` 与 ai-agent 的 `knowledge_search`）
+- 文件头注释：`<!-- tags: ... -->`（检索标签，放第一行）、`<!-- audience: admin -->`（仅管理员可读）；slug = 文件名去序号，如 `08-bi-admin.md` → `bi-admin`；按 `## ` 切块，每节要能单独读懂
+- 配图放 `server/help/images/<模块>/`，正文写相对路径 `![说明](images/bi/xxx.png)`（公开访问，只放演示数据截图）；AI 片段里配图自动换成文字；`test/help-docs.test.js` 检查引用的图都存在
+- **改了用户可见的功能（按钮、流程、字段、入口），同一个提交里更新对应说明书**；界面明显变了就重截相关配图（Playwright 截图方法见 README「使用说明书」）
 
 ## 开发约定
 

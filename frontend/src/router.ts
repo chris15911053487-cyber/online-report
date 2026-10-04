@@ -30,6 +30,7 @@ const SIMPLE_VIEWS: Partial<Record<ViewName, string>> = {
   'agent-hub': '/agents',
   messages: '/messages',
   settings: '/settings',
+  help: '/help',
 }
 const SIMPLE_PATHS = Object.fromEntries(Object.entries(SIMPLE_VIEWS).map(([v, p]) => [p, v])) as Record<string, ViewName>
 
@@ -38,6 +39,8 @@ export interface RouteState {
   currentView: ViewName
   activeMenu: Pick<NavMenuItem, 'routeKey'> | null
   currentAgentKey: string | null
+  /** 说明书阅读页的 slug；旧调用方可不传 */
+  helpDocSlug?: string | null
   proSignOrderDetailOrderNo: string | null
   workRegBatchId: number | null
 }
@@ -48,6 +51,7 @@ export type Navigation =
   | { kind: 'proSignOrder'; routeKey: string; orderNo: string }
   | { kind: 'workReg'; routeKey: string | null; batchId: number }
   | { kind: 'agent'; agentKey: string }
+  | { kind: 'help'; slug: string }
 
 const enc = encodeURIComponent
 
@@ -61,6 +65,8 @@ export function pathFor(s: RouteState): string {
   switch (s.currentView) {
     case 'agent-run':
       return s.currentAgentKey ? `/agents/${enc(s.currentAgentKey)}` : '/agents'
+    case 'help-doc':
+      return s.helpDocSlug ? `/help/${enc(s.helpDocSlug)}` : '/help'
     case 'dynamic-report':
       return rk ? `/report/${enc(rk)}` : '/'
     case 'report-row-detail':
@@ -106,6 +112,7 @@ export function parsePath(pathname: string): Navigation {
     if (view && parts.length <= 2) return { kind: 'view', view }
   }
   if (head === 'agents' && a && parts.length === 2) return { kind: 'agent', agentKey: a }
+  if (head === 'help' && a && parts.length === 2) return { kind: 'help', slug: a }
   if (head === 'report' && a) {
     if (b === 'order' && c) return { kind: 'proSignOrder', routeKey: a, orderNo: c }
     if (b === 'batch' && int(c) != null) return { kind: 'workReg', routeKey: a, batchId: int(c)! }
@@ -124,6 +131,7 @@ interface RouterStore {
     goBack: () => void
     openMenuItem: (menu: NavMenuItem) => void
     openAgent: (key: string) => void
+    openHelpDoc: (slug: string) => void
     openProSignOrderDetail: (orderNo: string) => void
     openWorkRegistration: (batchId: number, menu: NavMenuItem | null) => void
     showToast: (msg: string) => void
@@ -142,6 +150,9 @@ export function applyNavigation(store: RouterStore, nav: Navigation) {
       return
     case 'agent':
       s.openAgent(nav.agentKey)
+      return
+    case 'help':
+      s.openHelpDoc(nav.slug)
       return
     case 'report':
     case 'proSignOrder':

@@ -56,11 +56,13 @@ interface ChatMarkdownProps {
   content: string
   onDocDownload?: (url: string) => void
   charts?: Record<string, unknown>[]
+  /** 原样渲染（说明书等写好的 Markdown），不做 AI 回答的格式修补 */
+  raw?: boolean
 }
 
-export default function ChatMarkdown({ content, onDocDownload, charts }: ChatMarkdownProps) {
+export default function ChatMarkdown({ content, onDocDownload, charts, raw }: ChatMarkdownProps) {
   const prepared = useMemo(() => {
-    let text = prepareAssistantContent(content)
+    let text = raw ? content : prepareAssistantContent(content)
     // 将 ![图表标题] 或 ![图表标题]() 转为 ![图表标题](chart:N) 以触发 img 组件
     if (charts && charts.length > 0) {
       let idx = 0
@@ -70,7 +72,7 @@ export default function ChatMarkdown({ content, onDocDownload, charts }: ChatMar
       })
     }
     return text
-  }, [content, charts])
+  }, [content, charts, raw])
 
   const components: Components = {
     img: ({ src, alt }) => {

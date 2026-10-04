@@ -8,7 +8,7 @@
  * 编辑器在 components/bi/admin/。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Pencil, Plus, Sparkles, Trash2 } from 'lucide-react'
+import { BookOpen, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react'
 import { useStore } from '../store'
 import { apiFetch } from '../utils/api'
 import { AdminPage, Badge, Button, Card, Code, EmptyState, IconButton, Notice, RecordRow, Skeleton, Tabs } from '../ui'
@@ -20,6 +20,7 @@ import AiDraftModal, { type BiDraft } from '../components/bi/admin/AiDraftModal'
 import AiChartsReview from '../components/bi/admin/AiChartsReview'
 import { EMPTY_DASHBOARD, EMPTY_QUERY, errMsg, type BiChartAdmin, type BiDashboardAdmin, type BiQueryAdmin, type QueryOption } from '../components/bi/admin/types'
 import { newChart } from '../utils/biAdmin'
+import HelpDocPanel from '../components/HelpDocPanel'
 import { clearPendingPin, readPendingPin } from '../utils/biPin'
 
 type Tab = 'queries' | 'charts' | 'dashboards'
@@ -46,6 +47,8 @@ export default function BiAdminView() {
   // 对话页「📌 收藏到看板」新开本页时带来的 SQL：进来直接打开收藏弹窗（读一次即清除）
   const [pin, setPin] = useState(() => readPendingPin())
   const [aiOpen, setAiOpen] = useState(() => pin != null)
+  const [helpOpen, setHelpOpen] = useState(false)
+  const closeHelp = useCallback(() => setHelpOpen(false), [])
   useEffect(() => clearPendingPin(), [])
   const [editDashboard, setEditDashboard] = useState<{ draft: BiDashboardAdmin; isNew: boolean } | null>(null)
 
@@ -176,6 +179,9 @@ export default function BiAdminView() {
       description="查询（数据与口径）→ 图表（怎么展示，可复用）→ 看板（选图表、设筛选、排版）；看板在「Agent 配置」里关联到 Agent"
       actions={
         <div className="flex items-center gap-2">
+          <Button variant="ghost" icon={<BookOpen className="w-4 h-4" />} onClick={() => setHelpOpen(true)}>
+            使用说明
+          </Button>
           {tab !== 'dashboards' && (
             <Button variant="soft" icon={<Sparkles className="w-4 h-4" />} onClick={() => setAiOpen(true)}>
               AI 起草
@@ -187,6 +193,14 @@ export default function BiAdminView() {
         </div>
       }
     >
+      <HelpDocPanel
+        open={helpOpen}
+        onClose={closeHelp}
+        tabs={[
+          { slug: 'bi-admin', label: '看板配置（管理员）' },
+          { slug: 'bi-dashboard', label: '看板使用' },
+        ]}
+      />
       <AiDraftModal
         open={aiOpen}
         fromSql={pin}
