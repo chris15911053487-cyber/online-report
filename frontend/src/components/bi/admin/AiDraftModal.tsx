@@ -25,19 +25,33 @@ const EXAMPLES = ['本月各客户销售额前 10 名', '今年每月销售额�
 const STAGES = ['选表', '读表结构', '写 SQL 与图表', '试运行', '核对结果']
 const TYPE_LABEL: Record<string, string> = { kpi: 'KPI', bar: '柱状图', line: '折线图', pie: '饼图', table: '表格' }
 
-export default function AiDraftModal({ open, onClose, onAccept }: { open: boolean; onClose: () => void; onAccept: (d: BiDraft) => void }) {
+const SQL_STAGES = ['读表结构', '参数化与补语义', '试运行', '核对结果']
+
+/** fromSql：对话结果收藏——把 Agent 临时写的 SQL 整理成命名查询（参数化 + 语义 + 推荐图表） */
+export default function AiDraftModal({
+  open,
+  onClose,
+  onAccept,
+  fromSql,
+}: {
+  open: boolean
+  onClose: () => void
+  onAccept: (d: BiDraft) => void
+  fromSql?: { sql: string; question: string } | null
+}) {
   const [requirement, setRequirement] = useState('')
   const [loading, setLoading] = useState(false)
   const [stage, setStage] = useState(0)
   const [error, setError] = useState('')
   const [draft, setDraft] = useState<BiDraft | null>(null)
+  const stages = fromSql ? SQL_STAGES : STAGES
 
   // 等待时轮换显示阶段（服务端一次返回，这里只是让人知道在做什么）
   useEffect(() => {
     if (!loading) return
-    const t = setInterval(() => setStage((s) => Math.min(s + 1, STAGES.length - 1)), 4000)
+    const t = setInterval(() => setStage((s) => Math.min(s + 1, stages.length - 1)), 4000)
     return () => clearInterval(t)
-  }, [loading])
+  }, [loading, stages.length])
 
   const run = async () => {
     setLoading(true)
@@ -45,7 +59,11 @@ export default function AiDraftModal({ open, onClose, onAccept }: { open: boolea
     setError('')
     setDraft(null)
     try {
-      const r = (await apiFetch('/admin/bi/ai/draft', { method: 'POST', body: JSON.stringify({ requirement }) })) as { draft: BiDraft }
+      const r = (
+        fromSql
+          ? await apiFetch('/admin/bi/ai/draft-from-sql', { method: 'POST', body: JSON.stringify(fromSql) })
+          : await apiFetch('/admin/bi/ai/draft', { method: 'POST', body: JSON.stringify({ requirement }) })
+      ) as { draft: BiDraft }
       setDraft(r.draft)
     } catch (err) {
       setError(errMsg(err, 'AI 起草失败'))
@@ -67,7 +85,7 @@ export default function AiDraftModal({ open, onClose, onAccept }: { open: boolea
       title={
         <span className="inline-flex items-center gap-1.5">
           <Sparkles className="w-4 h-4 text-primary" />
-          AI 起草查询与图表
+          {fromSql ? '收藏对话结果到看板' : 'AI 起草查询与图表'}
         </span>
       }
       footer={
@@ -83,47 +101,70 @@ export default function AiDraftModal({ open, onClose, onAccept }: { open: boolea
               <Button onClick={() => onAccept(draft)}>采用，逐项确认</Button>
             </>
           ) : (
-            <Button onClick={() => void run()} disabled={loading || requirement.trim().length < 4} icon={loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}>
-              {loading ? `${STAGES[stage]}…` : '开始起草'}
+            <Button
+              onClick={() => void run()}
+              disabled={loading || (!fromSql && requirement.trim().length < 4)}
+              icon={loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            >
+              {loading ? `${stages[stage]}…` : fromSql ? 'AI 整理成查询' : '开始起草'}
             </Button>
           )}
         </>
       }
     >
       <div className="flex flex-col gap-4">
-        <Field label="想看什么？" hint="说清楚看什么数、按什么分、什么口径。AI 会直接读库里的表结构写 SQL 并试运行，结果只是草稿，保存前由你确认。">
-          <Textarea
-            rows={2}
-            value={requirement}
-            disabled={loading}
-            onChange={(e) => setRequirement(e.target.value)}
-            placeholder="例如：本月各客户销售额前 10 名"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && requirement.trim().length >= 4) void run()
-            }}
-          />
-        </Field>
-        {!draft && !loading && (
-          <div className="flex flex-wrap gap-1.5">
-            {EXAMPLES.map((x) => (
-              <button
-                key={x}
-                type="button"
-                onClick={() => setRequirement(x)}
-                className="px-2.5 py-1 rounded-full border border-line text-[12px] text-fg-2 hover:border-primary hover:text-primary transition-colors"
-              >
-                {x}
-              </button>
-            ))}
+        {fromSql ? (
+          <div className="flex flex-col gap-2">
+            {fromSql.question && (
+              <p className="text-[13px] text-fg-2">
+                <span className="font-medium text-fg">对话里的问题：</span>
+                {fromSql.question}
+              </p>
+            )}
+            <pre className="p-3 rounded-lg bg-surface-2 border border-line text-[11.5px] text-fg-2 overflow-auto max-h-48 whitespace-pre-wrap font-mono">{fromSql.sql}</pre>
+            {!draft && (
+              <p className="text-[12.5px] text-muted">
+                AI 会保持取数口径，把写死的月份 / 日期 / 编码改成参数（如 @period，由看板筛选提供），补上名称、口径、列语义，并推荐图表；只是草稿，保存前由你确认。
+              </p>
+            )}
           </div>
+        ) : (
+          <>
+          <Field label="想看什么？" hint="说清楚看什么数、按什么分、什么口径。AI 会直接读库里的表结构写 SQL 并试运行，结果只是草稿，保存前由你确认。">
+            <Textarea
+              rows={2}
+              value={requirement}
+              disabled={loading}
+              onChange={(e) => setRequirement(e.target.value)}
+              placeholder="例如：本月各客户销售额前 10 名"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && requirement.trim().length >= 4) void run()
+              }}
+            />
+          </Field>
+          {!draft && !loading && (
+            <div className="flex flex-wrap gap-1.5">
+              {EXAMPLES.map((x) => (
+                <button
+                  key={x}
+                  type="button"
+                  onClick={() => setRequirement(x)}
+                  className="px-2.5 py-1 rounded-full border border-line text-[12px] text-fg-2 hover:border-primary hover:text-primary transition-colors"
+                >
+                  {x}
+                </button>
+              ))}
+            </div>
+          )}
+          </>
         )}
         {loading && (
           <p className="text-[12.5px] text-muted flex items-center gap-2">
             <Loader2 className="w-4 h-4 animate-spin" />
-            {STAGES.map((s, i) => (
+            {stages.map((s, i) => (
               <span key={s} className={i === stage ? 'text-primary font-medium' : i < stage ? 'text-fg-2' : 'text-subtle'}>
                 {s}
-                {i < STAGES.length - 1 ? ' →' : ''}
+                {i < stages.length - 1 ? ' →' : ''}
               </span>
             ))}
           </p>

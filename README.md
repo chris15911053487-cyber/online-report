@@ -244,7 +244,9 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 | 查询编辑器 SQL 下方 **AI 修改** | 一句话改口径（「扣掉退货」「改成不含税」「加一个销售员参数」）→ 改 SQL、同步参数 / 列 / 口径并试运行；去掉的输出列会提醒（图表可能引用）；可撤销 |
 | 查询编辑器「⑤ 输出列」**AI 补全语义** | 试运行拿到输出列与样例，补列的中文名 / 角色 / 格式、说明、口径、示例问法；**只填空着的**，已填写的不动；可撤销 |
 
-起草流程：选表（SAP B1 常识 + 本库自定义业务表，≤6 张）→ 读真实列与类型（`INFORMATION_SCHEMA`）及自定义字段说明（`CUFD`）→ 生成 → 只读校验 + 示例参数试运行 → SQL 报错或图表列对不上时把错误交回 AI 修正，最多 3 轮。用户 / 权限表（`OUSR`、`@TB_OUSR` 等）与本系统配置表（`bi_*`、`agents`、`ai_*` 等）不给 AI 看，SQL 引用即拒绝。模型沿用 `AI_PROVIDER` / `AI_DEFAULT_MODEL`。实现 `server/src/bi-draft.js`，接口 `POST /admin/bi/ai/draft`、`/admin/bi/ai/revise-query`、`/admin/bi/ai/enrich-query`。
+**📌 对话结果收藏到看板**（仅管理员）：Agent 页结果卡片、AI 助手回答下方，凡本轮用 `run_sql` 临时查出的数，都显示「收藏到看板」。点击后**新标签页**打开「BI 看板管理」（对话页不动），弹窗展示原问题与 SQL →「AI 整理成查询」：保持口径，把写死的月份 / 日期 / 编码改成参数（如 GETDATE 推算的上月 → `@period`，`TOP 5` → `TOP (@top)` 默认 5），补名称、口径、列语义、示例问法（第一条用原问法），推荐 1~3 张图表 → 试运行与自我修正同 AI 起草 → 之后同样是确认查询 → 确认图表。SQL 经 `localStorage`（`bi_pending_pin`，10 分钟内有效，读到即清除）传给新标签页。接口 `POST /admin/bi/ai/draft-from-sql`（`{ sql, question }`）。
+
+起草流程：选表（SAP B1 常识 + 本库自定义业务表，≤6 张）→ 读真实列与类型（`INFORMATION_SCHEMA`）及自定义字段说明（`CUFD`）→ 生成 → 只读校验 + 示例参数试运行 → SQL 报错或图表列对不上时把错误交回 AI 修正，最多 3 轮。用户 / 权限表（`OUSR`、`@TB_OUSR` 等）与本系统配置表（`bi_*`、`agents`、`ai_*` 等）不给 AI 看，SQL 引用即拒绝。模型沿用 `AI_PROVIDER` / `AI_DEFAULT_MODEL`。实现 `server/src/bi-draft.js`，接口 `POST /admin/bi/ai/draft`、`/admin/bi/ai/draft-from-sql`、`/admin/bi/ai/revise-query`、`/admin/bi/ai/enrich-query`。
 
 **图表配置示例**（`POST /admin/bi/charts`）与看板引用：
 

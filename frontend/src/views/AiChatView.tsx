@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import AgentStatusBadge from '../components/AgentStatusBadge'
 import AgentLiveTrace from '../components/AgentLiveTrace'
+import PinToDashboard from '../components/bi/PinToDashboard'
 import AgentTracePanel, { parseAgentTrace, type AgentTimings, type AgentToolStep } from '../components/AgentTracePanel'
 import ChatMarkdown, { bareDocUrls } from '../components/ChatMarkdown'
 import { useStore } from '../store'
@@ -645,6 +646,9 @@ export default function AiChatView() {
                 m.content
               )}
             </div>
+            {m.role === 'assistant' && (
+              <PinToDashboard steps={m.toolSteps} question={messages[i - 1]?.role === 'user' ? messages[i - 1].content : ''} />
+            )}
 
             {m.role === 'assistant' &&
               m.clarification &&

@@ -239,7 +239,7 @@ const sampleOf = (result) => ({
  * @param {string} requirement 需求描述
  */
 async function draftQueryAndChart(deps, requirement) {
-  const { pool, llm, existingQueries = [], existingCharts = [], testRun, onProgress = () => {} } = deps;
+  const { pool, llm, existingQueries = [], onProgress = () => {} } = deps;
   const need = String(requirement || '').trim();
   if (need.length < 4) throw new DraftError('请用一句话描述想看什么，比如「本月各客户销售额前 10」');
   if (need.length > 1000) throw new DraftError('需求描述不能超过 1000 字');
@@ -267,6 +267,15 @@ async function draftQueryAndChart(deps, requirement) {
     { role: 'system', content: GEN_SYSTEM },
     { role: 'user', content: `需求：${need}\n\n已有命名查询（不要重复 queryKey）：${existing}\n\n可用表结构（列:类型(自定义字段说明)）：\n${schemaText}` },
   ];
+  return generateDraft(deps, messages, schema.map((t) => t.table));
+}
+
+/**
+ * 生成 → 校验 → 试运行 → 修正（最多 MAX_ATTEMPTS 轮）。messages 已含 system 与第一条 user。
+ * 返回 { query, charts, sample, sampleParams, notes, unlabeledColumns, tables, attempts }。
+ */
+async function generateDraft(deps, messages, tables) {
+  const { llm, existingQueries = [], existingCharts = [], testRun, onProgress = () => {} } = deps;
   const queryKeys = new Set(existingQueries.map((q) => q.queryKey));
   const chartKeys = new Set(existingCharts.map((c) => c.chartKey));
   let lastError = '';
@@ -316,13 +325,53 @@ async function draftQueryAndChart(deps, requirement) {
       sampleParams,
       notes: String(out.notes || '').slice(0, 1000),
       unlabeledColumns: missing,
-      tables: schema.map((t) => t.table),
+      tables,
       attempts: attempt,
     };
   }
   throw new DraftError(`AI 修正 ${MAX_ATTEMPTS} 次仍未成功：${lastError}`);
 }
 
+
+// ─── 对话结果收藏：把 Agent 临时写的 SQL 改成可复用的命名查询 ─────────────────
+
+const FROM_SQL_SYSTEM = `${GEN_SYSTEM}
+
+## 这次的任务：把对话里的临时 SQL 收藏成命名查询
+用户在 AI 对话里问了一个问题，AI 当场写了下面这条 SQL 并得到了答案。把它整理成一条**可复用**的命名查询（以后每月 / 每天都能看）：
+- 保持原 SQL 的取数逻辑与口径不变，只做必要改写（DECLARE / 变量 / 多语句改成单条 SELECT）
+- 把写死的、会随时间或对象变化的常量改成参数：月份 / 年份 → @period（'YYYY-MM'）/ @year（'YYYY'），日期区间 → @dateFrom / @dateTo（date），GETDATE() 推算的当月 / 上月 → @period，具体客户 / 物料编码 → 对应参数；原值写进 sampleParams
+- 固定的业务口径（如排除取消单、只看某类单据）保留为常量
+- TOP 10 这类改成 TOP (@top) 并给默认值
+- sampleQuestions 第一条用用户原来的问法（去掉具体月份等会过时的字眼）`;
+
+/**
+ * 从对话 SQL 起草：读 SQL 引用的表结构 → AI 参数化并补语义、推荐图表 → 试运行与修正（同 draftQueryAndChart）。
+ * @param {{ sql: string, question?: string }} input
+ */
+async function draftFromSql(deps, input) {
+  const { pool, existingQueries = [], onProgress = () => {} } = deps;
+  const sqlText = String(input?.sql || '').trim();
+  const question = String(input?.question || '').trim().slice(0, 500);
+  if (!sqlText) throw new DraftError('缺少 SQL');
+  if (sqlText.length > 20000) throw new DraftError('SQL 太长（超过 20000 字）');
+  const denied = referencedDeniedTables(sqlText);
+  if (denied.length > 0) throw new DraftError(`这条 SQL 用到了不允许收藏的表：${denied.join('、')}`);
+
+  onProgress('读表结构');
+  const tables = referencedTables(sqlText).slice(0, MAX_TABLES * 2);
+  const schema = tables.length > 0 ? await describeTables(pool, tables) : [];
+  const schemaText = schema.map((t) => `### ${t.table}\n${t.columns.join(', ')}`).join('\n\n') || '（未识别到表）';
+  const existing = existingQueries.slice(0, 50).map((q) => `${q.queryKey}（${q.label}）`).join('、') || '（无）';
+  const messages = [
+    { role: 'system', content: FROM_SQL_SYSTEM },
+    {
+      role: 'user',
+      content: `用户的问题：${question || '（未提供）'}\n\n对话里的 SQL：\n\`\`\`sql\n${sqlText}\n\`\`\`\n\n已有命名查询（不要重复 queryKey）：${existing}\n\n相关表结构（列:类型(自定义字段说明)）：\n${schemaText}`,
+    },
+  ];
+  return generateDraft(deps, messages, schema.map((t) => t.table));
+}
 
 // ─── 按一句话修改已有查询 ───────────────────────────────────────────────────
 
@@ -480,6 +529,7 @@ class DraftError extends Error {
 }
 
 module.exports = {
+  draftFromSql,
   draftQueryAndChart,
   reviseQuery,
   enrichQuery,

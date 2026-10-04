@@ -9,6 +9,7 @@
  *   - /admin/bi/charts      图表库增删改查（图表引用查询；看板引用图表）
  *   - /admin/bi/dashboards  看板增删改查
  *   - POST /admin/bi/ai/draft         AI 起草查询 + 1~3 张图表（读表结构、试运行、自我修正）
+ *   - POST /admin/bi/ai/draft-from-sql 对话里 Agent 临时写的 SQL → 参数化成命名查询 + 推荐图表（收藏到看板）
  *   - POST /admin/bi/ai/revise-query  按一句话修改查询（改 SQL 后试运行、自我修正）
  *   - POST /admin/bi/ai/enrich-query  补全语义层（列中文名 / 角色 / 格式、说明、口径、示例问法）
  *   以上 AI 接口都只返回草稿，不保存
@@ -26,7 +27,7 @@ const {
   toPublicQuery,
 } = require('../bi-queries');
 const { runNamedQuery, testRunQuery, BiParamError } = require('../bi-exec');
-const { draftQueryAndChart, reviseQuery, enrichQuery, DraftError } = require('../bi-draft');
+const { draftQueryAndChart, draftFromSql, reviseQuery, enrichQuery, DraftError } = require('../bi-draft');
 const { aiService } = require('../ai');
 const {
   listAllDashboards,
@@ -249,6 +250,17 @@ async function biRoutes(fastify) {
     aiRoute(async (request, pool) => {
       const [existingQueries, existingCharts] = await Promise.all([listAllQueries(pool), listAllCharts(pool)]);
       const draft = await draftQueryAndChart({ pool, llm, existingQueries, existingCharts, testRun: testRun(pool) }, (request.body || {}).requirement);
+      return { draft };
+    }),
+  );
+
+  fastify.post(
+    '/admin/bi/ai/draft-from-sql',
+    { preHandler: [fastify.requireAdmin] },
+    aiRoute(async (request, pool) => {
+      const body = request.body || {};
+      const [existingQueries, existingCharts] = await Promise.all([listAllQueries(pool), listAllCharts(pool)]);
+      const draft = await draftFromSql({ pool, llm, existingQueries, existingCharts, testRun: testRun(pool) }, { sql: body.sql, question: body.question });
       return { draft };
     }),
   );

@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { draftQueryAndChart, isDeniedTable, referencedDeniedTables, parseJsonObject, sampleParamsFor, uniqueKey } = require('../src/bi-draft');
+const { draftQueryAndChart, draftFromSql, isDeniedTable, referencedDeniedTables, parseJsonObject, sampleParamsFor, uniqueKey } = require('../src/bi-draft');
 
 /** 假 pool：INFORMATION_SCHEMA.TABLES / COLUMNS 与 CUFD */
 function fakePool() {
@@ -216,4 +216,30 @@ test('补全语义层：按实际输出列过滤；不合法的列语义报错�
 
 test('referencedTables：识别 FROM / JOIN 后的表名', () => {
   assert.deepEqual(referencedTables('SELECT 1 FROM OINV T0 JOIN [dbo].[OCRD] c ON 1=1 LEFT JOIN dbo.OSLP s ON 1=1'), ['OINV', 'OCRD', 'OSLP']);
+});
+
+test('从对话 SQL 起草：带上原 SQL、问题与引用表结构；试运行与修正同起草；禁用表直接拒绝', async () => {
+  const pool = fakePool();
+  const { llm, calls } = scriptedLlm(['not json', good]);
+  const draft = await draftFromSql(
+    {
+      pool,
+      llm,
+      existingQueries: [],
+      existingCharts: [],
+      testRun: async () => ({ columns: ['CardName', 'Amount'], columnTypes: {}, rows: [], rowCount: 0 }),
+    },
+    { sql: "SELECT TOP 10 CardName, SUM(DocTotal) AS Amount FROM OINV WHERE DocDate >= '2026-08-01' GROUP BY CardName", question: '8 月谁买得最多' },
+  );
+  const user = calls[0][1].content;
+  assert.match(calls[0][0].content, /收藏成命名查询/);
+  assert.match(user, /8 月谁买得最多/);
+  assert.match(user, /'2026-08-01'/);
+  assert.match(user, /OINV\n.*DocTotal:numeric/);
+  assert.equal(draft.attempts, 2);
+  assert.deepEqual(draft.tables, ['OINV']);
+  assert.equal(draft.query.queryKey, 'sales_by_customer');
+
+  await assert.rejects(draftFromSql({ pool, llm }, { sql: 'SELECT * FROM OUSR' }), /不允许收藏的表：OUSR/);
+  await assert.rejects(draftFromSql({ pool, llm }, { sql: '  ' }), /缺少 SQL/);
 });

@@ -20,6 +20,7 @@ import AiDraftModal, { type BiDraft } from '../components/bi/admin/AiDraftModal'
 import AiChartsReview from '../components/bi/admin/AiChartsReview'
 import { EMPTY_DASHBOARD, EMPTY_QUERY, errMsg, type BiChartAdmin, type BiDashboardAdmin, type BiQueryAdmin, type QueryOption } from '../components/bi/admin/types'
 import { newChart } from '../utils/biAdmin'
+import { clearPendingPin, readPendingPin } from '../utils/biPin'
 
 type Tab = 'queries' | 'charts' | 'dashboards'
 const TYPE_LABEL: Record<string, string> = { kpi: 'KPI', bar: '柱状', line: '折线', pie: '饼图', table: '表格' }
@@ -42,7 +43,10 @@ export default function BiAdminView() {
   const [editQuery, setEditQuery] = useState<{ draft: BiQueryAdmin; isNew: boolean; ai?: BiDraft } | null>(null)
   const [editChart, setEditChart] = useState<{ draft: BiChartAdmin; isNew: boolean } | null>(null)
   const [aiReview, setAiReview] = useState<BiDraft | null>(null)
-  const [aiOpen, setAiOpen] = useState(false)
+  // 对话页「📌 收藏到看板」新开本页时带来的 SQL：进来直接打开收藏弹窗（读一次即清除）
+  const [pin, setPin] = useState(() => readPendingPin())
+  const [aiOpen, setAiOpen] = useState(() => pin != null)
+  useEffect(() => clearPendingPin(), [])
   const [editDashboard, setEditDashboard] = useState<{ draft: BiDashboardAdmin; isNew: boolean } | null>(null)
 
   // 递增即重新加载（保存/删除后在事件里调用 load()）；effect 内只在 Promise 回调里 setState
@@ -185,9 +189,14 @@ export default function BiAdminView() {
     >
       <AiDraftModal
         open={aiOpen}
-        onClose={() => setAiOpen(false)}
+        fromSql={pin}
+        onClose={() => {
+          setAiOpen(false)
+          setPin(null)
+        }}
         onAccept={(d) => {
           setAiOpen(false)
+          setPin(null)
           setEditQuery({ draft: { ...EMPTY_QUERY, ...d.query }, isNew: true, ai: d })
         }}
       />

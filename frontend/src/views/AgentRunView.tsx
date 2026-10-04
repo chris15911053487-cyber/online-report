@@ -28,6 +28,7 @@ import { apiFetch } from '../utils/api'
 import { attachToolResults, createLiveFeed, streamAgentChat, type LiveState } from '../utils/agentStream'
 import ChartRenderer from '../components/ChartRenderer'
 import AgentLiveTrace, { AgentLiveStatus } from '../components/AgentLiveTrace'
+import PinToDashboard from '../components/bi/PinToDashboard'
 import AgentTracePanel, { parseAgentTrace, type AgentTimings, type AgentToolStep } from '../components/AgentTracePanel'
 import ChatMarkdown from '../components/ChatMarkdown'
 import DashboardPanel from '../components/bi/DashboardPanel'
@@ -458,6 +459,7 @@ function CanvasPanel({
               <AgentTracePanel toolSteps={toolSteps} timings={timings} />
             </div>
           )}
+          <PinToDashboard steps={toolSteps} question={q} />
         </CanvasCard>
       )}
     </div>
