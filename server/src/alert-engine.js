@@ -59,6 +59,11 @@ async function loadRuleById(ruleId) {
  * SQL 支持 @_loginUser 等占位符（注入为系统用户 SYSTEM）
  */
 async function evaluateRuleSql(rule) {
+  // 基于 BI 命名查询的规则：执行查询 + 按条件筛出命中行
+  if (rule.bi_check_json) {
+    const { evaluateRuleBiCheck } = require('./alert-bi');
+    return evaluateRuleBiCheck(await getPool(), rule);
+  }
   if (!rule.sql_template) return [];
 
   const pool = await getPool();

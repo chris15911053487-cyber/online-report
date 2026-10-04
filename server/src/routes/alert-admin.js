@@ -7,6 +7,8 @@
  * - PATCH  /admin/alert-rules/:id       修改规则
  * - DELETE /admin/alert-rules/:id       删除规则
  * - POST   /admin/alert-rules/:id/test  手动触发一次
+ * - POST   /admin/alert-rules/ai/draft  一句话设预警：AI 选命名查询 + 写条件 → 试算，只返回草稿
+ * - POST   /admin/alert-rules/preview   按当前数据试算 BI 规则会命中哪些行（不推送）
  * - GET    /admin/alert-webhooks        Webhook 列表
  * - POST   /admin/alert-webhooks        新增 Webhook
  * - PATCH  /admin/alert-webhooks/:id    修改 Webhook
@@ -17,6 +19,23 @@ const cron = require('node-cron');
 const { getPool, sql } = require('../db');
 const { executeRule, triggerEvent, loadRuleById } = require('../alert-engine');
 const { loadAndScheduleAlerts } = require('../alert-scheduler');
+const { aiService } = require('../ai');
+const { getQuery, listAllQueries } = require('../bi-queries');
+const { normalizeBiCheck, evaluateBiCheck, describeBiCheck, draftAlertRule, queryRunner, AlertDraftError } = require('../alert-bi');
+
+/**
+ * 请求体里的 bi_check → { value: JSON 字符串 | null | undefined } 或 { error }。
+ * undefined = 没传（PATCH 不改）；null = 清除（改回 SQL 规则）。
+ */
+async function parseBiCheck(pool, raw) {
+  if (raw === undefined) return { value: undefined };
+  if (raw === null || raw === '') return { value: null };
+  const query = await getQuery(pool, String(raw?.queryKey || '').trim().toLowerCase());
+  if (!query) return { error: `命名查询不存在：${raw?.queryKey || ''}` };
+  const cv = normalizeBiCheck(raw, query);
+  if (!cv.ok) return { error: cv.error };
+  return { value: JSON.stringify(cv.value), query, check: cv.value };
+}
 
 async function alertAdminRoutes(fastify) {
   // ==================== 警报规则 CRUD ====================
@@ -28,10 +47,23 @@ async function alertAdminRoutes(fastify) {
       `SELECT id, name, description, trigger_type, cron_expr, sql_template, key_column,
               event_name, target_users_json, target_roles_json, target_webhooks_json,
               card_title_template, card_body_template, card_btn_title, card_btn_url,
-              cooldown_minutes, enabled, sort_order, created_by, created_at, updated_at
+              cooldown_minutes, enabled, sort_order, created_by, created_at, updated_at, bi_check_json
        FROM dbo.alert_rules ORDER BY sort_order, id DESC`
     );
-    return { items: rs.recordset || [] };
+    // BI 规则附上中文描述
+    const items = rs.recordset || [];
+    const queries = items.some((r) => r.bi_check_json) ? await listAllQueries(pool).catch(() => []) : [];
+    const byKey = new Map(queries.map((q) => [q.queryKey, q]));
+    for (const r of items) {
+      if (!r.bi_check_json) continue;
+      try {
+        const check = JSON.parse(r.bi_check_json);
+        r.bi_summary = describeBiCheck(check, byKey.get(check.queryKey));
+      } catch {
+        r.bi_summary = '（规则 JSON 损坏）';
+      }
+    }
+    return { items };
   });
 
   // 新增规则
@@ -41,16 +73,18 @@ async function alertAdminRoutes(fastify) {
     if (!b.trigger_type || !['cron', 'event'].includes(b.trigger_type)) {
       return reply.code(400).send({ error: 'trigger_type 须为 cron 或 event' });
     }
+    const pool = await getPool();
+    const bi = await parseBiCheck(pool, b.trigger_type === 'cron' ? b.bi_check : undefined);
+    if (bi.error) return reply.code(400).send({ error: bi.error });
     if (b.trigger_type === 'cron') {
       if (!b.cron_expr) return reply.code(400).send({ error: '定时规则须配置 cron_expr' });
       if (!cron.validate(b.cron_expr)) return reply.code(400).send({ error: 'cron 表达式无效' });
-      if (!b.sql_template) return reply.code(400).send({ error: '定时规则须配置检查 SQL' });
+      if (!b.sql_template && !bi.value) return reply.code(400).send({ error: '定时规则须配置检查 SQL 或命名查询条件' });
     }
     if (b.trigger_type === 'event' && !b.event_name) {
       return reply.code(400).send({ error: '事件规则须配置 event_name' });
     }
 
-    const pool = await getPool();
     const rs = await pool.request()
       .input('name', sql.NVarChar(128), b.name)
       .input('desc', sql.NVarChar(512), b.description || null)
@@ -70,16 +104,17 @@ async function alertAdminRoutes(fastify) {
       .input('en', sql.Bit, b.enabled !== false ? 1 : 0)
       .input('so', sql.Int, b.sort_order || 0)
       .input('by', sql.NVarChar(64), request.user?.username || null)
+      .input('bic', sql.NVarChar(sql.MAX), bi.value || null)
       .query(
         `INSERT INTO dbo.alert_rules
          (name, description, trigger_type, cron_expr, sql_template, key_column,
           event_name, target_users_json, target_roles_json, target_webhooks_json,
           card_title_template, card_body_template, card_btn_title, card_btn_url,
-          cooldown_minutes, enabled, sort_order, created_by)
+          cooldown_minutes, enabled, sort_order, created_by, bi_check_json)
          VALUES (@name, @desc, @tt, @cron, @sqlt, @kc,
                  @ev, @tu, @tr, @tw,
                  @ct, @cb, @cbt, @cbu,
-                 @cd, @en, @so, @by);
+                 @cd, @en, @so, @by, @bic);
          SELECT SCOPE_IDENTITY() AS id`
       );
 
@@ -141,6 +176,13 @@ async function alertAdminRoutes(fastify) {
       req.input('tw', sql.NVarChar(512), b.target_webhooks_json ? JSON.stringify(b.target_webhooks_json) : null);
     }
 
+    const bi = await parseBiCheck(pool, b.bi_check);
+    if (bi.error) return reply.code(400).send({ error: bi.error });
+    if (bi.value !== undefined) {
+      fields.push('bi_check_json=@bic');
+      req.input('bic', sql.NVarChar(sql.MAX), bi.value);
+    }
+
     if (fields.length === 0) return reply.code(400).send({ error: '无更新字段' });
     fields.push('updated_at=DATEADD(HOUR,8,SYSUTCDATETIME())');
 
@@ -181,6 +223,40 @@ async function alertAdminRoutes(fastify) {
       const testData = request.body?.testData || { _test: true, _time: new Date().toISOString() };
       triggerEvent(rule.event_name, testData).catch((e) => fastify.log.error(e, 'alert manual event trigger error'));
       return { success: true, message: '已触发执行（事件规则）' };
+    }
+  });
+
+  // ==================== BI 规则：AI 起草 / 试算 ====================
+
+  const llm = async (messages) => {
+    const r = await aiService.generateChat(messages, { maxTokens: 4000, temperature: 0.2 });
+    if (!r.success) throw new AlertDraftError(r.fallback || r.error || 'AI 服务不可用');
+    return r.content;
+  };
+
+  fastify.post('/admin/alert-rules/ai/draft', { preHandler: [fastify.requireAdmin] }, async (request, reply) => {
+    try {
+      const pool = await getPool();
+      const queries = await listAllQueries(pool);
+      const run = queryRunner(pool);
+      return { draft: await draftAlertRule({ llm, queries, run }, request.body?.instruction) };
+    } catch (err) {
+      if (err instanceof AlertDraftError) return reply.code(400).send({ error: err.message });
+      request.log.error({ err: err.message }, '[alert] AI 起草失败');
+      return reply.code(500).send({ error: `AI 处理失败：${err.message}` });
+    }
+  });
+
+  fastify.post('/admin/alert-rules/preview', { preHandler: [fastify.requireAdmin] }, async (request, reply) => {
+    const pool = await getPool();
+    const bi = await parseBiCheck(pool, request.body?.bi_check ?? null);
+    if (bi.error || !bi.check) return reply.code(400).send({ error: bi.error || '缺少 bi_check' });
+    try {
+      const run = queryRunner(pool);
+      const r = await evaluateBiCheck(bi.check, bi.query, (p) => run(bi.query, p));
+      return { summary: describeBiCheck(bi.check, bi.query), ...r, matched: r.matched.slice(0, 10), matchedCount: r.matched.length };
+    } catch (err) {
+      return reply.code(400).send({ error: `试算失败：${err.message}` });
     }
   });
 
@@ -234,6 +310,13 @@ async function alertAdminRoutes(fastify) {
     if (b.webhook_url != null) { fields.push('webhook_url=@url'); req.input('url', sql.NVarChar(512), b.webhook_url); }
     if (b.secret !== undefined) { fields.push('secret=@sec'); req.input('sec', sql.NVarChar(128), b.secret || null); }
     if (b.enabled != null) { fields.push('enabled=@en'); req.input('en', sql.Bit, b.enabled ? 1 : 0); }
+
+    const bi = await parseBiCheck(pool, b.bi_check);
+    if (bi.error) return reply.code(400).send({ error: bi.error });
+    if (bi.value !== undefined) {
+      fields.push('bi_check_json=@bic');
+      req.input('bic', sql.NVarChar(sql.MAX), bi.value);
+    }
 
     if (fields.length === 0) return reply.code(400).send({ error: '无更新字段' });
     fields.push('updated_at=DATEADD(HOUR,8,SYSUTCDATETIME())');

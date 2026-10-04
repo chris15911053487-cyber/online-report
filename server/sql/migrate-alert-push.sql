@@ -105,3 +105,8 @@ BEGIN
     CONSTRAINT PK_alert_sent_keys PRIMARY KEY (rule_id, item_key)
   );
 END;
+
+-- 5. 基于 BI 命名查询的规则（与 sql_template 二选一）：
+--    {"queryKey","params":{"period":"$thisMonth"},"conditions":[{"column","op","value","change?":"abs|pct"}],"match":"all|any","compare?":{"param","shift":-1,"by":[]}}
+IF COL_LENGTH('dbo.alert_rules', 'bi_check_json') IS NULL
+  ALTER TABLE dbo.alert_rules ADD bi_check_json NVARCHAR(MAX) NULL;

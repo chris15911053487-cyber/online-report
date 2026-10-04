@@ -246,6 +246,20 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 
 **📌 对话结果收藏到看板**（仅管理员）：Agent 页结果卡片、AI 助手回答下方，凡本轮用 `run_sql` 临时查出的数，都显示「收藏到看板」。点击后**新标签页**打开「BI 看板管理」（对话页不动），弹窗展示原问题与 SQL →「AI 整理成查询」：保持口径，把写死的月份 / 日期 / 编码改成参数（如 GETDATE 推算的上月 → `@period`，`TOP 5` → `TOP (@top)` 默认 5），补名称、口径、列语义、示例问法（第一条用原问法），推荐 1~3 张图表 → 试运行与自我修正同 AI 起草 → 之后同样是确认查询 → 确认图表。SQL 经 `localStorage`（`bi_pending_pin`，10 分钟内有效，读到即清除）传给新标签页。接口 `POST /admin/bi/ai/draft-from-sql`（`{ sql, question }`）。
 
+**🔔 一句话设预警**（管理后台 →「警报推送」→ 一句话设预警）：说「本月有客户销售额比上月下降超过 30%，每天 9 点提醒」→ AI 从查询库选命名查询（看语义层目录）、写判断条件 / 检查频率 / 去重列 / 冷却 / 卡片模板 → 服务端校验（参数、列、cron，错误交回 AI ≤3 轮）并**按当前数据试算**（现在会命中哪些行）→「采用」填进规则表单，人补推送对象（用户 / 角色 / 群 Webhook）后保存。规则存在 `alert_rules.bi_check_json`（与 `sql_template` 二选一，表单「数据来源」切换，可手改 JSON 并「按当前数据试算」），运行时由 `alert-engine` 执行命名查询并按条件确定性判断，不调 AI；去重、冷却、推送、日志沿用原有警报。
+
+```json
+{ "queryKey": "ar_invoice_sales_by_customer_top", "params": { "period": "$thisMonth", "top": 10 },
+  "conditions": [{ "column": "Amount", "op": "<=", "value": -30, "change": "pct" }], "match": "all",
+  "compare": { "param": "period", "shift": -1 } }
+```
+
+- 参数动态值（中国本地日期，`server/src/bi-tokens.js`）：`$today` `$yesterday` `$thisMonth` `$lastMonth` `$monthStart` `$yearStart` `$thisYear` `$lastYear`
+- 条件：`op` 为 `>` `>=` `<` `<=` `=` `!=`；加 `change: "pct" | "abs"` 表示较上期的变化率（%）/ 变化额；多个条件 `match: all | any`
+- 较上期两种方式：`{ param, shift: -1 }` 把期间参数往前推一期再查一次，按维度 / 属性列对齐（月份参数 `shift: -12` = 同比）；`{ mode: "prevRow" }` 用于趋势结果（每行一个期间），按时间列排序后与上一行比
+- 命中行补充 `{列_prev}` `{列_change}` `{列_change_pct}`，卡片模板可直接用；AI 没给去重列时自动取维度 / 属性列或时间列
+- 实现 `server/src/alert-bi.js`；接口 `POST /admin/alert-rules/ai/draft`（`{ instruction }`，只返回草稿）、`POST /admin/alert-rules/preview`（`{ bi_check }`，试算不推送）；规则增改接口多一个 `bi_check` 字段
+
 起草流程：选表（SAP B1 常识 + 本库自定义业务表，≤6 张）→ 读真实列与类型（`INFORMATION_SCHEMA`）及自定义字段说明（`CUFD`）→ 生成 → 只读校验 + 示例参数试运行 → SQL 报错或图表列对不上时把错误交回 AI 修正，最多 3 轮。用户 / 权限表（`OUSR`、`@TB_OUSR` 等）与本系统配置表（`bi_*`、`agents`、`ai_*` 等）不给 AI 看，SQL 引用即拒绝。模型沿用 `AI_PROVIDER` / `AI_DEFAULT_MODEL`。实现 `server/src/bi-draft.js`，接口 `POST /admin/bi/ai/draft`、`/admin/bi/ai/draft-from-sql`、`/admin/bi/ai/revise-query`、`/admin/bi/ai/enrich-query`。
 
 **图表配置示例**（`POST /admin/bi/charts`）与看板引用：

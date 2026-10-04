@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Clock, Pencil, Play, Plus, Trash2, Zap } from 'lucide-react'
+import { BarChart3, Clock, Pencil, Play, Plus, Sparkles, Trash2, Zap } from 'lucide-react'
 import { apiFetch } from '../utils/api'
-import { AdminPage, Badge, Button, Card, Checkbox, EditorActions, EmptyState, Field, IconButton, Input, Notice, Pager, RecordRow, Section, Segmented, Skeleton, Tabs, Textarea, TableWrap } from '../ui'
+import { AdminPage, Badge, Button, Card, Checkbox, EditorActions, EmptyState, Field, IconButton, Input, JsonField, Notice, Pager, RecordRow, Section, Segmented, Skeleton, Tabs, Textarea, TableWrap } from '../ui'
 import { tableClass, tdClass, thClass } from '../ui/classes'
 import { confirmDelete } from '../ui/confirm'
+import AlertAiModal from '../components/alert/AlertAiModal'
+import BiCheckPreview, { type BiCheckPreviewData } from '../components/alert/BiCheckPreview'
 
 // ==================== Types ====================
 
@@ -27,6 +29,9 @@ interface AlertRule {
   enabled: boolean
   sort_order: number
   created_at: string
+  /** 基于 BI 命名查询的规则（与 sql_template 二选一） */
+  bi_check_json?: string | null
+  bi_summary?: string
 }
 
 interface AlertWebhook {
@@ -105,6 +110,7 @@ function RulesTab() {
   const [editId, setEditId] = useState<number | null>(null)
   const [form, setForm] = useState(EMPTY_RULE_FORM)
   const [saving, setSaving] = useState(false)
+  const [aiOpen, setAiOpen] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -146,6 +152,8 @@ function RulesTab() {
       card_btn_url: r.card_btn_url || '',
       cooldown_minutes: String(r.cooldown_minutes || 60),
       enabled: !!r.enabled,
+      source: r.bi_check_json ? 'bi' : 'sql',
+      bi_check: r.bi_check_json ? JSON.stringify(JSON.parse(r.bi_check_json), null, 2) : '',
     })
     setError('')
     setMode('form')
@@ -153,8 +161,17 @@ function RulesTab() {
 
   const handleSave = async () => {
     if (!form.name) { setError('名称必填'); return }
-    if (form.trigger_type === 'cron' && (!form.cron_expr || !form.sql_template)) {
+    const useBi = form.trigger_type === 'cron' && form.source === 'bi'
+    if (form.trigger_type === 'cron' && (!form.cron_expr || (!useBi && !form.sql_template))) {
       setError('定时规则须填写 cron 表达式和检查 SQL'); return
+    }
+    let biCheck: unknown = null
+    if (useBi) {
+      try {
+        biCheck = JSON.parse(form.bi_check)
+      } catch {
+        setError('命名查询条件不是合法 JSON'); return
+      }
     }
     if (form.trigger_type === 'event' && !form.event_name) {
       setError('事件规则须填写事件名称'); return
@@ -165,7 +182,8 @@ function RulesTab() {
       description: form.description || null,
       trigger_type: form.trigger_type,
       cron_expr: form.cron_expr || null,
-      sql_template: form.sql_template || null,
+      sql_template: useBi ? null : form.sql_template || null,
+      bi_check: biCheck,
       key_column: form.key_column || null,
       event_name: form.event_name || null,
       target_users_json: splitComma(form.target_users_json),
@@ -220,9 +238,32 @@ function RulesTab() {
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <Button variant="soft" icon={<Sparkles className="w-4 h-4" />} onClick={() => setAiOpen(true)}>一句话设预警</Button>
         <Button icon={<Plus className="w-4 h-4" />} onClick={openCreate}>新增警报规则</Button>
       </div>
+      <AlertAiModal
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        onAccept={(d) => {
+          setAiOpen(false)
+          setEditId(null)
+          setForm({
+            ...EMPTY_RULE_FORM,
+            name: d.rule.name,
+            description: d.rule.description,
+            cron_expr: d.rule.cron_expr,
+            key_column: d.rule.key_column,
+            cooldown_minutes: String(d.rule.cooldown_minutes),
+            card_title_template: d.rule.card_title_template,
+            card_body_template: d.rule.card_body_template,
+            source: 'bi',
+            bi_check: JSON.stringify(d.rule.bi_check, null, 2),
+          })
+          setError('')
+          setMode('form')
+        }}
+      />
       {error && <Notice tone="danger">{error}</Notice>}
       {msg && <Notice tone="success">{msg}</Notice>}
       {loading ? (
@@ -235,11 +276,16 @@ function RulesTab() {
               key={r.id}
               onClick={() => openEdit(r)}
               title={r.name}
-              badges={<Badge tone={r.enabled ? 'success' : 'neutral'}>{r.enabled ? '启用' : '停用'}</Badge>}
+              badges={
+                <>
+                  <Badge tone={r.enabled ? 'success' : 'neutral'}>{r.enabled ? '启用' : '停用'}</Badge>
+                  {r.bi_check_json && <Badge tone="info">命名查询</Badge>}
+                </>
+              }
               meta={
                 <span className="flex items-center gap-2 flex-wrap">
                   <TriggerLabel type={r.trigger_type} cron={r.cron_expr} event={r.event_name} />
-                  {r.description && <span className="text-subtle">· {r.description}</span>}
+                  {r.bi_summary ? <span className="text-subtle">· {r.bi_summary}</span> : r.description && <span className="text-subtle">· {r.description}</span>}
                 </span>
               }
               actions={
@@ -282,7 +328,18 @@ const EMPTY_RULE_FORM = {
   card_btn_url: '',
   cooldown_minutes: '60',
   enabled: true,
+  /** 定时规则的数据来源：自写 SQL，或 BI 命名查询 + 条件 */
+  source: 'sql' as 'sql' | 'bi',
+  bi_check: '',
 }
+
+const BI_CHECK_PLACEHOLDER = `{
+  "queryKey": "sales_by_customer",
+  "params": { "period": "$thisMonth" },
+  "conditions": [{ "column": "Amount", "op": "<=", "value": -20, "change": "pct" }],
+  "match": "all",
+  "compare": { "param": "period", "shift": -1 }
+}`
 
 type RuleFormData = typeof EMPTY_RULE_FORM
 
@@ -325,9 +382,23 @@ function RuleForm({ form, setForm, error, editId, saving, onSave, onCancel }: {
                   <Field label="Cron 表达式 *">
                     <Input className="font-mono" value={form.cron_expr} onChange={(e) => set({ cron_expr: e.target.value })} placeholder="如：*/5 * * * *（每5分钟）" />
                   </Field>
-                  <Field label="检查 SQL *" hint="返回行数 > 0 即触发">
-                    <Textarea mono rows={8} value={form.sql_template} onChange={(e) => set({ sql_template: e.target.value })} placeholder="SELECT * FROM ... WHERE ..." spellCheck={false} />
+                  <Field label="数据来源">
+                    <Segmented
+                      value={form.source}
+                      onChange={(v) => set({ source: v })}
+                      options={[
+                        { value: 'sql', label: '检查 SQL' },
+                        { value: 'bi', label: '命名查询 + 条件' },
+                      ]}
+                    />
                   </Field>
+                  {form.source === 'bi' ? (
+                    <BiCheckField value={form.bi_check} onChange={(v) => set({ bi_check: v })} />
+                  ) : (
+                    <Field label="检查 SQL *" hint="返回行数 > 0 即触发">
+                      <Textarea mono rows={8} value={form.sql_template} onChange={(e) => set({ sql_template: e.target.value })} placeholder="SELECT * FROM ... WHERE ..." spellCheck={false} />
+                    </Field>
+                  )}
                 </>
               ) : (
                 <Field label="事件名称 *">
@@ -362,7 +433,10 @@ function RuleForm({ form, setForm, error, editId, saving, onSave, onCancel }: {
             </div>
           </Section>
 
-          <Section title="卡片消息模板" hint={<>支持 {'{列名}'} 占位符</>}>
+          <Section
+            title="卡片消息模板"
+            hint={<>支持 {'{列名}'} 占位符{form.source === 'bi' ? <>；较上期比较时另有 {'{列名_prev}'}、{'{列名_change}'}、{'{列名_change_pct}'}</> : null}</>}
+          >
             <div className="flex flex-col gap-3">
               <Field label="卡片标题">
                 <Input value={form.card_title_template} onChange={(e) => set({ card_title_template: e.target.value })} placeholder="{ItemName} 库存不足" />
@@ -388,6 +462,46 @@ function RuleForm({ form, setForm, error, editId, saving, onSave, onCancel }: {
         </div>
       </div>
       <EditorActions onCancel={onCancel} onSave={onSave} saving={saving} />
+    </div>
+  )
+}
+
+/** 命名查询 + 条件：JSON 编辑 + 按当前数据试算 */
+function BiCheckField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [preview, setPreview] = useState<BiCheckPreviewData | null>(null)
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  const runPreview = async () => {
+    setBusy(true)
+    setErr('')
+    setPreview(null)
+    try {
+      setPreview(await apiFetch('/admin/alert-rules/preview', { method: 'POST', body: JSON.stringify({ bi_check: JSON.parse(value) }) }))
+    } catch (e) {
+      setErr(e instanceof SyntaxError ? '不是合法 JSON' : e instanceof Error ? e.message : '试算失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <JsonField
+        label="命名查询条件 *"
+        expect="object"
+        rows={9}
+        value={value}
+        onChange={onChange}
+        placeholder={BI_CHECK_PLACEHOLDER}
+        hint={<>查询来自「BI 看板管理」；参数可用 $today $thisMonth $lastMonth $thisYear 等；条件 op 为 &gt; &gt;= &lt; &lt;= = !=，加 "change": "pct" / "abs" 表示较上期的变化率 % / 变化额；compare 用 {'{"param":"period","shift":-1}'}（参数往前推一期，按维度对齐）或 {'{"mode":"prevRow"}'}（趋势结果与上一行比）</>}
+      />
+      <div>
+        <Button size="sm" variant="secondary" icon={<BarChart3 className="w-3.5 h-3.5" />} disabled={busy || !value.trim()} onClick={() => void runPreview()}>
+          {busy ? '试算中…' : '按当前数据试算'}
+        </Button>
+      </div>
+      {preview?.summary && <p className="text-[12.5px] text-fg-2">{preview.summary}</p>}
+      {err && <Notice tone="danger">{err}</Notice>}
+      {preview && <BiCheckPreview data={preview} />}
     </div>
   )
 }

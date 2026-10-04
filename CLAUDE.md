@@ -110,7 +110,7 @@ cd frontend && npm run lint
 ### IM 与消息
 
 - 钉钉（Stream 模式 + 免登）、企微、飞书机器人：`routes/bot-*.js`，用户绑定 `bot_user_bindings`，日志 `bot_message_logs`
-- 消息提醒/预警推送：`message-alerts.js`、`alert-*.js`
+- 消息提醒/预警推送：`message-alerts.js`、`alert-*.js`；警报规则可引用 BI 命名查询 + 条件（`alert_rules.bi_check_json`，`alert-bi.js`：阈值 / 较上期变化，运行时不调 AI；「一句话设预警」AI 只出草稿 + 试算）；动态值 `$thisMonth` 等服务端解析在 `bi-tokens.js`
 
 ### 前端 (React + Vite)
 
