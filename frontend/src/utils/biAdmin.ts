@@ -7,6 +7,8 @@ import { defaultChartSize } from './bi'
 import type {
   BiCard,
   BiCardRef,
+  BiDashboard,
+  BiQueryMeta,
   BiCardType,
   BiChartDef,
   BiColumnRole,
@@ -541,4 +543,22 @@ export function effectiveSource(p: BiParamDef, ref: BiCardRef, chart: BiChartDef
   if (f) return { kind: 'filter', filter: f.name }
   if (p.default != null) return { kind: 'default', value: p.default }
   return { kind: 'none' }
+}
+
+/**
+ * 单张图表的预览看板：为没有固定值的参数临时生成筛选（defaults 优先作为默认值，保证有数据），
+ * 展开成一张整行卡片。图表有问题时返回 null。
+ */
+export function chartPreviewDashboard(
+  chart: BiChartDef,
+  queryMap: Map<string, QueryRef>,
+  queries: Record<string, BiQueryMeta>,
+  defaults?: Record<string, BiScalar>,
+): BiDashboard | null {
+  if (chartProblems(chart, queryMap).length > 0) return null
+  const filters = suggestFilterParams([chartAsCard(chart)], queryMap, [])
+    .map(filterFromParam)
+    .map((f) => (defaults?.[f.name] != null ? { ...f, default: defaults[f.name] } : f))
+  const card = resolveCard({ id: 'preview', chartKey: chart.chartKey }, chart, filters, queryMap)
+  return { dashboardKey: '_preview', label: chart.label, filters, cards: [{ ...card, layout: { ...card.layout, w: 12 } }], queries, hiddenCards: 0 }
 }

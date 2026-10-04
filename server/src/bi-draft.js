@@ -1,5 +1,5 @@
 /**
- * AI 起草 BI 查询 + 图表：管理员说一句需求，AI 读表结构写 SQL、试运行、自我修正，返回草稿（不保存）。
+ * AI 起草 BI 查询 + 1~3 张图表：管理员说一句需求，AI 读表结构写 SQL、试运行、自我修正，返回草稿（不保存）。
  * 草稿由前端填进查询 / 图表编辑器，人确认后才保存。
  *
  * 流程：
@@ -12,12 +12,13 @@
  * 安全：仅管理员可调；SQL 仍走只读校验与参数绑定；用户 / 权限 / 本系统配置等表不给 AI 看，SQL 引用即拒绝。
  */
 const { sql } = require('./db');
-const { validateQueryInput, QUERY_KEY_RE } = require('./bi-queries');
+const { validateQueryInput, normalizeColumns, QUERY_KEY_RE } = require('./bi-queries');
 const { validateChartInput, CHART_KEY_RE } = require('./bi-charts');
 
 const MAX_TABLES = 6;
 const MAX_COLUMNS_PER_TABLE = 500;
 const MAX_ATTEMPTS = 3;
+const MAX_CHARTS = 3;
 const SAMPLE_ROWS = 20;
 const MAX_CUSTOM_TABLES = 200;
 
@@ -155,9 +156,7 @@ const PICK_SYSTEM = `你是 SAP Business One（SQL Server）数据专家。根�
 可以用 SAP B1 标准表（如 OINV/INV1 销售发票、ORIN 贷项、ORDR/RDR1 销售订单、ODLN 交货、OCRD 业务伙伴、OITM 物料、OSLP 销售员、OWOR 生产订单、OPCH 采购发票、OJDT/JDT1 日记账、OITW 仓库库存 等），也可以用下面列出的本库自定义表。
 只返回 JSON：{"tables": ["OINV", "OCRD"], "reason": "一句话"}，最多 ${MAX_TABLES} 张表。`;
 
-const GEN_SYSTEM = `你是 SAP Business One（SQL Server）BI 建模专家。根据需求与真实表结构，写一条「命名查询」和一张展示它的「图表」。
-
-## SQL 规则（必须遵守）
+const SQL_RULES = `## SQL 规则（必须遵守）
 - 只能是一条 SELECT 或 WITH ... SELECT；禁止 DECLARE / SET / INSERT / UPDATE / DELETE / EXEC / INTO / 临时表 / 多语句 / GO
 - 只用给出的表与列；参数一律写 @name（如 @period），不要拼接常量；不要用 @@ 系统变量
 - 期间参数用字符串 'YYYY-MM'，例如 CONVERT(char(7), T0.DocDate, 120) = @period；日期参数类型 date
@@ -168,10 +167,15 @@ const GEN_SYSTEM = `你是 SAP Business One（SQL Server）BI 建模专家。根
 
 ## 列语义 columns
 每个输出列一项：{"column": 别名, "label": 中文名, "role": "dimension|measure|time|attr", "format": "money|number|integer|percent"(度量才填), "unit": 可选, "scale": 可选(10000 = 按万显示)}
-- dimension：可分组的名称（客户名、物料名）；time：日期 / 期间；measure：可汇总的数值；attr：编码等其它
+- dimension：可分组的名称（客户名、物料名）；time：日期 / 期间；measure：可汇总的数值；attr：编码等其它`;
 
-## 图表 chart
-- type：kpi（单个数）/ bar / line（时间趋势）/ pie（占比，类别 ≤ 8）/ table
+const GEN_SYSTEM = `你是 SAP Business One（SQL Server）BI 建模专家。根据需求与真实表结构，写一条「命名查询」和一张展示它的「图表」。
+
+${SQL_RULES}
+
+## 图表 charts（1~3 张，从不同角度展示同一条查询，不要重复）
+- 例如排名类查询：横向条形（排名）+ 饼图（占比）+ 表格（明细）；趋势类：折线 + 当期 KPI；单值类：KPI
+- type：kpi（单个数，取第一行）/ bar / line（时间趋势）/ pie（占比，类别 ≤ 8）/ table
 - encoding：kpi 用 {"value": 度量列}；bar/line/pie 用 {"dimension": 维度列, "value": 度量列}，可加 "horizontal": true（横向条形，适合排名）、"topN"
 - 列名必须是 SQL 的输出列别名
 - params 只写固定值（一般留空 {}）；@period 等参数由看板上的同名筛选提供
@@ -189,9 +193,39 @@ const GEN_SYSTEM = `你是 SAP Business One（SQL Server）BI 建模专家。根
     "sampleQuestions": ["用户可能怎么问，3~5 条"]
   },
   "sampleParams": {"period": "2026-08"},
-  "chart": {"chartKey": "小写英文", "label": "图表标题", "type": "bar", "params": {}, "encoding": {...}},
+  "charts": [{"chartKey": "小写英文", "label": "图表标题", "type": "bar", "params": {}, "encoding": {...}}],
   "notes": "给管理员的说明：做了哪些假设，需要确认什么"
 }`;
+
+
+/**
+ * 校验一份查询定义并试运行：只读校验 → 禁用表 → 示例参数试运行 → 列语义以实际输出列为准（AI 标注过的保留，缺的补上）。
+ * 返回 { ok: true, query, result, sampleParams, missing } 或 { ok: false, error }（error 用来交回 AI 修正）。
+ */
+async function checkAndRun(input, givenParams, testRun) {
+  const qv = validateQueryInput(input);
+  if (!qv.ok) return { ok: false, error: `查询校验失败：${qv.error}` };
+  const denied = referencedDeniedTables(qv.value.sqlText);
+  if (denied.length > 0) return { ok: false, error: `不允许使用这些表：${denied.join('、')}。` };
+  const sampleParams = sampleParamsFor(qv.value.params, givenParams);
+  let result;
+  try {
+    result = await testRun(qv.value, sampleParams);
+  } catch (err) {
+    return { ok: false, error: `SQL 试运行报错：${String(err?.message || err).slice(0, 500)}（示例参数：${JSON.stringify(sampleParams)}）` };
+  }
+  const given = new Map((qv.value.columns || []).map((c) => [c.column, c]));
+  const missing = result.columns.filter((c) => !given.has(c));
+  const columns = result.columns.map((c) => given.get(c) || { column: c, label: '', role: 'attr' });
+  return { ok: true, query: { ...qv.value, columns }, result, sampleParams, missing };
+}
+
+const sampleOf = (result) => ({
+  columns: result.columns,
+  columnTypes: result.columnTypes || {},
+  rows: (result.rows || []).slice(0, SAMPLE_ROWS),
+  rowCount: result.rowCount ?? (result.rows || []).length,
+});
 
 // ─── 主流程 ─────────────────────────────────────────────────────────────────
 
@@ -245,45 +279,40 @@ async function draftQueryAndChart(deps, requirement) {
       lastError = msg;
       messages.push({ role: 'user', content: `${msg}\n请修正后按同样的 JSON 格式完整返回。` });
     };
-    if (!out || !out.query || !out.chart) {
-      fix('返回内容不是要求的 JSON（需要 query、chart 两部分）。');
+    const chartsIn = Array.isArray(out?.charts) ? out.charts.slice(0, MAX_CHARTS) : out?.chart ? [out.chart] : []
+    if (!out || !out.query || chartsIn.length === 0) {
+      fix('返回内容不是要求的 JSON（需要 query 和 charts 两部分）。');
       continue;
     }
     const q = { ...out.query, queryKey: uniqueKey(out.query.queryKey, queryKeys, QUERY_KEY_RE), roles: [], cacheSecs: 300, enabled: true };
-    const qv = validateQueryInput(q);
-    if (!qv.ok) {
-      fix(`查询校验失败：${qv.error}`);
+    onProgress('试运行');
+    const run = await checkAndRun(q, out.sampleParams, testRun);
+    if (!run.ok) {
+      fix(run.error);
       continue;
     }
-    const denied = referencedDeniedTables(qv.value.sqlText);
-    if (denied.length > 0) {
-      fix(`不允许使用这些表：${denied.join('、')}。`);
-      continue;
-    }
-    const sampleParams = sampleParamsFor(qv.value.params, out.sampleParams);
-    let result;
-    try {
-      onProgress('试运行');
-      result = await testRun(qv.value, sampleParams);
-    } catch (err) {
-      fix(`SQL 试运行报错：${String(err?.message || err).slice(0, 500)}（示例参数：${JSON.stringify(sampleParams)}）`);
-      continue;
-    }
-    // 列语义以试运行的实际输出列为准：AI 标注过的保留，缺的补上
-    const given = new Map((qv.value.columns || []).map((c) => [c.column, c]));
-    const missing = result.columns.filter((c) => !given.has(c));
-    const columns = result.columns.map((c) => given.get(c) || { column: c, label: '', role: 'attr' });
-    const query = { ...qv.value, columns };
-    const chartInput = { ...out.chart, chartKey: uniqueKey(out.chart.chartKey || query.queryKey, chartKeys, CHART_KEY_RE), queryKey: query.queryKey, drill: [] };
-    const cv = validateChartInput(chartInput, new Map([[query.queryKey, query]]));
-    if (!cv.ok) {
-      fix(`图表配置有误：${cv.error}。SQL 的实际输出列为：${result.columns.join(', ')}。`);
+    const { query, result, sampleParams, missing } = run;
+    // 图表逐张校验：全部通过直接返回；有错且还能修正就交回 AI；最后一轮只要有一张对就返回对的
+    const queryMap = new Map([[query.queryKey, query]]);
+    const taken = new Set(chartKeys);
+    const charts = [];
+    const chartErrors = [];
+    chartsIn.forEach((raw, i) => {
+      const input = { ...raw, chartKey: uniqueKey(raw?.chartKey || `${query.queryKey}_${i + 1}`, taken, CHART_KEY_RE), queryKey: query.queryKey, drill: [] };
+      const cv = validateChartInput(input, queryMap);
+      if (cv.ok) {
+        taken.add(cv.value.chartKey);
+        charts.push(cv.value);
+      } else chartErrors.push(`第 ${i + 1} 张「${raw?.label || ''}」：${cv.error}`);
+    });
+    if (chartErrors.length > 0 && (attempt < MAX_ATTEMPTS || charts.length === 0)) {
+      fix(`图表配置有误：${chartErrors.join('；')}。SQL 的实际输出列为：${result.columns.join(', ')}。`);
       continue;
     }
     return {
       query,
-      chart: cv.value,
-      sample: { columns: result.columns, columnTypes: result.columnTypes || {}, rows: (result.rows || []).slice(0, SAMPLE_ROWS), rowCount: result.rowCount ?? (result.rows || []).length },
+      charts,
+      sample: sampleOf(result),
       sampleParams,
       notes: String(out.notes || '').slice(0, 1000),
       unlabeledColumns: missing,
@@ -292,6 +321,155 @@ async function draftQueryAndChart(deps, requirement) {
     };
   }
   throw new DraftError(`AI 修正 ${MAX_ATTEMPTS} 次仍未成功：${lastError}`);
+}
+
+
+// ─── 按一句话修改已有查询 ───────────────────────────────────────────────────
+
+const REVISE_SYSTEM = `你是 SAP Business One（SQL Server）BI 建模专家。用户要修改一条已有的「命名查询」，按要求改 SQL，并同步更新参数、列语义、口径。
+
+${SQL_RULES}
+
+## 修改原则
+- 只改用户要求的部分；没要求的输出列、参数名尽量保持不变（看板和图表引用了它们）
+- 改了口径就同步改 caliberNote；新增 / 删除的输出列同步 columns
+- 需要用到给出结构以外的 SAP B1 标准表时可以直接用，但列名必须准确
+
+## 输出（只返回 JSON）
+{
+  "query": {"sqlText": "...", "params": [...], "columns": [...], "caliberNote": "...", "description": "...", "sampleQuestions": [...]},
+  "sampleParams": {"period": "2026-08"},
+  "changes": "一两句话：改了什么",
+  "notes": "需要管理员确认的地方（没有可留空）"
+}`;
+
+/** SQL 里 FROM / JOIN 引用的表名 */
+function referencedTables(sqlText) {
+  const out = new Set();
+  const re = /\b(?:FROM|JOIN)\s+((?:\[?dbo\]?\.)?(\[[^\]]+\]|[@#\w]+))/gi;
+  let m;
+  while ((m = re.exec(String(sqlText || '')))) out.add(m[2].replace(/[[\]]/g, ''));
+  return [...out];
+}
+
+/**
+ * 按指令修改查询：current 为编辑器里（可未保存）的定义；queryKey / 名称 / 角色 / 缓存不变。
+ * 返回 { query, sample, sampleParams, changes, notes, unlabeledColumns, attempts }。
+ */
+async function reviseQuery(deps, current, instruction) {
+  const { pool, llm, testRun } = deps;
+  const need = String(instruction || '').trim();
+  if (need.length < 2) throw new DraftError('请说明要怎么改，比如「扣掉退货」「改成不含税」「加一个销售员参数」');
+  if (need.length > 1000) throw new DraftError('修改说明不能超过 1000 字');
+  const base = validateQueryInput(current || {});
+  if (!base.ok) throw new DraftError(`当前查询有误，先修好再让 AI 改：${base.error}`);
+  const schema = await describeTables(pool, referencedTables(base.value.sqlText));
+  const schemaText = schema.map((t) => `### ${t.table}\n${t.columns.join(', ')}`).join('\n\n') || '（未识别到表）';
+  const cur = base.value;
+  const messages = [
+    { role: 'system', content: REVISE_SYSTEM },
+    {
+      role: 'user',
+      content:
+        `修改要求：${need}\n\n当前查询：\n` +
+        JSON.stringify({ label: cur.label, description: cur.description, sqlText: cur.sqlText, params: cur.params, columns: cur.columns, caliberNote: cur.caliberNote, sampleQuestions: cur.sampleQuestions }, null, 1) +
+        `\n\n涉及表的结构（列:类型(自定义字段说明)）：\n${schemaText}`,
+    },
+  ];
+  let lastError = '';
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const text = await llm(messages);
+    messages.push({ role: 'assistant', content: text });
+    const out = parseJsonObject(text);
+    const fix = (msg) => {
+      lastError = msg;
+      messages.push({ role: 'user', content: `${msg}\n请修正后按同样的 JSON 格式完整返回。` });
+    };
+    if (!out?.query?.sqlText) {
+      fix('返回内容不是要求的 JSON（需要 query.sqlText）。');
+      continue;
+    }
+    const merged = {
+      ...cur,
+      ...out.query,
+      queryKey: cur.queryKey,
+      label: cur.label,
+      roles: cur.roles,
+      cacheSecs: cur.cacheSecs,
+      enabled: cur.enabled,
+      sampleQuestions: Array.isArray(out.query.sampleQuestions) && out.query.sampleQuestions.length ? out.query.sampleQuestions : cur.sampleQuestions,
+    };
+    const run = await checkAndRun(merged, out.sampleParams, testRun);
+    if (!run.ok) {
+      fix(run.error);
+      continue;
+    }
+    // 原有输出列被删掉时提醒（图表 / 看板可能引用）
+    const removed = cur.columns.map((c) => c.column).filter((c) => !run.result.columns.includes(c));
+    return {
+      query: run.query,
+      sample: sampleOf(run.result),
+      sampleParams: run.sampleParams,
+      changes: String(out.changes || '').slice(0, 500),
+      notes: String(out.notes || '').slice(0, 1000),
+      removedColumns: removed,
+      unlabeledColumns: run.missing,
+      attempts: attempt,
+    };
+  }
+  throw new DraftError(`AI 修正 ${MAX_ATTEMPTS} 次仍未成功：${lastError}`);
+}
+
+// ─── 补全语义层 ─────────────────────────────────────────────────────────────
+
+const ENRICH_SYSTEM = `你是 SAP Business One BI 语义层专家。根据一条命名查询的 SQL、实际输出列与样例数据，补全它的语义说明，让人和 AI 都能看懂、选对。
+
+- description：这条查询回答什么问题（一句话）
+- caliberNote：口径——数据来源单据、时间字段、是否含税、排除了什么（从 SQL 推断，不要编造 SQL 里没有的条件）
+- columns：每个输出列 {"column", "label": 中文名, "role": "dimension|measure|time|attr", "format": "money|number|integer|percent"(度量才填), "unit"?: "元", "scale"?: 10000}
+  dimension：可分组的名称；time：日期 / 期间；measure：可汇总的数值；attr：编码等
+- sampleQuestions：业务人员可能怎么问，3~5 条，口语化
+
+只返回 JSON：{"description": "...", "caliberNote": "...", "columns": [...], "sampleQuestions": [...]}`;
+
+/**
+ * 补全语义层：试运行拿到实际输出列与样例，交给 AI 补中文名、角色、格式、说明、口径、示例问法。
+ * 不改 SQL 与参数。返回 { description, caliberNote, columns, sampleQuestions }。
+ */
+async function enrichQuery(deps, current, givenParams) {
+  const { llm, testRun } = deps;
+  const base = validateQueryInput(current || {});
+  if (!base.ok) throw new DraftError(`当前查询有误：${base.error}`);
+  const params = sampleParamsFor(base.value.params, givenParams);
+  let result;
+  try {
+    result = await testRun(base.value, params);
+  } catch (err) {
+    throw new DraftError(`查询试运行失败，先让它能跑通：${String(err?.message || err).slice(0, 300)}`);
+  }
+  const rows = (result.rows || []).slice(0, 5);
+  const text = await llm([
+    { role: 'system', content: ENRICH_SYSTEM },
+    {
+      role: 'user',
+      content:
+        `名称：${base.value.label}\nSQL：\n${base.value.sqlText}\n\n参数：${JSON.stringify(base.value.params)}\n` +
+        `输出列（列名:数据库类型）：${result.columns.map((c) => `${c}:${(result.columnTypes || {})[c] || '?'}`).join(', ')}\n` +
+        `样例数据（前 ${rows.length} 行）：${JSON.stringify(rows).slice(0, 3000)}`,
+    },
+  ]);
+  const out = parseJsonObject(text);
+  if (!out) throw new DraftError('AI 返回格式异常，请重试');
+  const cols = normalizeColumns((Array.isArray(out.columns) ? out.columns : []).filter((c) => result.columns.includes(c?.column)));
+  if (!cols.ok) throw new DraftError(`AI 给的列语义不合法：${cols.error}`);
+  const samples = (Array.isArray(out.sampleQuestions) ? out.sampleQuestions : []).map((q) => String(q).trim()).filter(Boolean).slice(0, 10);
+  return {
+    description: String(out.description || '').trim().slice(0, 1024),
+    caliberNote: String(out.caliberNote || '').trim().slice(0, 1024),
+    columns: cols.value,
+    sampleQuestions: samples,
+    outputColumns: result.columns,
+  };
 }
 
 class DraftError extends Error {
@@ -303,6 +481,9 @@ class DraftError extends Error {
 
 module.exports = {
   draftQueryAndChart,
+  reviseQuery,
+  enrichQuery,
+  referencedTables,
   DraftError,
   isDeniedTable,
   referencedDeniedTables,

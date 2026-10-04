@@ -17,6 +17,7 @@ import QueryEditor from '../components/bi/admin/QueryEditor'
 import ChartEditor from '../components/bi/admin/ChartEditor'
 import DashboardEditor from '../components/bi/admin/DashboardEditor'
 import AiDraftModal, { type BiDraft } from '../components/bi/admin/AiDraftModal'
+import AiChartsReview from '../components/bi/admin/AiChartsReview'
 import { EMPTY_DASHBOARD, EMPTY_QUERY, errMsg, type BiChartAdmin, type BiDashboardAdmin, type BiQueryAdmin, type QueryOption } from '../components/bi/admin/types'
 import { newChart } from '../utils/biAdmin'
 
@@ -39,7 +40,8 @@ export default function BiAdminView() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [editQuery, setEditQuery] = useState<{ draft: BiQueryAdmin; isNew: boolean; ai?: BiDraft } | null>(null)
-  const [editChart, setEditChart] = useState<{ draft: BiChartAdmin; isNew: boolean; ai?: BiDraft } | null>(null)
+  const [editChart, setEditChart] = useState<{ draft: BiChartAdmin; isNew: boolean } | null>(null)
+  const [aiReview, setAiReview] = useState<BiDraft | null>(null)
   const [aiOpen, setAiOpen] = useState(false)
   const [editDashboard, setEditDashboard] = useState<{ draft: BiDashboardAdmin; isNew: boolean } | null>(null)
 
@@ -98,15 +100,31 @@ export default function BiAdminView() {
           ai && (
             <Notice tone="info">
               <p className="font-medium">AI 草稿 · 第 1 步 / 共 2 步：确认查询</p>
-              <p>核对 SQL、口径、列的中文名与角色、可见角色后保存；保存后自动打开图表草稿。{ai.notes ? `AI 的假设：${ai.notes}` : ''}</p>
+              <p>核对 SQL、口径、列的中文名与角色、可见角色后保存；保存后并排预览 AI 推荐的图表。{ai.notes ? `AI 的假设：${ai.notes}` : ''}</p>
             </Notice>
           )
         }
         onDone={(changed, savedKey) => {
           setEditQuery(null)
           if (changed) load()
-          // AI 草稿：查询保存后接着打开图表草稿（查询标识以实际保存的为准）
-          if (ai && changed && savedKey) setEditChart({ draft: { ...ai.chart, queryKey: savedKey }, isNew: true, ai })
+          // AI 草稿：查询保存后接着确认推荐的图表（查询标识以实际保存的为准）
+          if (ai && changed && savedKey) setAiReview({ ...ai, charts: ai.charts.map((c) => ({ ...c, queryKey: savedKey })) })
+        }}
+      />
+    )
+  }
+  if (aiReview) {
+    return (
+      <AiChartsReview
+        charts={aiReview.charts}
+        availableQueries={availableQueries}
+        sampleParams={aiReview.sampleParams}
+        onDone={(changed) => {
+          setAiReview(null)
+          if (changed) {
+            setTab('charts')
+            load()
+          }
         }}
       />
     )
@@ -117,15 +135,6 @@ export default function BiAdminView() {
         initial={editChart.draft}
         isNew={editChart.isNew}
         availableQueries={availableQueries}
-        previewDefaults={editChart.ai?.sampleParams}
-        banner={
-          editChart.ai && (
-            <Notice tone="info">
-              <p className="font-medium">AI 草稿 · 第 2 步 / 共 2 步：确认图表</p>
-              <p>查询已保存。看右侧预览，调整类型、列与标题后保存；之后到「③ 看板」里把它加进看板。</p>
-            </Notice>
-          )
-        }
         onDone={(changed) => {
           setEditChart(null)
           if (changed) load()

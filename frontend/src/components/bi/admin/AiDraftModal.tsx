@@ -12,7 +12,7 @@ import { errMsg, type BiQueryAdmin } from './types'
 
 export interface BiDraft {
   query: BiQueryAdmin
-  chart: BiChartDef
+  charts: BiChartDef[]
   sample: { columns: string[]; rows: Record<string, unknown>[]; rowCount: number }
   sampleParams: Record<string, BiScalar>
   notes: string
@@ -56,7 +56,8 @@ export default function AiDraftModal({ open, onClose, onAccept }: { open: boolea
 
   const q = draft?.query
   const label = (col?: string) => q?.columns.find((c) => c.column === col)?.label || col
-  const enc = draft?.chart.encoding
+  const describe = (c: BiChartDef) =>
+    c.encoding.dimension ? `按「${label(c.encoding.dimension)}」看「${label(c.encoding.value || c.encoding.values?.[0])}」` : `数值「${label(c.encoding.value)}」`
 
   return (
     <Modal
@@ -134,7 +135,6 @@ export default function AiDraftModal({ open, onClose, onAccept }: { open: boolea
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-semibold text-fg">{q.label}</span>
               <Code>{q.queryKey}</Code>
-              <Badge tone="info">{TYPE_LABEL[draft.chart.type] || draft.chart.type}</Badge>
               <span className="text-[12px] text-subtle">
                 用到 {draft.tables.join('、')}
                 {draft.attempts > 1 ? ` · AI 自我修正 ${draft.attempts - 1} 次` : ''}
@@ -153,12 +153,19 @@ export default function AiDraftModal({ open, onClose, onAccept }: { open: boolea
                 {q.caliberNote}
               </p>
             )}
-            <p className="text-[12.5px] text-muted">
-              <span className="font-medium text-fg-2">图表：</span>
-              {draft.chart.label} ·{' '}
-              {enc?.dimension ? `按「${label(enc.dimension)}」看「${label(enc.value || enc.values?.[0])}」` : `数值「${label(enc?.value)}」`}
+            <div className="text-[12.5px] text-muted">
+              <span className="font-medium text-fg-2">推荐 {draft.charts.length} 张图表</span>
               {Object.keys(draft.sampleParams).length > 0 && <> · 试运行参数 {Object.entries(draft.sampleParams).map(([k, v]) => `${k}=${String(v)}`).join('，')}</>}
-            </p>
+              <ul className="mt-1 space-y-0.5">
+                {draft.charts.map((c) => (
+                  <li key={c.chartKey} className="flex items-center gap-1.5">
+                    <Badge tone="info">{TYPE_LABEL[c.type] || c.type}</Badge>
+                    <span className="text-fg-2">{c.label}</span>
+                    <span className="text-subtle">· {describe(c)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
             <details className="text-[12px]">
               <summary className="cursor-pointer text-muted hover:text-fg">SQL 与列语义</summary>
               <pre className="mt-2 p-3 rounded-lg bg-surface-2 border border-line text-[11.5px] text-fg-2 overflow-x-auto whitespace-pre-wrap font-mono">{q.sqlText}</pre>
@@ -176,7 +183,7 @@ export default function AiDraftModal({ open, onClose, onAccept }: { open: boolea
                 <p className="text-[12.5px] text-warning">试运行没有数据：可能所选期间没有业务，采用后可在查询编辑器里换参数再试运行。</p>
               )}
             </div>
-            <p className="text-[12px] text-subtle">采用后依次打开「查询」和「图表」编辑器，内容已填好，你确认 / 修改后分别保存。</p>
+            <p className="text-[12px] text-subtle">采用后先打开查询编辑器确认保存，再并排预览这几张图表，勾选要保留的一次保存。</p>
           </div>
         )}
       </div>

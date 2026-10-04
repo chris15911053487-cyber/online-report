@@ -9,7 +9,7 @@ import { useMemo, useState } from 'react'
 import { useStore } from '../../../store'
 import { apiFetch } from '../../../utils/api'
 import type { BiChartDef, BiDashboard, BiQueryMeta, BiScalar } from '../../../utils/bi'
-import { chartAsCard, chartProblems, filterFromParam, resolveCard, suggestFilterParams, type QueryRef } from '../../../utils/biAdmin'
+import { chartPreviewDashboard, chartProblems, type QueryRef } from '../../../utils/biAdmin'
 import { AdminPage, Card, Checkbox, EditorActions, Field, Input, Notice, Section, Textarea } from '../../../ui'
 import { DashboardView } from '../DashboardPanel'
 import ChartForm from './ChartForm'
@@ -45,15 +45,10 @@ export default function ChartEditor({
 
   // 预览：为没有固定值的参数临时生成筛选，展开成一张整行卡片
   const preview = useMemo((): BiDashboard | null => {
-    if (problems.length > 0) return null
-    const filters = suggestFilterParams([chartAsCard(c)], queryMap, [])
-      .map(filterFromParam)
-      .map((f) => (previewDefaults?.[f.name] != null ? { ...f, default: previewDefaults[f.name] } : f))
     const queries: Record<string, BiQueryMeta> = {}
     for (const q of availableQueries) queries[q.queryKey] = q
-    const card = resolveCard({ id: 'preview', chartKey: c.chartKey }, c, filters, queryMap)
-    return { dashboardKey: '_preview', label: c.label, filters, cards: [{ ...card, layout: { ...card.layout, w: 12 } }], queries, hiddenCards: 0 }
-  }, [c, problems, queryMap, availableQueries, previewDefaults])
+    return chartPreviewDashboard(c, queryMap, queries, previewDefaults)
+  }, [c, queryMap, availableQueries, previewDefaults])
 
   const save = async () => {
     if (problems.length > 0) return showToast(`还有 ${problems.length} 个问题`)

@@ -5,7 +5,8 @@
  * 保存后若用到它的图表 / 看板对不上（删了列、改了参数），接口返回 warnings，编辑器保持打开并列出。
  */
 import { useMemo, useState } from 'react'
-import { Play, Trash2, Wand2 } from 'lucide-react'
+import type { BiScalar } from '../../../utils/bi'
+import { Loader2, Play, Sparkles, Trash2, Undo2, Wand2 } from 'lucide-react'
 import { useStore } from '../../../store'
 import { apiFetch } from '../../../utils/api'
 import type { BiColumnRole, BiColumnSemantic, BiFormat, BiParamDef } from '../../../utils/bi'
@@ -74,6 +75,10 @@ export default function QueryEditor({
   const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [testError, setTestError] = useState('')
   const [columnNote, setColumnNote] = useState('')
+  // AI 修改 SQL / 补全语义：结果说明 + 撤销用的快照
+  const [aiInstruction, setAiInstruction] = useState('')
+  const [aiBusy, setAiBusy] = useState<'' | 'revise' | 'enrich'>('')
+  const [aiNote, setAiNote] = useState<{ tone: 'info' | 'warning'; lines: string[]; undo: { d: BiQueryAdmin; samplesText: string } } | null>(null)
   const patch = (p: Partial<BiQueryAdmin>) => setD((cur) => ({ ...cur, ...p }))
 
   const unusedParams = useMemo(() => {
@@ -110,9 +115,89 @@ export default function QueryEditor({
     }
   }
 
-  const runTest = async () => {
+  const currentParams = () => {
     const params: Record<string, string> = {}
     for (const p of d.params) if (testValues[p.name]?.trim()) params[p.name] = testValues[p.name].trim()
+    return params
+  }
+  const snapshot = () => ({ d: structuredClone(d), samplesText })
+  const undoAi = () => {
+    if (!aiNote) return
+    setD(aiNote.undo.d)
+    setSamplesText(aiNote.undo.samplesText)
+    setAiNote(null)
+  }
+
+  /** 让 AI 改 SQL：改完自动试运行并同步参数、列、口径；可撤销 */
+  const reviseByAi = async () => {
+    const instruction = aiInstruction.trim()
+    if (!instruction) return
+    setAiBusy('revise')
+    try {
+      const r = (await apiFetch('/admin/bi/ai/revise-query', { method: 'POST', body: JSON.stringify({ query: toBody(d, samplesText), instruction }) })) as {
+        revision: { query: BiQueryAdmin; sample: TestResult; sampleParams: Record<string, BiScalar>; changes: string; notes: string; removedColumns: string[]; attempts: number }
+      }
+      const v = r.revision
+      const undo = snapshot()
+      setD((cur) => ({ ...cur, sqlText: v.query.sqlText, params: v.query.params, columns: v.query.columns, caliberNote: v.query.caliberNote, description: v.query.description || cur.description }))
+      setSamplesText(v.query.sampleQuestions.join('\n'))
+      setTestValues((cur) => ({ ...cur, ...Object.fromEntries(Object.entries(v.sampleParams).map(([k, x]) => [k, x == null ? '' : String(x)])) }))
+      setTestResult({ ...v.sample, truncated: false, durationMs: 0 })
+      setTestError('')
+      setColumnNote('')
+      const lines = [`AI 已修改并试运行通过${v.attempts > 1 ? `（自我修正 ${v.attempts - 1} 次）` : ''}：${v.changes || instruction}`]
+      if (v.removedColumns.length) lines.push(`去掉了输出列：${v.removedColumns.join('、')}——用到它们的图表保存后会提示需要调整`)
+      if (v.notes) lines.push(`需要确认：${v.notes}`)
+      setAiNote({ tone: v.removedColumns.length || v.notes ? 'warning' : 'info', lines, undo })
+      setAiInstruction('')
+    } catch (err) {
+      showToast(errMsg(err, 'AI 修改失败'))
+    } finally {
+      setAiBusy('')
+    }
+  }
+
+  /** AI 补全语义：只填空着的（没写中文名的列连角色 / 格式一起采纳；已写的保留）；可撤销 */
+  const enrichByAi = async () => {
+    setAiBusy('enrich')
+    try {
+      const r = (await apiFetch('/admin/bi/ai/enrich-query', { method: 'POST', body: JSON.stringify({ query: toBody(d, samplesText), params: currentParams() }) })) as {
+        semantics: { description: string; caliberNote: string; columns: BiColumnSemantic[]; sampleQuestions: string[]; outputColumns: string[] }
+      }
+      const sem = r.semantics
+      const undo = snapshot()
+      const ai = new Map(sem.columns.map((c) => [c.column, c]))
+      const existing = new Map(d.columns.map((c) => [c.column, c]))
+      let filled = 0
+      const columns = sem.outputColumns.map((name) => {
+        const old = existing.get(name)
+        const got = ai.get(name)
+        if (!got) return old ?? { column: name, label: '', role: 'attr' as const }
+        if (old?.label) return old
+        filled += 1
+        return { ...old, ...got, column: name }
+      })
+      const curSamples = samplesText.split('\n').map((x) => x.trim()).filter(Boolean)
+      const addSamples = sem.sampleQuestions.filter((q) => !curSamples.includes(q))
+      setD((cur) => ({ ...cur, columns, description: cur.description.trim() || sem.description, caliberNote: cur.caliberNote.trim() || sem.caliberNote }))
+      setSamplesText([...curSamples, ...addSamples].slice(0, 10).join('\n'))
+      const parts = [
+        filled ? `${filled} 列的中文名与角色` : '',
+        !d.description.trim() && sem.description ? '说明' : '',
+        !d.caliberNote.trim() && sem.caliberNote ? '口径' : '',
+        addSamples.length ? `${addSamples.length} 条示例问法` : '',
+      ].filter(Boolean)
+      const lines = [parts.length ? `AI 补全了${parts.join('、')}。已填写的内容没有改动，请核对。` : 'AI 看过了：各项都已填写，没有需要补的。']
+      setAiNote({ tone: 'info', lines, undo })
+    } catch (err) {
+      showToast(errMsg(err, 'AI 补全失败'))
+    } finally {
+      setAiBusy('')
+    }
+  }
+
+  const runTest = async () => {
+    const params = currentParams()
     setTesting(true)
     setTestError('')
     setColumnNote('')
@@ -145,6 +230,20 @@ export default function QueryEditor({
       withActionBar
     >
       {banner}
+      {aiNote && (
+        <Notice tone={aiNote.tone}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-0.5">
+              {aiNote.lines.map((l) => (
+                <p key={l}>{l}</p>
+              ))}
+            </div>
+            <Button size="sm" variant="ghost" className="whitespace-nowrap shrink-0" icon={<Undo2 className="w-3.5 h-3.5" />} onClick={undoAi}>
+              撤销
+            </Button>
+          </div>
+        </Notice>
+      )}
       {warnings.length > 0 && (
         <Notice tone="warning">
           <p className="font-medium mb-1">已保存。以下图表 / 看板与新定义对不上，请到「图表」「看板」里调整：</p>
@@ -177,6 +276,26 @@ export default function QueryEditor({
 
           <Section title="② SQL" hint="只允许一条 SELECT / WITH 只读查询；参数写成 @名称，右侧参数表自动同步。">
             <Textarea mono rows={14} value={d.sqlText} onChange={(e) => setSql(e.target.value)} spellCheck={false} placeholder="SELECT T0.CardCode, T0.CardName, SUM(T1.Balance) AS Balance&#10;FROM ... WHERE T1.Period = @period&#10;GROUP BY T0.CardCode, T0.CardName" />
+            {d.sqlText.trim() && (
+              <div className="flex gap-2 mt-3">
+                <Input
+                  value={aiInstruction}
+                  disabled={!!aiBusy}
+                  onChange={(e) => setAiInstruction(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && void reviseByAi()}
+                  placeholder="让 AI 改：扣掉退货 / 改成不含税 / 加一个销售员参数"
+                />
+                <Button
+                  variant="soft"
+                  className="whitespace-nowrap"
+                  disabled={!!aiBusy || !aiInstruction.trim()}
+                  icon={aiBusy === 'revise' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  onClick={() => void reviseByAi()}
+                >
+                  {aiBusy === 'revise' ? '修改并试运行…' : 'AI 修改'}
+                </Button>
+              </div>
+            )}
           </Section>
 
         </div>
@@ -293,10 +412,24 @@ export default function QueryEditor({
         title="⑤ 输出列"
         hint="看板卡片只能从这里选列；格式、单位、缩放是卡片的默认展示。维度/时间列可作为下钻与 AI 解读的维度。"
         actions={
-          d.columns.length > 0 && (
-            <Button size="sm" variant="ghost" className="whitespace-nowrap" icon={<Wand2 className="w-3.5 h-3.5" />} onClick={() => void runTest()} disabled={testing}>
-              重新识别
-            </Button>
+          d.sqlText.trim() && (
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="soft"
+                className="whitespace-nowrap"
+                icon={aiBusy === 'enrich' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                onClick={() => void enrichByAi()}
+                disabled={!!aiBusy}
+              >
+                {aiBusy === 'enrich' ? '补全中…' : 'AI 补全语义'}
+              </Button>
+              {d.columns.length > 0 && (
+                <Button size="sm" variant="ghost" className="whitespace-nowrap" icon={<Wand2 className="w-3.5 h-3.5" />} onClick={() => void runTest()} disabled={testing}>
+                  重新识别
+                </Button>
+              )}
+            </div>
           )
         }
       >

@@ -8,7 +8,10 @@
  *   - /admin/bi/queries     查询库增删改查 + 试运行（不走缓存）
  *   - /admin/bi/charts      图表库增删改查（图表引用查询；看板引用图表）
  *   - /admin/bi/dashboards  看板增删改查
- *   - POST /admin/bi/ai/draft  AI 起草查询 + 图表（读表结构、试运行、自我修正），只返回草稿不保存
+ *   - POST /admin/bi/ai/draft         AI 起草查询 + 1~3 张图表（读表结构、试运行、自我修正）
+ *   - POST /admin/bi/ai/revise-query  按一句话修改查询（改 SQL 后试运行、自我修正）
+ *   - POST /admin/bi/ai/enrich-query  补全语义层（列中文名 / 角色 / 格式、说明、口径、示例问法）
+ *   以上 AI 接口都只返回草稿，不保存
  */
 const { getPool } = require('../db');
 const { getUserRolesFromRequest, resolveUserRoles, loadKnownRoleKeys } = require('../roles');
@@ -23,7 +26,7 @@ const {
   toPublicQuery,
 } = require('../bi-queries');
 const { runNamedQuery, testRunQuery, BiParamError } = require('../bi-exec');
-const { draftQueryAndChart, DraftError } = require('../bi-draft');
+const { draftQueryAndChart, reviseQuery, enrichQuery, DraftError } = require('../bi-draft');
 const { aiService } = require('../ai');
 const {
   listAllDashboards,
@@ -223,26 +226,50 @@ async function biRoutes(fastify) {
 
   // ---------- 管理侧：AI 起草 ----------
 
-  fastify.post('/admin/bi/ai/draft', { preHandler: [fastify.requireAdmin] }, async (request, reply) => {
-    const pool = await getPool();
-    const [existingQueries, existingCharts] = await Promise.all([listAllQueries(pool), listAllCharts(pool)]);
-    const llm = async (messages) => {
-      const r = await aiService.generateChat(messages, { maxTokens: 4000, temperature: 0.2 });
-      if (!r.success) throw new DraftError(r.fallback || r.error || 'AI 服务不可用');
-      return r.content;
-    };
+  const llm = async (messages) => {
+    const r = await aiService.generateChat(messages, { maxTokens: 4000, temperature: 0.2 });
+    if (!r.success) throw new DraftError(r.fallback || r.error || 'AI 服务不可用');
+    return r.content;
+  };
+  /** AI 接口统一错误处理：DraftError（需求不清、修正失败等）400，其它 500 */
+  const aiRoute = (fn) => async (request, reply) => {
     try {
-      const draft = await draftQueryAndChart(
-        { pool, llm, existingQueries, existingCharts, testRun: (q, params) => testRunQuery(pool, q, params, 50) },
-        (request.body || {}).requirement,
-      );
-      return { draft };
+      return await fn(request, await getPool());
     } catch (err) {
       if (err instanceof DraftError) return reply.code(400).send({ error: err.message, code: err.code });
-      request.log.error({ err: err.message }, '[bi] AI 起草失败');
-      return reply.code(500).send({ error: `AI 起草失败：${err.message}`, code: 'BI_DRAFT_FAILED' });
+      request.log.error({ err: err.message }, '[bi] AI 接口失败');
+      return reply.code(500).send({ error: `AI 处理失败：${err.message}`, code: 'BI_DRAFT_FAILED' });
     }
-  });
+  };
+  const testRun = (pool) => (q, params) => testRunQuery(pool, q, params, 50);
+
+  fastify.post(
+    '/admin/bi/ai/draft',
+    { preHandler: [fastify.requireAdmin] },
+    aiRoute(async (request, pool) => {
+      const [existingQueries, existingCharts] = await Promise.all([listAllQueries(pool), listAllCharts(pool)]);
+      const draft = await draftQueryAndChart({ pool, llm, existingQueries, existingCharts, testRun: testRun(pool) }, (request.body || {}).requirement);
+      return { draft };
+    }),
+  );
+
+  fastify.post(
+    '/admin/bi/ai/revise-query',
+    { preHandler: [fastify.requireAdmin] },
+    aiRoute(async (request, pool) => {
+      const body = request.body || {};
+      return { revision: await reviseQuery({ pool, llm, testRun: testRun(pool) }, body.query, body.instruction) };
+    }),
+  );
+
+  fastify.post(
+    '/admin/bi/ai/enrich-query',
+    { preHandler: [fastify.requireAdmin] },
+    aiRoute(async (request, pool) => {
+      const body = request.body || {};
+      return { semantics: await enrichQuery({ llm, testRun: testRun(pool) }, body.query, body.params) };
+    }),
+  );
 
   // ---------- 管理侧：看板 ----------
 
