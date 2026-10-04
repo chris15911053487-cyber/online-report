@@ -212,6 +212,8 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 
 卡片、卡片内下钻、Agent 追问（`run_named_query`）共用同一份命名查询，看板上的数与 AI 说的数口径一致。
 
+**Agent 问数用语义层**：关联了看板的 Agent，对话时 system prompt 的 Agent 指令段带一份「命名查询目录」（`agent-context.js` 的 `formatQueryCatalog`）：看板卡片与下钻用到、当前用户角色有权的查询，每个列出参数、口径、**输出列语义**（中文名 / 维度·度量·时间 / 单位）与最多 3 条示例问法，不含 SQL；上限 30 个查询 / 6000 字。「Agent 配置」页关联看板后显示「AI 会看到的查询目录」：按 Agent 每个可见角色预览目录，提示哪个角色看不到哪些卡片 / 下钻（查询角色没覆盖到）；查询的示例问法可勾选后一键加为快捷提问（保存 Agent 时才生效）。接口 `POST /admin/agents/catalog-preview`（`{ dashboardKey, roles }`，用编辑中的值，未保存也能看）。
+
 **参数从哪来**（看板引用展开成完整卡片时决定，`bi-charts.js` 的 `resolveCard`，前端 `utils/biAdmin.ts` 同规则）：
 
 1. 看板卡片上的覆盖（`$filter.xxx` 或固定值，一般不用写）

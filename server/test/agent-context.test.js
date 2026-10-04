@@ -134,3 +134,46 @@ test('formatQueryCatalog：空列表为空串；超长截断', () => {
   assert.ok(s.length < 6600);
   assert.match(s, /其余查询未列出/);
 });
+
+// ---- 语义层 ----
+test('formatQueryCatalog：登记了列语义时列出输出列（中文名/角色/单位）与示例问法（最多 3 条）', () => {
+  const q = Q('sales', [], {
+    columns: [
+      { column: 'CardName', label: '客户', role: 'dimension' },
+      { column: 'Amt', label: '销售额', role: 'measure', format: 'money', unit: '万元', scale: 10000 },
+      { column: 'Rate', label: '毛利率', role: 'measure', format: 'percent' },
+    ],
+    sampleQuestions: ['本月谁买得最多', '前十客户', '毛利率最低的客户', '第四条不出现'],
+  });
+  const s = formatQueryCatalog([q]);
+  assert.match(s, /参数：period:string（必填）；口径：按过账日期/);
+  assert.match(s, /输出列：CardName\(客户,维度\), Amt\(销售额,度量,万元\), Rate\(毛利率,度量,百分比\)/);
+  assert.match(s, /可回答：本月谁买得最多；前十客户；毛利率最低的客户$/);
+  assert.equal(s.includes('维度列'), false);
+});
+
+test('previewAgentCatalog：按角色给目录与看不到的卡片 / 下钻；无角色 = 仅管理员；示例问法去重', () => {
+  const { previewAgentCatalog } = require('../src/agent-context');
+  const loaded = {
+    dashboard: {
+      enabled: true,
+      cards: [
+        { id: 'c1', title: '应收', queryKey: 'ar', drill: [{ queryKey: 'docs' }, { queryKey: 'cost' }] },
+        { id: 'c2', title: '成本', queryKey: 'cost', drill: [] },
+      ],
+    },
+    queries: [
+      Q('ar', ['sales'], { sampleQuestions: ['谁欠款最多'] }),
+      Q('docs', ['sales'], { sampleQuestions: ['谁欠款最多', '逾期单据'] }),
+      Q('cost', ['cost-viewer']),
+    ],
+  };
+  const r = previewAgentCatalog(loaded, ['sales']);
+  assert.equal(r.views.length, 1);
+  assert.deepEqual(r.views[0].queryKeys, ['ar', 'docs']);
+  assert.deepEqual(r.views[0].hidden.map((h) => h.title), ['应收 · 第 2 层下钻起', '成本']);
+  assert.deepEqual(r.samples.map((x) => x.question), ['谁欠款最多', '逾期单据']);
+  const admin = previewAgentCatalog(loaded, []);
+  assert.equal(admin.views[0].role, 'admin');
+  assert.deepEqual(admin.views[0].hidden, []);
+});

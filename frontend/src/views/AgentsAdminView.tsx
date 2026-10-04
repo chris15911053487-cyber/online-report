@@ -7,6 +7,7 @@ import { AGENT_ICON_NAMES } from './AgentHubView'
 import type { AgentAdmin, AgentQuickPrompt, AgentSkillOption } from '../types'
 import { AdminPage, Badge, Button, Card, Checkbox, ChipSelect, Code, EditorActions, EmptyState, Field, IconButton, Input, Notice, RecordRow, Section, Select, Skeleton, Textarea } from '../ui'
 import { confirmDelete } from '../ui/confirm'
+import AgentCatalogPreview from '../components/AgentCatalogPreview'
 
 const EMPTY_AGENT: AgentAdmin = {
   agentKey: '',
@@ -393,6 +394,20 @@ export default function AgentsAdminView() {
               )}
             </Select>
           </Section>
+
+          {editing.dashboardKey && (
+            <Section
+              title="AI 会看到的查询目录"
+              hint="对话时按用户角色注入：看板用到的查询（含输出列含义、口径、示例问法），AI 优先用它们回答，数字与看板一致。"
+            >
+              <AgentCatalogPreview
+                dashboardKey={editing.dashboardKey}
+                roles={editing.roles}
+                quickPrompts={editing.quickPrompts}
+                onAddQuickPrompts={(items) => patch({ quickPrompts: [...editing.quickPrompts, ...items] })}
+              />
+            </Section>
+          )}
 
           <Section
             title="默认内容"

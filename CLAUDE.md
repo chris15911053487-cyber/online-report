@@ -96,7 +96,7 @@ cd frontend && npm run lint
 
 ### BI 看板（第一期已完成，见 README「BI 看板」）
 
-- 三层分开维护：查询库 `bi_queries`（`bi-queries.js`，只读 SQL + 参数 + 列语义 + 口径 + 缓存 + 角色）→ 图表 `bi_charts`（`bi-charts.js`，引用一个 queryKey + 类型 + encoding + 下钻 + 默认尺寸，参数只写固定值，可被多个看板复用）→ 看板 `bi_dashboards`（`bi-dashboards.js`，筛选 + 卡片；卡片只是图表引用 `{ id, chartKey, title?, params?, layout? }`）；Agent 用 `agents.dashboard_key` 关联看板
+- 三层分开维护：查询库 `bi_queries`（`bi-queries.js`，只读 SQL + 参数 + 列语义 + 口径 + 缓存 + 角色）→ 图表 `bi_charts`（`bi-charts.js`，引用一个 queryKey + 类型 + encoding + 下钻 + 默认尺寸，参数只写固定值，可被多个看板复用）→ 看板 `bi_dashboards`（`bi-dashboards.js`，筛选 + 卡片；卡片只是图表引用 `{ id, chartKey, title?, params?, layout? }`）；Agent 用 `agents.dashboard_key` 关联看板；对话时注入看板查询目录（`agent-context.js`，含列语义 / 示例问法，按用户角色过滤），配置页 `AgentCatalogPreview` 按角色预览
 - 展开：`bi-charts.js` 的 `resolveCard` / `expandDashboard` 把看板引用展开成完整卡片（参数优先级：看板覆盖 > 图表固定值 > **同名筛选自动绑定** > 查询默认；下钻 bind 最优先）。运行时接口、前端渲染、AI 查询目录只认展开后的卡片（`loadExpandedDashboard`）；前端 `utils/biAdmin.ts` 的 `resolveCard` 须与之一致
 - 执行与缓存：`bi-exec.js`（缓存 key 含角色集合）；路由 `server/src/routes/bi.js`
 - 卡片、下钻、Agent 追问（`run_named_query`）共用同一命名查询，保证口径一致

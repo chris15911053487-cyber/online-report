@@ -18,7 +18,8 @@ const {
   upsertAgent,
   deleteAgent,
 } = require('../agents');
-const { getDashboard } = require('../bi-dashboards');
+const { getDashboard, loadExpandedDashboard } = require('../bi-dashboards');
+const { previewAgentCatalog } = require('../agent-context');
 
 /** 用户侧只暴露展示与交互需要的字段，不下发 system_prompt_extra / skills 等内部配置 */
 function toPublicAgent(agent) {
@@ -139,6 +140,20 @@ async function agentsRoutes(fastify) {
       }
       throw err;
     }
+  });
+
+  /**
+   * 预览「AI 会看到的查询目录」：按 Agent 的每个可见角色分别给出目录、看不到的卡片，以及看板查询的示例问法。
+   * 用编辑中的 dashboardKey / roles（未保存也能看）。
+   */
+  fastify.post('/admin/agents/catalog-preview', { preHandler: [fastify.requireAdmin] }, async (request, reply) => {
+    const dashboardKey = String(request.body?.dashboardKey || '').trim().toLowerCase();
+    if (!dashboardKey) return reply.code(400).send({ error: '未关联看板' });
+    const roles = Array.isArray(request.body?.roles) ? request.body.roles.map((r) => String(r).trim()).filter(Boolean) : [];
+    const pool = await getPool();
+    const loaded = await loadExpandedDashboard(pool, dashboardKey);
+    if (!loaded) return reply.code(404).send({ error: `看板不存在：${dashboardKey}` });
+    return previewAgentCatalog(loaded, roles);
   });
 
   fastify.delete('/admin/agents/:agentKey', { preHandler: [fastify.requireAdmin] }, async (request, reply) => {
