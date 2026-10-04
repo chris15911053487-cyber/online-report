@@ -898,12 +898,12 @@ export default function AgentRunView() {
     <button
       type="button"
       onClick={toggleDashFullscreen}
-      className="h-8 px-2.5 rounded-lg border border-line bg-surface text-[12.5px] text-fg-2 hover:border-primary hover:text-primary flex items-center gap-1 transition-colors"
+      className="w-8 h-8 rounded-lg flex items-center justify-center text-subtle opacity-60 hover:opacity-100 hover:text-primary hover:bg-surface-2 transition"
       title={dashFullscreen ? '退出全屏（Esc）' : '全屏显示看板'}
+      aria-label={dashFullscreen ? '退出全屏' : '全屏'}
       aria-pressed={dashFullscreen}
     >
-      {dashFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-      {dashFullscreen ? '退出全屏' : '全屏'}
+      {dashFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
     </button>
   )
   /** 全屏时看板容器铺满视口（盖住侧栏、顶栏、底部 Tab；点击浮层与提示层级更高，仍可见） */
