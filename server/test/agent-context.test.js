@@ -147,7 +147,7 @@ test('formatQueryCatalog：登记了列语义时列出输出列（中文名/角�
   });
   const s = formatQueryCatalog([q]);
   assert.match(s, /参数：period:string（必填）；口径：按过账日期/);
-  assert.match(s, /输出列：CardName\(客户,维度\), Amt\(销售额,度量,万元\), Rate\(毛利率,度量,百分比\)/);
+  assert.match(s, /输出列：CardName\(客户,维度\), Amt\(销售额,度量,万元\), Rate\(毛利率,度量,比例,1=100%\)/);
   assert.match(s, /可回答：本月谁买得最多；前十客户；毛利率最低的客户$/);
   assert.equal(s.includes('维度列'), false);
 });

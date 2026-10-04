@@ -264,18 +264,29 @@ async function triggerEvent(eventName, eventData) {
     const logId = await createAlertLog(rule.id, rule.name, 'event', eventName);
 
     try {
+      // 命名查询 + 条件：事件数据代入参数（$event.字段）后按条件判断，只对命中行去重、推送
+      let baseRows = dataRows;
+      if (rule.bi_check_json) {
+        const { evaluateRuleBiCheck } = require('./alert-bi');
+        baseRows = await evaluateRuleBiCheck(await getPool(), rule, dataRows);
+        if (baseRows.length === 0) {
+          await updateAlertLog(logId, 'skipped', 0, 0, 0, null, null, null, '事件触发但条件未命中');
+          continue;
+        }
+      }
+
       // 事件触发模式：先检查去重
-      let filteredRows = dataRows;
+      let filteredRows = baseRows;
       if (rule.key_column) {
-        filteredRows = await filterByCooldown(rule.id, dataRows, rule.key_column, rule.cooldown_minutes || 60);
+        filteredRows = await filterByCooldown(rule.id, baseRows, rule.key_column, rule.cooldown_minutes || 60);
         if (filteredRows.length === 0) {
           await updateAlertLog(logId, 'skipped', 0, 0, 0, null, null, null, '事件数据在冷却期内');
           continue;
         }
       }
 
-      // 如果规则配置了 SQL，还可以进一步做条件判断
-      if (rule.sql_template) {
+      // 如果规则配置了 SQL，还可以进一步做条件判断（命名查询规则已在上面判断过）
+      if (rule.sql_template && !rule.bi_check_json) {
         const sqlRows = await evaluateRuleSql(rule);
         if (!sqlRows || sqlRows.length === 0) {
           await updateAlertLog(logId, 'skipped', 0, 0, 0, null, null, null, '事件触发但条件SQL无结果');

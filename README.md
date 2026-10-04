@@ -258,6 +258,8 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 - 条件：`op` 为 `>` `>=` `<` `<=` `=` `!=`；加 `change: "pct" | "abs"` 表示较上期的变化率（%）/ 变化额；多个条件 `match: all | any`
 - 较上期两种方式：`{ param, shift: -1 }` 把期间参数往前推一期再查一次，按维度 / 属性列对齐（月份参数 `shift: -12` = 同比）；`{ mode: "prevRow" }` 用于趋势结果（每行一个期间），按时间列排序后与上一行比
 - 命中行补充 `{列_prev}` `{列_change}` `{列_change_pct}`，卡片模板可直接用；AI 没给去重列时自动取维度 / 属性列或时间列
+- **事件触发**：事件规则的「数据来源」也可选「命名查询 + 条件」，参数写 `$event.字段`（如 `{ "docEntry": "$event.DocEntry" }`），事件发生时用事件数据代入查询、按条件判断，只对命中行去重和推送；命中行合并事件字段（查询列优先），卡片里两边字段都能用。已接入的事件清单在 `alert-bi.js` 的 `KNOWN_EVENTS`（目前 `pro-sign-save` 合并报工保存，字段 DocEntry / SignType / StepCode / StepName / UserCode / LineCount），业务代码新接 `emitAlertEvent` 时同步登记；表单里事件名有下拉提示，试算可填示例事件数据（`preview` 接口的 `test_event`）。定时规则不能用 `$event`
+- 查询目录里比例列标为「比例,1=100%」，阈值写小数（5% → 0.05）
 - 实现 `server/src/alert-bi.js`；接口 `POST /admin/alert-rules/ai/draft`（`{ instruction }`，只返回草稿）、`POST /admin/alert-rules/preview`（`{ bi_check }`，试算不推送）；规则增改接口多一个 `bi_check` 字段
 
 起草流程：选表（SAP B1 常识 + 本库自定义业务表，≤6 张）→ 读真实列与类型（`INFORMATION_SCHEMA`）及自定义字段说明（`CUFD`）→ 生成 → 只读校验 + 示例参数试运行 → SQL 报错或图表列对不上时把错误交回 AI 修正，最多 3 轮。用户 / 权限表（`OUSR`、`@TB_OUSR` 等）与本系统配置表（`bi_*`、`agents`、`ai_*` 等）不给 AI 看，SQL 引用即拒绝。模型沿用 `AI_PROVIDER` / `AI_DEFAULT_MODEL`。实现 `server/src/bi-draft.js`，接口 `POST /admin/bi/ai/draft`、`/admin/bi/ai/draft-from-sql`、`/admin/bi/ai/revise-query`、`/admin/bi/ai/enrich-query`。

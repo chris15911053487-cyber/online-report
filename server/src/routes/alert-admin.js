@@ -8,7 +8,7 @@
  * - DELETE /admin/alert-rules/:id       删除规则
  * - POST   /admin/alert-rules/:id/test  手动触发一次
  * - POST   /admin/alert-rules/ai/draft  一句话设预警：AI 选命名查询 + 写条件 → 试算，只返回草稿
- * - POST   /admin/alert-rules/preview   按当前数据试算 BI 规则会命中哪些行（不推送）
+ * - POST   /admin/alert-rules/preview   按当前数据试算 BI 规则会命中哪些行（不推送；事件规则带 test_event）
  * - GET    /admin/alert-webhooks        Webhook 列表
  * - POST   /admin/alert-webhooks        新增 Webhook
  * - PATCH  /admin/alert-webhooks/:id    修改 Webhook
@@ -21,7 +21,7 @@ const { executeRule, triggerEvent, loadRuleById } = require('../alert-engine');
 const { loadAndScheduleAlerts } = require('../alert-scheduler');
 const { aiService } = require('../ai');
 const { getQuery, listAllQueries } = require('../bi-queries');
-const { normalizeBiCheck, evaluateBiCheck, describeBiCheck, draftAlertRule, queryRunner, AlertDraftError } = require('../alert-bi');
+const { normalizeBiCheck, evaluateBiCheck, describeBiCheck, draftAlertRule, queryRunner, usesEventRefs, KNOWN_EVENTS, AlertDraftError } = require('../alert-bi');
 
 /**
  * 请求体里的 bi_check → { value: JSON 字符串 | null | undefined } 或 { error }。
@@ -63,7 +63,7 @@ async function alertAdminRoutes(fastify) {
         r.bi_summary = '（规则 JSON 损坏）';
       }
     }
-    return { items };
+    return { items, knownEvents: KNOWN_EVENTS };
   });
 
   // 新增规则
@@ -74,8 +74,11 @@ async function alertAdminRoutes(fastify) {
       return reply.code(400).send({ error: 'trigger_type 须为 cron 或 event' });
     }
     const pool = await getPool();
-    const bi = await parseBiCheck(pool, b.trigger_type === 'cron' ? b.bi_check : undefined);
+    const bi = await parseBiCheck(pool, b.bi_check);
     if (bi.error) return reply.code(400).send({ error: bi.error });
+    if (b.trigger_type === 'cron' && bi.check && usesEventRefs(bi.check)) {
+      return reply.code(400).send({ error: '定时规则的参数不能用 $event.字段（只有事件触发规则有事件数据）' });
+    }
     if (b.trigger_type === 'cron') {
       if (!b.cron_expr) return reply.code(400).send({ error: '定时规则须配置 cron_expr' });
       if (!cron.validate(b.cron_expr)) return reply.code(400).send({ error: 'cron 表达式无效' });
@@ -253,7 +256,9 @@ async function alertAdminRoutes(fastify) {
     if (bi.error || !bi.check) return reply.code(400).send({ error: bi.error || '缺少 bi_check' });
     try {
       const run = queryRunner(pool);
-      const r = await evaluateBiCheck(bi.check, bi.query, (p) => run(bi.query, p));
+      // 引用了事件字段时用管理员填的示例事件数据试算
+      const testEvent = request.body?.test_event && typeof request.body.test_event === 'object' ? request.body.test_event : null;
+      const r = await evaluateBiCheck(bi.check, bi.query, (p) => run(bi.query, p), Date.now(), testEvent);
       return { summary: describeBiCheck(bi.check, bi.query), ...r, matched: r.matched.slice(0, 10), matchedCount: r.matched.length };
     } catch (err) {
       return reply.code(400).send({ error: `试算失败：${err.message}` });

@@ -11,6 +11,9 @@
  *     compare?: { param: 'period', shift: -1, by?: ['CardCode'] }    // 有 change 条件时必填：参数往前推一期再查一次，按维度对齐
  *             | { mode: 'prevRow', orderBy?: 'Period' } }             // 或：趋势类结果（每行一个期间）与上一行比
  * 命中行会补上 {列}_prev、{列}_change、{列}_change_pct，卡片模板可直接引用。
+ *
+ * 事件触发规则：参数可写 '$event.字段'（如 { docEntry: '$event.DocEntry' }），事件发生时用事件数据代入；
+ * 命中行合并事件字段（查询列优先），卡片模板两边的字段都能引用。
  */
 const cron = require('node-cron');
 const { resolveTokens, shiftPeriod, TOKENS } = require('./bi-tokens');
@@ -18,6 +21,28 @@ const { BiParamError, resolveParams, executeQuery } = require('./bi-exec');
 const { getQuery } = require('./bi-queries');
 const { formatQueryCatalog } = require('./agent-context');
 const { parseJsonObject } = require('./bi-draft');
+
+/** 业务代码里已接入 emitAlertEvent 的事件（名称 → 说明与字段），给管理页提示与 AI 选用 */
+const KNOWN_EVENTS = {
+  'pro-sign-save': { label: '合并报工保存（接单 / 完工 / 暂停 / 恢复）', fields: ['DocEntry', 'SignType', 'StepCode', 'StepName', 'UserCode', 'LineCount'] },
+};
+
+const EVENT_REF_RE = /^\$event\.([A-Za-z_][A-Za-z0-9_]{0,63})$/;
+
+/** 参数里的 '$event.字段' 用事件数据代入（没有事件数据时为 null） */
+function resolveEventRefs(params, eventRow) {
+  const out = {};
+  for (const [k, v] of Object.entries(params || {})) {
+    const m = typeof v === 'string' ? EVENT_REF_RE.exec(v) : null;
+    out[k] = m ? (eventRow ? (eventRow[m[1]] ?? null) : null) : v;
+  }
+  return out;
+}
+
+/** 规则是否引用了事件字段（只能用于事件触发） */
+function usesEventRefs(check) {
+  return Object.values(check?.params || {}).some((v) => typeof v === 'string' && EVENT_REF_RE.test(v));
+}
 
 const OPS = new Set(['>', '>=', '<', '<=', '=', '!=']);
 const OP_TEXT = { '>': '大于', '>=': '大于等于', '<': '小于', '<=': '小于等于', '=': '等于', '!=': '不等于' };
@@ -43,8 +68,8 @@ function normalizeBiCheck(input, query) {
   for (const [k, v] of Object.entries(input.params && typeof input.params === 'object' ? input.params : {})) {
     const def = defs.get(k.toLowerCase());
     if (query && !def) return { ok: false, error: `查询「${queryKey}」没有参数 @${k}` };
-    if (typeof v === 'string' && v.startsWith('$') && !TOKENS.includes(v)) {
-      return { ok: false, error: `参数 ${k} 的动态值「${v}」不认识，可用：${TOKENS.join(' ')}` };
+    if (typeof v === 'string' && v.startsWith('$') && !TOKENS.includes(v) && !EVENT_REF_RE.test(v)) {
+      return { ok: false, error: `参数 ${k} 的动态值「${v}」不认识，可用：${TOKENS.join(' ')}，事件规则还可用 $event.字段` };
     }
     if (v != null && v !== '') params[def ? def.name : k] = v;
   }
@@ -120,8 +145,9 @@ function test(op, a, b) {
  * 评估：run(params) → Promise<{ columns, rows }>（调用方负责执行命名查询）。
  * @returns {Promise<{ matched: object[], total: number, params: object, prevParams?: object }>}
  */
-async function evaluateBiCheck(check, query, run, now = Date.now()) {
-  const params = resolveTokens(check.params, now);
+async function evaluateBiCheck(check, query, run, now = Date.now(), eventRow = null) {
+  if (!eventRow && usesEventRefs(check)) throw new BiParamError('条件引用了事件字段（$event.xxx），只能用于事件触发规则；试算请填示例事件数据');
+  const params = resolveTokens(resolveEventRefs(check.params, eventRow), now);
   const cur = await run(params);
   let rows = (cur.rows || []).map((r) => ({ ...r }));
   let prevParams;
@@ -177,7 +203,7 @@ function queryRunner(pool) {
 }
 
 /** 引擎调用：按规则的 bi_check_json 取命中行 */
-async function evaluateRuleBiCheck(pool, rule) {
+async function evaluateRuleBiCheck(pool, rule, eventRows = null) {
   let raw;
   try {
     raw = JSON.parse(rule.bi_check_json);
@@ -189,8 +215,25 @@ async function evaluateRuleBiCheck(pool, rule) {
   const cv = normalizeBiCheck(raw, query);
   if (!cv.ok) throw new Error(cv.error);
   const run = queryRunner(pool);
-  const r = await evaluateBiCheck(cv.value, query, (p) => run(query, p));
-  return r.matched;
+  return evaluateForEvents(cv.value, query, (p) => run(query, p), eventRows);
+}
+
+/**
+ * 定时：直接评估。事件：每条事件数据代入参数评估（参数相同的只查一次），命中行合并事件字段（查询列优先）。
+ */
+async function evaluateForEvents(check, query, run, eventRows, now = Date.now()) {
+  if (!eventRows) return (await evaluateBiCheck(check, query, run, now)).matched;
+  const rows = Array.isArray(eventRows) ? eventRows : [eventRows];
+  const seen = new Set();
+  const out = [];
+  for (const ev of rows.length ? rows : [{}]) {
+    const key = JSON.stringify(resolveEventRefs(check.params, ev));
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const r = await evaluateBiCheck(check, query, run, now, ev);
+    for (const m of r.matched) out.push({ ...ev, ...m });
+  }
+  return out;
 }
 
 // ─── 一句话设预警（AI 只出草稿） ───────────────────────────────────────────
@@ -210,7 +253,10 @@ const DRAFT_SYSTEM = `你是企业 BI 预警配置助手。管理员用一句话
     "compare": {"param": "period", "shift": -1}
   },
   "keyColumn": "去重列：区分不同行的列（维度编码如 CardCode；趋势类用时间列如 Period；单值类留空）",
-  "cron": "node-cron 表达式（5 段：分 时 日 月 周），如每天 9 点 \\"0 9 * * *\\"、工作日 8:30 \\"30 8 * * 1-5\\"、每小时 \\"0 * * * *\\"",
+  "trigger": "cron（定时检查）或 event（业务事件发生时检查，只能从「可用事件」里选）",
+  "cron": "trigger 为 cron 时填 node-cron 表达式（5 段：分 时 日 月 周），如每天 9 点 \\"0 9 * * *\\"、工作日 8:30 \\"30 8 * * 1-5\\"、每小时 \\"0 * * * *\\"",
+  "event": "trigger 为 event 时填事件名",
+  "sampleEvent": "trigger 为 event 时给一份示例事件数据（字段同事件说明），用于试算",
   "cooldownMinutes": 1440,
   "cardTitle": "卡片标题，可用 {列名} 占位",
   "cardBody": "卡片正文 Markdown，每行一个要点，用 {列名} 占位",
@@ -219,7 +265,8 @@ const DRAFT_SYSTEM = `你是企业 BI 预警配置助手。管理员用一句话
 
 ## 规则
 - 参数值用动态值，不要写死日期：$today $yesterday $thisMonth $lastMonth $monthStart $yearStart $thisYear $lastYear；必填参数都要给值
-- 阈值条件：{"column","op","value"}，op 只能是 > >= < <= = !=，value 是数字；金额等按查询原始单位（如元），1 万 = 10000
+- 「每次 xx 时 / xx 之后马上」这类需求用 event：参数可写 "$event.字段" 取事件数据（如 {"docEntry": "$event.DocEntry"}），卡片里也能用 {事件字段}；定时检查用 cron，不能用 $event
+- 阈值条件：{"column","op","value"}，op 只能是 > >= < <= = !=，value 是数字；金额等按查询原始单位（如元），1 万 = 10000；标为「比例,1=100%」的列阈值写小数（5% → 0.05，100% → 1），卡片里比例列直接写 {列名}，不要再加 %
 - 环比 / 较上期：条件加 "change": "pct"（变化率，value 写百分数，如下降超过 20% → op "<=", value -20）或 "abs"（变化额），并给 compare，二选一：
   - 结果按维度分行（每行一个客户 / 物料…）且有期间参数：{"param": "period", "shift": -1}，程序把参数往前推一期再查一次、按维度对齐（shift -12 配合月份参数 = 同比）
   - 趋势类结果（每行一个期间，如每月一行）：{"mode": "prevRow"}，按时间列排序后每行与上一行比（如每月与上个月比）
@@ -246,7 +293,12 @@ async function draftAlertRule(deps, instruction) {
 
   const messages = [
     { role: 'system', content: DRAFT_SYSTEM },
-    { role: 'user', content: `需求：${text}\n\n可用命名查询：\n${catalog}` },
+    {
+      role: 'user',
+      content: `需求：${text}\n\n可用命名查询：\n${catalog}\n\n可用事件：\n${Object.entries(KNOWN_EVENTS)
+        .map(([k, e]) => `- ${k}：${e.label}；字段 ${e.fields.join(', ')}`)
+        .join('\n')}`,
+    },
   ];
   let lastError = '';
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
@@ -271,8 +323,26 @@ async function draftAlertRule(deps, instruction) {
       fix(`规则校验失败：${cv.error}`);
       continue;
     }
-    const cronExpr = String(out.cron || '').trim();
-    if (!cron.validate(cronExpr)) {
+    const isEvent = out.trigger === 'event';
+    const eventName = isEvent ? String(out.event || '').trim() : '';
+    const cronExpr = isEvent ? '' : String(out.cron || '').trim();
+    if (isEvent) {
+      const ev = KNOWN_EVENTS[eventName];
+      if (!ev) {
+        fix(`事件「${eventName}」不在可用事件中：${Object.keys(KNOWN_EVENTS).join('、')}。`);
+        continue;
+      }
+      const bad = Object.values(cv.value.params)
+        .map((v) => (typeof v === 'string' ? EVENT_REF_RE.exec(v)?.[1] : null))
+        .filter((f) => f && !ev.fields.includes(f));
+      if (bad.length) {
+        fix(`事件「${eventName}」没有字段：${bad.join('、')}；可用 ${ev.fields.join(', ')}。`);
+        continue;
+      }
+    } else if (usesEventRefs(cv.value)) {
+      fix('定时规则不能用 $event.字段；要按事件触发请把 trigger 设为 event。');
+      continue;
+    } else if (!cron.validate(cronExpr)) {
       fix(`cron 表达式「${cronExpr}」无效，须为 5 段 node-cron 表达式。`);
       continue;
     }
@@ -284,9 +354,10 @@ async function draftAlertRule(deps, instruction) {
       continue;
     }
     let preview;
+    const sampleEvent = isEvent && out.sampleEvent && typeof out.sampleEvent === 'object' ? out.sampleEvent : null;
     try {
-      const r = await evaluateBiCheck(cv.value, query, (p) => run(query, p), now);
-      preview = { ...r, matched: r.matched.slice(0, PREVIEW_ROWS), matchedCount: r.matched.length };
+      const r = await evaluateBiCheck(cv.value, query, (p) => run(query, p), now, isEvent ? sampleEvent || {} : null);
+      preview = { ...r, matched: r.matched.slice(0, PREVIEW_ROWS), matchedCount: r.matched.length, ...(isEvent ? { sampleEvent } : {}) };
     } catch (err) {
       fix(`按当前数据试算报错：${String(err?.message || err).slice(0, 300)}`);
       continue;
@@ -296,8 +367,9 @@ async function draftAlertRule(deps, instruction) {
       rule: {
         name: String(out.name || '').trim().slice(0, 128) || query.label,
         description: String(out.description || '').trim().slice(0, 512),
-        trigger_type: 'cron',
+        trigger_type: isEvent ? 'event' : 'cron',
         cron_expr: cronExpr,
+        event_name: eventName,
         key_column: keyColumn,
         cooldown_minutes: cooldown,
         card_title_template: String(out.cardTitle || '').trim().slice(0, 256) || `⚠️ ${query.label}`,
@@ -314,6 +386,10 @@ async function draftAlertRule(deps, instruction) {
 }
 
 module.exports = {
+  KNOWN_EVENTS,
+  resolveEventRefs,
+  usesEventRefs,
+  evaluateForEvents,
   normalizeBiCheck,
   evaluateRuleBiCheck,
   queryRunner,

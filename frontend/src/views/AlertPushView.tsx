@@ -62,6 +62,9 @@ interface AlertLog {
 
 type Tab = 'rules' | 'webhooks' | 'logs'
 
+/** 已接入的业务事件（后端 alert-bi.KNOWN_EVENTS） */
+type KnownEvents = Record<string, { label: string; fields: string[] }>
+
 // ==================== Main Component ====================
 
 export default function AlertPushView() {
@@ -111,12 +114,14 @@ function RulesTab() {
   const [form, setForm] = useState(EMPTY_RULE_FORM)
   const [saving, setSaving] = useState(false)
   const [aiOpen, setAiOpen] = useState(false)
+  const [knownEvents, setKnownEvents] = useState<KnownEvents>({})
 
   const load = async () => {
     setLoading(true)
     try {
       const data = await apiFetch('/admin/alert-rules')
       setItems(data.items || [])
+      setKnownEvents(data.knownEvents || {})
     } catch (e) {
       setError(e instanceof Error ? e.message : '加载失败')
     } finally {
@@ -161,7 +166,7 @@ function RulesTab() {
 
   const handleSave = async () => {
     if (!form.name) { setError('名称必填'); return }
-    const useBi = form.trigger_type === 'cron' && form.source === 'bi'
+    const useBi = form.source === 'bi'
     if (form.trigger_type === 'cron' && (!form.cron_expr || (!useBi && !form.sql_template))) {
       setError('定时规则须填写 cron 表达式和检查 SQL'); return
     }
@@ -233,7 +238,7 @@ function RulesTab() {
   }
 
   if (mode === 'form') {
-    return <RuleForm form={form} setForm={setForm} error={error} editId={editId} saving={saving} onSave={handleSave} onCancel={() => setMode('list')} />
+    return <RuleForm form={form} setForm={setForm} knownEvents={knownEvents} error={error} editId={editId} saving={saving} onSave={handleSave} onCancel={() => setMode('list')} />
   }
 
   return (
@@ -252,7 +257,9 @@ function RulesTab() {
             ...EMPTY_RULE_FORM,
             name: d.rule.name,
             description: d.rule.description,
+            trigger_type: d.rule.trigger_type,
             cron_expr: d.rule.cron_expr,
+            event_name: d.rule.event_name,
             key_column: d.rule.key_column,
             cooldown_minutes: String(d.rule.cooldown_minutes),
             card_title_template: d.rule.card_title_template,
@@ -343,9 +350,10 @@ const BI_CHECK_PLACEHOLDER = `{
 
 type RuleFormData = typeof EMPTY_RULE_FORM
 
-function RuleForm({ form, setForm, error, editId, saving, onSave, onCancel }: {
+function RuleForm({ form, setForm, knownEvents, error, editId, saving, onSave, onCancel }: {
   form: RuleFormData
   setForm: (f: RuleFormData) => void
+  knownEvents: KnownEvents
   error: string
   editId: number | null
   saving: boolean
@@ -353,6 +361,8 @@ function RuleForm({ form, setForm, error, editId, saving, onSave, onCancel }: {
   onCancel: () => void
 }) {
   const set = (p: Partial<RuleFormData>) => setForm({ ...form, ...p })
+  const isCron = form.trigger_type === 'cron'
+  const ev = knownEvents[form.event_name]
   return (
     <div className="flex flex-col gap-4 pb-20">
       <h3 className="font-display text-base font-semibold text-fg">{editId ? '编辑' : '新增'}警报规则</h3>
@@ -377,34 +387,40 @@ function RuleForm({ form, setForm, error, editId, saving, onSave, onCancel }: {
                   ]}
                 />
               </Field>
-              {form.trigger_type === 'cron' ? (
-                <>
-                  <Field label="Cron 表达式 *">
-                    <Input className="font-mono" value={form.cron_expr} onChange={(e) => set({ cron_expr: e.target.value })} placeholder="如：*/5 * * * *（每5分钟）" />
-                  </Field>
-                  <Field label="数据来源">
-                    <Segmented
-                      value={form.source}
-                      onChange={(v) => set({ source: v })}
-                      options={[
-                        { value: 'sql', label: '检查 SQL' },
-                        { value: 'bi', label: '命名查询 + 条件' },
-                      ]}
-                    />
-                  </Field>
-                  {form.source === 'bi' ? (
-                    <BiCheckField value={form.bi_check} onChange={(v) => set({ bi_check: v })} />
-                  ) : (
-                    <Field label="检查 SQL *" hint="返回行数 > 0 即触发">
-                      <Textarea mono rows={8} value={form.sql_template} onChange={(e) => set({ sql_template: e.target.value })} placeholder="SELECT * FROM ... WHERE ..." spellCheck={false} />
-                    </Field>
-                  )}
-                </>
+              {isCron ? (
+                <Field label="Cron 表达式 *">
+                  <Input className="font-mono" value={form.cron_expr} onChange={(e) => set({ cron_expr: e.target.value })} placeholder="如：*/5 * * * *（每5分钟）" />
+                </Field>
               ) : (
-                <Field label="事件名称 *">
-                  <Input className="font-mono" value={form.event_name} onChange={(e) => set({ event_name: e.target.value })} placeholder="如：pro-sign-save" />
+                <Field
+                  label="事件名称 *"
+                  hint={ev ? `${ev.label}；事件字段：${ev.fields.join(', ')}` : `已接入的事件：${Object.keys(knownEvents).join('、') || '无'}`}
+                >
+                  <Input className="font-mono" list="alert-known-events" value={form.event_name} onChange={(e) => set({ event_name: e.target.value })} placeholder="如：pro-sign-save" />
+                  <datalist id="alert-known-events">
+                    {Object.entries(knownEvents).map(([k, e]) => (
+                      <option key={k} value={k}>{e.label}</option>
+                    ))}
+                  </datalist>
                 </Field>
               )}
+              <Field label="数据来源">
+                <Segmented
+                  value={form.source}
+                  onChange={(v) => set({ source: v })}
+                  options={[
+                    { value: 'sql', label: isCron ? '检查 SQL' : '事件数据直接推送' },
+                    { value: 'bi', label: '命名查询 + 条件' },
+                  ]}
+                />
+              </Field>
+              {form.source === 'bi' ? (
+                <BiCheckField value={form.bi_check} onChange={(v) => set({ bi_check: v })} eventFields={isCron ? undefined : ev?.fields || []} />
+              ) : isCron ? (
+                <Field label="检查 SQL *" hint="返回行数 > 0 即触发">
+                  <Textarea mono rows={8} value={form.sql_template} onChange={(e) => set({ sql_template: e.target.value })} placeholder="SELECT * FROM ... WHERE ..." spellCheck={false} />
+                </Field>
+              ) : null}
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="去重键列名" hint="避免同一行重复告警">
                   <Input value={form.key_column} onChange={(e) => set({ key_column: e.target.value })} placeholder="如：DocEntry" />
@@ -467,7 +483,9 @@ function RuleForm({ form, setForm, error, editId, saving, onSave, onCancel }: {
 }
 
 /** 命名查询 + 条件：JSON 编辑 + 按当前数据试算 */
-function BiCheckField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+/** eventFields 有值 = 事件触发规则：参数可用 $event.字段，试算时填示例事件数据 */
+function BiCheckField({ value, onChange, eventFields }: { value: string; onChange: (v: string) => void; eventFields?: string[] }) {
+  const [testEvent, setTestEvent] = useState('')
   const [preview, setPreview] = useState<BiCheckPreviewData | null>(null)
   const [err, setErr] = useState('')
   const [busy, setBusy] = useState(false)
@@ -476,7 +494,9 @@ function BiCheckField({ value, onChange }: { value: string; onChange: (v: string
     setErr('')
     setPreview(null)
     try {
-      setPreview(await apiFetch('/admin/alert-rules/preview', { method: 'POST', body: JSON.stringify({ bi_check: JSON.parse(value) }) }))
+      const body: Record<string, unknown> = { bi_check: JSON.parse(value) }
+      if (eventFields && testEvent.trim()) body.test_event = JSON.parse(testEvent)
+      setPreview(await apiFetch('/admin/alert-rules/preview', { method: 'POST', body: JSON.stringify(body) }))
     } catch (e) {
       setErr(e instanceof SyntaxError ? '不是合法 JSON' : e instanceof Error ? e.message : '试算失败')
     } finally {
@@ -492,8 +512,18 @@ function BiCheckField({ value, onChange }: { value: string; onChange: (v: string
         value={value}
         onChange={onChange}
         placeholder={BI_CHECK_PLACEHOLDER}
-        hint={<>查询来自「BI 看板管理」；参数可用 $today $thisMonth $lastMonth $thisYear 等；条件 op 为 &gt; &gt;= &lt; &lt;= = !=，加 "change": "pct" / "abs" 表示较上期的变化率 % / 变化额；compare 用 {'{"param":"period","shift":-1}'}（参数往前推一期，按维度对齐）或 {'{"mode":"prevRow"}'}（趋势结果与上一行比）</>}
+        hint={<>查询来自「BI 看板管理」；参数可用 $today $thisMonth $lastMonth $thisYear 等；条件 op 为 &gt; &gt;= &lt; &lt;= = !=，加 "change": "pct" / "abs" 表示较上期的变化率 % / 变化额；compare 用 {'{"param":"period","shift":-1}'}（参数往前推一期，按维度对齐）或 {'{"mode":"prevRow"}'}（趋势结果与上一行比）{eventFields ? <>；事件规则的参数可写 "$event.字段"（如 {'{"docEntry":"$event.DocEntry"}'}），卡片里也能用 {'{事件字段}'}</> : null}</>}
       />
+      {eventFields && (
+        <JsonField
+          label="示例事件数据（仅试算用）"
+          expect="object"
+          rows={3}
+          value={testEvent}
+          onChange={setTestEvent}
+          placeholder={`{ ${(eventFields.length ? eventFields : ['DocEntry']).slice(0, 3).map((f) => `"${f}": ...`).join(', ')} }`}
+        />
+      )}
       <div>
         <Button size="sm" variant="secondary" icon={<BarChart3 className="w-3.5 h-3.5" />} disabled={busy || !value.trim()} onClick={() => void runPreview()}>
           {busy ? '试算中…' : '按当前数据试算'}

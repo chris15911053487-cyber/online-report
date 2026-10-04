@@ -25,7 +25,7 @@ const MAX_CATALOG_SAMPLES = 3;
 function formatColumns(columns) {
   return (columns || [])
     .map((c) => {
-      const tags = [c.label, ROLE_LABEL[c.role] || '', c.format === 'percent' ? '百分比' : '', c.unit || ''].filter(Boolean);
+      const tags = [c.label, ROLE_LABEL[c.role] || '', c.format === 'percent' ? '比例,1=100%' : '', c.unit || ''].filter(Boolean);
       return tags.length ? `${c.column}(${tags.join(',')})` : c.column;
     })
     .join(', ');

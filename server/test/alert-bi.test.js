@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizeBiCheck, evaluateBiCheck, describeBiCheck, draftAlertRule } = require('../src/alert-bi');
+const { normalizeBiCheck, evaluateBiCheck, describeBiCheck, draftAlertRule, evaluateForEvents, resolveEventRefs, usesEventRefs } = require('../src/alert-bi');
 
 const Q = {
   queryKey: 'sales_by_customer',
@@ -111,4 +111,61 @@ test('compare.mode = prevRow：趋势结果按时间列排序后与上一行比�
   assert.deepEqual(r.matched.map((x) => [x.Period, x.NetSales_prev, x.NetSales_change_pct]), [['2026-03', 100, -40]]);
   assert.match(describeBiCheck(cv.value, TQ), /净销售额较上一行变化率小于等于 -30%/);
   assert.match(normalizeBiCheck({ ...cv.value, compare: { mode: 'prevRow', orderBy: 'Nope' } }, TQ).error, /orderBy/);
+});
+
+// ---- 事件触发 ----
+const DQ = {
+  queryKey: 'wo_defect', label: '工单不良率', enabled: true,
+  params: [{ name: 'docEntry', type: 'number', required: true }],
+  columns: [{ column: 'DocNum', label: '工单号', role: 'attr' }, { column: 'DefectRate', label: '不良率', role: 'measure', format: 'percent' }],
+};
+
+test('事件字段：$event.x 可作参数（算作已给值）；代入事件数据；未知事件字段为 null', () => {
+  const cv = normalizeBiCheck({ queryKey: 'wo_defect', params: { docEntry: '$event.DocEntry' }, conditions: [{ column: 'DefectRate', op: '>', value: 0.05 }] }, DQ);
+  assert.equal(cv.ok, true, cv.error);
+  assert.equal(usesEventRefs(cv.value), true);
+  assert.deepEqual(resolveEventRefs({ docEntry: '$event.DocEntry', x: '$event.Nope', y: 1 }, { DocEntry: 7 }), { docEntry: 7, x: null, y: 1 });
+  assert.match(normalizeBiCheck({ queryKey: 'wo_defect', params: { docEntry: '$event.' }, conditions: [{ column: 'DefectRate', op: '>', value: 0 }] }, DQ).error, /不认识/);
+});
+
+test('evaluateForEvents：每条事件代入参数（相同参数只查一次），命中行合并事件字段（查询列优先）；无事件数据时报错', async () => {
+  const check = normalizeBiCheck({ queryKey: 'wo_defect', params: { docEntry: '$event.DocEntry' }, conditions: [{ column: 'DefectRate', op: '>', value: 0.05 }] }, DQ).value;
+  const calls = [];
+  const run = async (p) => {
+    calls.push(p.docEntry);
+    return { rows: [{ DocNum: `WO${p.docEntry}`, DefectRate: p.docEntry === 1 ? 0.08 : 0.01, StepName: '查询里的' }] };
+  };
+  const rows = await evaluateForEvents(check, DQ, run, [{ DocEntry: 1, StepName: '装配', UserCode: 'U1' }, { DocEntry: 1, StepName: '装配' }, { DocEntry: 2 }], NOW);
+  assert.deepEqual(calls, [1, 2]);
+  assert.deepEqual(rows, [{ DocEntry: 1, StepName: '查询里的', UserCode: 'U1', DocNum: 'WO1', DefectRate: 0.08 }]);
+  await assert.rejects(evaluateBiCheck(check, DQ, run, NOW), /只能用于事件触发规则/);
+  // 定时规则（无事件引用）走原路径
+  const cron = normalizeBiCheck({ queryKey: 'wo_defect', params: { docEntry: 1 }, conditions: [{ column: 'DefectRate', op: '>', value: 0.05 }] }, DQ).value;
+  assert.equal((await evaluateForEvents(cron, DQ, run, null, NOW)).length, 1);
+});
+
+test('draftAlertRule：事件触发——只能选已知事件、字段须存在、定时规则不能用 $event；用示例事件试算', async () => {
+  const base = { name: '报工后不良率超标', cardTitle: '{DocNum} 不良率 {DefectRate}', check: { queryKey: 'wo_defect', params: { docEntry: '$event.DocEntry' }, conditions: [{ column: 'DefectRate', op: '>', value: 0.05 }] } };
+  const replies = [
+    { ...base, trigger: 'cron', cron: '0 9 * * *' },
+    { ...base, trigger: 'event', event: 'order-create', check: { ...base.check, params: { docEntry: '$event.OrderId' } } },
+    { ...base, trigger: 'event', event: 'pro-sign-save', sampleEvent: { DocEntry: 1 } },
+  ];
+  const calls = [];
+  const llm = async (m) => {
+    calls.push(m.map((x) => x.content));
+    return JSON.stringify(replies.shift());
+  };
+  const d = await draftAlertRule({ llm, queries: [DQ], run: async (_q, p) => ({ rows: [{ DocNum: 'WO1', DefectRate: p.docEntry === 1 ? 0.08 : 0 }] }), now: NOW }, '每次报工保存后，如果该工单不良率超过 5% 就提醒');
+  assert.match(calls[0][1], /可用事件：\n- pro-sign-save：合并报工保存.*字段 DocEntry/);
+  assert.match(calls[1].at(-1), /定时规则不能用 \$event/);
+  assert.match(calls[2].at(-1), /事件「order-create」不在可用事件中/);
+  const bad = await draftAlertRule({ llm: async () => JSON.stringify({ ...base, trigger: 'event', event: 'pro-sign-save', check: { ...base.check, params: { docEntry: '$event.OrderId' } } }), queries: [DQ], run: async () => ({ rows: [] }) }, '每次报工后检查不良率').catch((e) => e.message);
+  assert.match(bad, /没有字段：OrderId/);
+  assert.equal(d.rule.trigger_type, 'event');
+  assert.equal(d.rule.event_name, 'pro-sign-save');
+  assert.equal(d.rule.cron_expr, '');
+  assert.equal(d.rule.key_column, 'DocNum');
+  assert.equal(d.preview.matchedCount, 1);
+  assert.deepEqual(d.preview.sampleEvent, { DocEntry: 1 });
 });

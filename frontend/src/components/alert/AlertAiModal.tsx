@@ -12,7 +12,9 @@ export interface AlertDraft {
   rule: {
     name: string
     description: string
+    trigger_type: 'cron' | 'event'
     cron_expr: string
+    event_name: string
     key_column: string
     cooldown_minutes: number
     card_title_template: string
@@ -21,7 +23,7 @@ export interface AlertDraft {
   }
   summary: string
   notes: string
-  preview: BiCheckPreviewData
+  preview: BiCheckPreviewData & { sampleEvent?: Record<string, unknown> | null }
   attempts: number
 }
 
@@ -29,6 +31,7 @@ const EXAMPLES = [
   '本月有客户销售额比上月下降超过 30% 时，每天早上 9 点提醒',
   '今年任何一个月净销售额低于 50 万，每周一 8 点提醒',
   '本月客户销售额前 10 名里有人低于 1 万时提醒',
+  '每次报工保存后，如果该工单的不良率超过 5% 就提醒',
 ]
 
 export default function AlertAiModal({ open, onClose, onAccept }: { open: boolean; onClose: () => void; onAccept: (d: AlertDraft) => void }) {
@@ -119,7 +122,7 @@ export default function AlertAiModal({ open, onClose, onAccept }: { open: boolea
           <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-semibold text-fg">{r.name}</span>
-              <Code>{r.cron_expr}</Code>
+              <Code>{r.trigger_type === 'event' ? `事件 ${r.event_name}` : r.cron_expr}</Code>
               {draft.attempts > 1 && <span className="text-[12px] text-subtle">AI 自我修正 {draft.attempts - 1} 次</span>}
             </div>
             <p className="text-[13px] text-fg-2">
@@ -139,6 +142,11 @@ export default function AlertAiModal({ open, onClose, onAccept }: { open: boolea
               <p className="font-medium text-fg mb-1">{r.card_title_template}</p>
               <p className="whitespace-pre-wrap text-fg-2">{r.card_body_template}</p>
             </div>
+            {draft.preview.sampleEvent && (
+              <p className="text-[12px] text-muted">
+                试算用的示例事件：<Code>{JSON.stringify(draft.preview.sampleEvent)}</Code>（真实事件发生时用实际数据代入）
+              </p>
+            )}
             <BiCheckPreview data={draft.preview} />
           </div>
         )}
