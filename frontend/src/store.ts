@@ -79,6 +79,11 @@ interface AppState {
   setView: (view: ViewName) => void
   /** 点「工作台」入口：有被切走的报表就回到报表，否则回到工作台列表 */
   openWorkbench: () => void
+  /**
+   * 点一级入口（侧栏 / 底部 Tab）：切走前停在子页面的，回到那个子页面（工作台→报表、Agent→上次的 Agent、
+   * 使用说明→上次那篇）；已经在该入口的子页面上时再点，关掉子页面回到列表
+   */
+  openEntry: (view: ViewName) => void
   navigateTo: (view: ViewName) => void
   goBack: () => void
   fetchMenus: () => Promise<void>
@@ -170,7 +175,8 @@ export const useStore = create<AppState>((set, get) => ({
   openAgent: (agentKey: string) => {
     set((s) => ({
       currentAgentKey: agentKey,
-      currentAgentLabel: null,
+      // 同一个 Agent 再次打开时组件保活不重新加载，标题沿用
+      currentAgentLabel: s.currentAgentKey === agentKey ? s.currentAgentLabel : null,
       currentView: 'agent-run',
       viewHistory: [...s.viewHistory, s.currentView],
     }))
@@ -324,6 +330,23 @@ export const useStore = create<AppState>((set, get) => ({
       return
     }
     setView('catalog')
+  },
+
+  openEntry: (view: ViewName) => {
+    const { currentView, currentAgentKey, helpDocSlug } = get()
+    if (view === 'catalog') {
+      get().openWorkbench()
+    } else if (view === 'agent-hub') {
+      if (currentView === 'agent-run') set({ currentView: 'agent-hub', currentAgentKey: null })
+      else if (currentAgentKey && currentView !== 'agent-hub') set({ currentView: 'agent-run' })
+      else get().setView('agent-hub')
+    } else if (view === 'help') {
+      if (currentView === 'help-doc') set({ currentView: 'help', helpDocSlug: null })
+      else if (helpDocSlug && currentView !== 'help') set({ currentView: 'help-doc' })
+      else get().setView('help')
+    } else {
+      get().setView(view)
+    }
   },
 
   navigateTo: (view: ViewName) => {

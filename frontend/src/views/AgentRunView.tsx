@@ -594,7 +594,9 @@ export default function AgentRunView() {
   const [mobileTab, setMobileTab] = useState<'dashboard' | 'chat'>('dashboard')
   // 看板全屏：同一个容器切换为铺满视口，不卸载（保留筛选与下钻）
   const { fullscreen: dashFullscreen, toggle: toggleDashFullscreen, exit: exitDashFullscreen } = usePageFullscreen()
-  const dashVisible = isPc ? rightTab === 'dashboard' : mobileTab === 'dashboard'
+  // 页面保活（MainLayout）：切到别的页面时组件仍在，只是隐藏
+  const pageVisible = useStore((s) => s.currentView === 'agent-run')
+  const dashVisible = pageVisible && (isPc ? rightTab === 'dashboard' : mobileTab === 'dashboard')
   useEffect(() => {
     if (!dashVisible) exitDashFullscreen()
   }, [dashVisible, exitDashFullscreen])

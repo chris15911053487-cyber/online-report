@@ -38,7 +38,8 @@ frontend/src/
 
 - 登录 / 退出 / 修改密码
 - 工作台 + 业务导航（report / pro-sign 路由；早期内置菜单「生产订单 / 菜单设置」已移除，菜单配置在管理后台）
-- 「工作台」入口（侧栏 / 底部 Tab）调 store 的 `openWorkbench()`：从报表页切去其它一级页面时 `setView` 记下 `workbenchResume`，再点工作台回到该报表（只恢复页面，不保留筛选与结果），回过列表或打开别的报表后清空
+- 一级入口（侧栏 / 底部 Tab）调 store 的 `openEntry(view)`：切走前停在子页面的，回到那个子页面——工作台→上次的报表（`workbenchResume`，只恢复页面，不保留筛选与结果）、Agent→上次的 Agent（`currentAgentKey`）、使用说明→上次那篇（`helpDocSlug`）；已在该入口的子页面上再点则关掉子页面回到列表。返回键同样算关掉
+- 页面保活：`MainLayout` 里 AI 助手（`AiChatView`）与 Agent 对话页（`AgentRunView`，`key=currentAgentKey`，同一时间只保留一个 Agent）切走时只隐藏不卸载，对话、看板筛选、进行中的回答都保留；其它页面切走即卸载
 - 动态报表（筛选、分页、图片列+灯箱、长文本展开、扫码）
 - AI 智能分析（`/ai/analyze`）与 **AI 使用说明助手**（`/ai/chat` + `server/help/` 知识库 RAG）
 - 合并报工（Status 四段切换、点选即查询；多选 → 预检 → 接单/完工/暂停/恢复 → 保存；列表行点击订单详情；**同工序多选**、**数量须大于 0** 前端校验）

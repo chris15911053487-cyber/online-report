@@ -115,7 +115,7 @@ cd frontend && npm run lint
 
 - 状态管理：Zustand store (`frontend/src/store.ts`)，含 auth、menus、toast、视图路由、报表/报工上下文
 - 视图切换：Zustand `currentView` 是唯一状态源，不使用 React Router；新增视图须同时改 `types.ts` 的 `ViewName`、`components/MainLayout.tsx` 的视图表与标题、`views/index.ts`，并在 `router.ts` 登记地址
-- URL 路由：`frontend/src/router.ts` 做「状态 ⇄ 地址」同步（`pathFor` / `parsePath`，有单测）。地址如 `/report/:routeKey`、`/agents/:agentKey`、`/admin/bi`；刷新、收藏、浏览器/安卓返回键都可用。打开菜单统一用 store 的 `openMenuItem(menu)`
+- URL 路由：`frontend/src/router.ts` 做「状态 ⇄ 地址」同步（`pathFor` / `parsePath`，有单测）。地址如 `/report/:routeKey`、`/agents/:agentKey`、`/admin/bi`；刷新、收藏、浏览器/安卓返回键都可用。打开菜单统一用 store 的 `openMenuItem(menu)`；侧栏 / 底部 Tab 的一级入口用 `openEntry(view)`（回到切走前的子页面）。`MainLayout` 对 AI 助手和 Agent 对话页做保活（隐藏不卸载），这两个页面里注意隐藏时别对全局产生副作用
 - API 层：`frontend/src/utils/api.ts` 的 `apiUrl()` 统一加 `/api` 前缀（开发时 Vite 代理去掉前缀转发，`API_PROXY_TARGET` 可改代理目标）；JWT 存 localStorage key `online_report_token`
 - Agent 流式：`utils/agentStream.ts`；图表统一用 ECharts（`components/ChartRenderer.tsx`）
 - 外壳：`MainLayout` —— PC（≥1024px，`hooks/useMediaQuery.ts` 的 `useIsPc`）左侧 `Sidebar` + 面包屑顶栏；手机顶栏 + `BottomNav`。管理入口集中在「管理后台」`AdminHubView`（入口清单 `components/adminEntries.ts`）

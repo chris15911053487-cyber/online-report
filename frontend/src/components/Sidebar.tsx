@@ -27,7 +27,7 @@ interface NavItem {
 }
 
 export default function Sidebar({ collapsed }: { collapsed: boolean }) {
-  const { currentView, setView, openWorkbench, navMenus, activeMenu, openMenuItem, messageSummary, user } = useStore()
+  const { currentView, setView, openEntry, navMenus, activeMenu, openMenuItem, messageSummary, user } = useStore()
   const unread = messageSummary?.totalUnread || 0
   const isAdmin = isAdminUser(user)
   const reportViews: ViewName[] = ['dynamic-report', 'report-row-detail', 'pro-sign-receive', 'pro-sign-order-detail', 'work-registration']
@@ -43,8 +43,8 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
   }, [navMenus, activeMenu])
 
   const main: NavItem[] = [
-    { key: 'catalog', label: '工作台', icon: Home, active: currentView === 'catalog', onClick: openWorkbench, href: '/', dataTab: 'catalog' },
-    { key: 'agent', label: 'Agent', icon: Bot, active: currentView === 'agent-hub' || currentView === 'agent-run', onClick: () => setView('agent-hub'), href: '/agents', dataTab: 'agent-hub' },
+    { key: 'catalog', label: '工作台', icon: Home, active: currentView === 'catalog', onClick: () => openEntry('catalog'), href: '/', dataTab: 'catalog' },
+    { key: 'agent', label: 'Agent', icon: Bot, active: currentView === 'agent-hub' || currentView === 'agent-run', onClick: () => openEntry('agent-hub'), href: '/agents', dataTab: 'agent-hub' },
     { key: 'ai', label: 'AI 助手', icon: BrainCircuit, active: currentView === 'ai', onClick: () => setView('ai'), href: '/ai', dataTab: 'ai' },
     { key: 'messages', label: '消息', icon: MessageCircle, active: currentView === 'messages', onClick: () => setView('messages'), href: '/messages', badge: unread, dataTab: 'messages' },
   ]
@@ -58,7 +58,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
   }))
   const bottom: NavItem[] = [
     ...(isAdmin ? [{ key: 'admin', label: '管理后台', icon: Shield, active: ADMIN_VIEWS.has(currentView), onClick: () => setView('admin'), href: '/admin' }] : []),
-    { key: 'help', label: '使用说明', icon: BookOpen, active: currentView === 'help' || currentView === 'help-doc', onClick: () => setView('help'), href: '/help', dataTab: 'help' as ViewName },
+    { key: 'help', label: '使用说明', icon: BookOpen, active: currentView === 'help' || currentView === 'help-doc', onClick: () => openEntry('help'), href: '/help', dataTab: 'help' as ViewName },
     { key: 'settings', label: '设置', icon: Settings, active: currentView === 'settings', onClick: () => setView('settings'), href: '/settings', dataTab: 'settings' as ViewName },
   ]
 

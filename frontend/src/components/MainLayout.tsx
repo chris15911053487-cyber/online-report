@@ -120,6 +120,7 @@ export default function MainLayout() {
     proSignMode,
     reportDetailRouteKey,
     currentAgentLabel,
+    currentAgentKey,
     helpDocTitle,
     fetchMessageSummary,
     messageSummary,
@@ -188,6 +189,8 @@ export default function MainLayout() {
           : null
 
   const aiChatVisible = currentView === 'ai'
+  /** Agent 对话页保活：切到别的页面只隐藏，对话、看板筛选、进行中的回答都保留；关掉（返回 / 再点 Agent 入口）或换 Agent 时才重建 */
+  const agentRunVisible = currentView === 'agent-run' && !!currentAgentKey
   const CurrentView = viewComponents[currentView] || CatalogView
 
   /** 合并报工页仍挂载列表报表（display:none），避免返回时 DynamicReportView 卸载导致筛选条件被初始化逻辑重置 */
@@ -251,7 +254,12 @@ export default function MainLayout() {
           >
             <AiChatView />
           </div>
-          {!dynamicReportVisible && !aiChatVisible && <CurrentView />}
+          {currentAgentKey && (
+            <div className={agentRunVisible ? undefined : 'hidden'} aria-hidden={!agentRunVisible}>
+              <AgentRunView key={currentAgentKey} />
+            </div>
+          )}
+          {!dynamicReportVisible && !aiChatVisible && !agentRunVisible && <CurrentView />}
         </main>
       </div>
 
