@@ -201,22 +201,32 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 
 给 Agent 关联一块固定样式的看板：进入 Agent 右侧即显示（读缓存，秒开），不再自动执行 `defaultPrompt`。看到疑问可以就地下钻，或点击数字/图形让 AI 解读、继续追问。
 
-**三处分开维护**（迁移脚本 `server/sql/migrate-bi.sql`，服务启动自动执行）：
+**三层分开维护**：查询（数据与口径）→ 图表（怎么展示，可复用）→ 看板（组合与排版）。迁移脚本 `server/sql/migrate-bi.sql`，服务启动自动执行。
 
 | 维护处 | 表 / 入口 | 内容 |
 |------|------|------|
-| 查询库 | `bi_queries`；设置 →「BI 看板管理 · 查询库」 | 只读 SQL（`@参数` 绑定）、参数定义、**输出列语义**、口径说明、示例问法、缓存秒数、可见角色 |
-| 看板 | `bi_dashboards`；「BI 看板管理 · 看板」 | 全局筛选 + 卡片（`kpi` / `bar` / `line` / `pie` / `table`），卡片只引用 `queryKey`，不含 SQL |
+| 查询库 | `bi_queries`；「BI 看板管理 · ① 查询库」 | 只读 SQL（`@参数` 绑定）、参数定义、**输出列语义**、口径说明、示例问法、缓存秒数、可见角色 |
+| 图表 | `bi_charts`；「BI 看板管理 · ② 图表」 | 引用一个查询 + 类型（`kpi` / `bar` / `line` / `pie` / `table`）+ 列映射 + 下钻 + 默认尺寸；参数只写固定值，可被多个看板复用 |
+| 看板 | `bi_dashboards`；「BI 看板管理 · ③ 看板」 | 全局筛选 + 选哪些图表 + 排版；卡片只是图表引用，不含 SQL 与列映射 |
 | Agent | `agents.dashboard_key`；「Agent 配置 · BI 看板」 | 一个 Agent 最多关联一个看板 |
 
 卡片、卡片内下钻、Agent 追问（`run_named_query`）共用同一份命名查询，看板上的数与 AI 说的数口径一致。
 
-**配置流程**（管理后台 →「BI 看板管理」，全部表单化，高级用户仍可切到 JSON）：
+**参数从哪来**（看板引用展开成完整卡片时决定，`bi-charts.js` 的 `resolveCard`，前端 `utils/biAdmin.ts` 同规则）：
+
+1. 看板卡片上的覆盖（`$filter.xxx` 或固定值，一般不用写）
+2. 图表里写的固定值
+3. 看板里**同名筛选**自动提供（大小写不敏感）——例如查询参数 `@period` 与看板筛选 `period` 自动对上
+4. 都没有则用查询参数的默认值；必填参数没有任何来源时，保存看板会报错
+
+下钻时，上一级点中行的列（`bind`）优先于以上来源。
+
+**配置流程**（管理后台 →「BI 看板管理」，全部表单化，看板另可切到 JSON）：
 
 1. **查询库**：写 SQL → `@参数` 自动识别成参数表（类型 / 必填 / 默认值）→ 试运行（按参数类型生成输入框）→ **自动识别输出列**（按数据库列类型和列名预填角色：维度 / 度量 / 时间 / 属性，度量预填格式）→ 核对中文名、单位、缩放 → 填「回答什么问题」「示例问法」（AI 据此选查询）
-2. **看板**：添加卡片 → 选查询（参数自动绑定同名筛选，维度/度量按类型自动预选）→ 列从输出列下拉选，格式/单位/缩放不填即**继承列语义** → 配下钻（参数优先从上一级同名列取值）→ 右侧**实时预览**真实数据；「整板预览」按实际栅格排版
-3. 卡片查询需要但没有来源的参数，会提示「建议建成筛选」，一键生成筛选（期间 → 月份、日期参数 → 日期）并绑定到所有卡片；筛选改名 / 删除同步更新引用
-4. **引用完整性**：保存看板时校验参数存在、必填参数有来源、用到的列在查询输出列中（未登记输出列的旧查询跳过列检查）；修改查询后若引用它的看板对不上，保存成功但列出受影响的卡片
+2. **图表**：选查询 → 选类型，维度 / 度量按列语义自动预选 → 列从输出列下拉选，格式 / 单位 / 缩放不填即**继承列语义** → 需要时把个别参数写成固定值（如 Top N）→ 配下钻（参数优先从上一级同名列取值）→ 右侧**实时预览**（未固定的参数临时生成筛选条）
+3. **看板**：从下拉添加图表 → 调标题 / 宽高 → 图表需要但没有来源的参数会提示「建议建成筛选」，一键生成（期间 → 月份、日期参数 → 日期）；筛选改名 / 删除同步更新卡片上的覆盖 → 单卡与「整板预览」用真实数据
+4. **引用完整性**：保存图表时校验参数存在、用到的列在查询输出列中；保存看板时展开后再查必填参数是否有来源。修改查询 / 图表后若下游对不上，保存成功但列出受影响的图表与看板卡片。删除时：查询被图表用到、图表被看板用到、看板被 Agent 关联，均不能删
 
 **界面**：PC 左侧对话、右侧「📊 看板 / 当前结果」两个页签（回答出来后自动切到结果）；移动端顶部「看板 / 对话」页签。点击 KPI 数字或图表元素弹出通用浮层：
 
@@ -224,18 +234,25 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 - **⤵ 下钻到 xx**：按卡片配置的 `drill` 逐级展开（不经 AI），面包屑返回
 - **问点别的…**：上下文以胶囊挂在输入框上方，用户补一句话再发（主模型）
 
-**卡片配置示例**（`cards` 数组中的一项）：
+**图表配置示例**（`POST /admin/bi/charts`）与看板引用：
 
 ```json
 {
-  "id": "ar_by_customer", "type": "bar", "title": "应收 · 按客户",
-  "queryKey": "fin_ar_by_customer", "params": { "period": "$filter.period" },
-  "encoding": { "dimension": "CardName", "value": "Balance", "scale": 10000, "unit": "万", "horizontal": true, "topN": 10 },
-  "drill": [{ "queryKey": "fin_ar_docs", "label": "单据", "bind": { "cardCode": "CardCode" },
-              "params": { "period": "$filter.period" }, "type": "table" }],
-  "layout": { "w": 8, "h": 2 }
+  "chartKey": "ar_by_customer", "label": "应收 · 按客户", "type": "bar",
+  "queryKey": "fin_ar_by_customer", "params": { "top": 10 },
+  "encoding": { "dimension": "CardName", "value": "Balance", "scale": 10000, "unit": "万", "horizontal": true },
+  "drill": [{ "queryKey": "fin_ar_docs", "label": "单据", "bind": { "cardCode": "CardCode" }, "type": "table" }],
+  "size": { "w": 8, "h": 2 }
 }
 ```
+
+```json
+{ "dashboardKey": "finance", "label": "财务看板",
+  "filters": [{ "name": "period", "label": "期间", "type": "month", "default": "$thisMonth" }],
+  "cards": [{ "chartKey": "ar_by_customer" }, { "chartKey": "ar_kpi", "title": "本部应收", "params": { "company": "A" }, "layout": { "w": 3, "h": 1 } }] }
+```
+
+上例 `period` 没写在图表和卡片里，由看板同名筛选自动提供（下钻查询的 `period` 同理）。
 
 `encoding` 还支持 `values`（多系列）、`series`（长表透视）、`compare`（KPI 对比列，显示环比）、`columns`（表格列与格式）、`format`（`number` / `money` / `percent` / `integer`）。筛选默认值可用 `$today` `$yesterday` `$thisMonth` `$lastMonth` `$monthStart` `$yearStart`。
 

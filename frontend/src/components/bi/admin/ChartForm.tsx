@@ -1,14 +1,14 @@
 /**
- * 看板卡片编辑：选查询 → 参数取值来源（筛选 / 固定值 / 上一级列）→ 展示（列从查询的输出列下拉选）→ 布局 → 下钻。
+ * 图表表单：选查询 → 参数（固定值，或留给看板同名筛选）→ 展示（列从查询的输出列下拉选）→ 默认尺寸 → 下钻。
+ * 图表不认识看板：没写固定值的参数，放进看板后由同名筛选自动提供。
  * 格式 / 单位 / 缩放不填时继承查询列语义（占位符里显示继承值）。
  */
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
-import type { BiCard, BiCardType, BiColumnRole, BiColumnSemantic, BiDrillLevel, BiEncoding, BiFilter, BiFormat, BiScalar } from '../../../utils/bi'
+import type { BiCardType, BiChartDef, BiColumnRole, BiColumnSemantic, BiDrillLevel, BiEncoding, BiFormat, BiScalar } from '../../../utils/bi'
 import {
   COLUMN_ROLE_LABEL,
   FORMAT_LABEL,
   autoBindDrill,
-  autoBindParams,
   cleanEncoding,
   columnOptionLabel,
   defaultEncoding,
@@ -111,14 +111,12 @@ function Row({ label, children, hint }: { label: string; children: React.ReactNo
 
 function ParamBindings({
   query,
-  filters,
   params,
   bind,
   sourceColumns,
   onChange,
 }: {
   query: QueryOption
-  filters: BiFilter[]
   params: Record<string, BiScalar>
   /** 下钻：参数从上一级点中行的列取值 */
   bind?: Record<string, string>
@@ -132,8 +130,7 @@ function ParamBindings({
   const setSource = (name: string, src: string) => {
     const nextParams = Object.fromEntries(Object.entries(params).filter(([k]) => k.toLowerCase() !== name.toLowerCase()))
     const nextBind = bind ? Object.fromEntries(Object.entries(bind).filter(([k]) => k.toLowerCase() !== name.toLowerCase())) : undefined
-    if (src.startsWith('filter:')) nextParams[name] = `$filter.${src.slice(7)}`
-    else if (src === 'fixed') nextParams[name] = ''
+    if (src === 'fixed') nextParams[name] = ''
     else if (src.startsWith('col:') && nextBind) nextBind[name] = src.slice(4)
     onChange(nextParams, nextBind)
   }
@@ -153,7 +150,7 @@ function ParamBindings({
               {required && <span className="text-danger"> *</span>}
             </span>
             <select className={compactInputClass} aria-label={`参数 ${p.name} 取值来源`} value={key} onChange={(e) => setSource(p.name, e.target.value)}>
-              <option value="none">{p.default != null ? `不传（默认 ${String(p.default)}）` : '不传'}</option>
+              <option value="none">{p.default != null ? `看板同名筛选（无则默认 ${String(p.default)}）` : '看板同名筛选提供'}</option>
               {bind && sourceColumns && sourceColumns.length > 0 && (
                 <optgroup label="上一级点中行的列">
                   {sourceColumns.map((c) => (
@@ -164,16 +161,7 @@ function ParamBindings({
                 </optgroup>
               )}
               {bind && sourceColumns?.length === 0 && bv && <option value={`col:${bv[1]}`}>上一级列：{bv[1]}</option>}
-              {filters.length > 0 && (
-                <optgroup label="全局筛选">
-                  {filters.map((f) => (
-                    <option key={f.name} value={`filter:${f.name}`}>
-                      筛选：{f.label}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              {src.kind === 'filter' && !filters.some((f) => f.name === src.filter) && <option value={key}>筛选：{src.filter}（不存在）</option>}
+              {src.kind === 'filter' && <option value={key}>筛选：{src.filter}（图表里不能引用筛选，请改掉）</option>}
               <option value="fixed">固定值</option>
             </select>
             {src.kind === 'fixed' ? (
@@ -351,49 +339,47 @@ function SubHeading({ children }: { children: React.ReactNode }) {
   return <h4 className="text-[12px] font-semibold text-muted uppercase tracking-wide mt-1">{children}</h4>
 }
 
-export default function CardEditor({
-  card,
+export default function ChartForm({
+  chart,
   queries,
-  filters,
   problems,
   onChange,
 }: {
-  card: BiCard
+  chart: BiChartDef
   queries: QueryOption[]
-  filters: BiFilter[]
   problems: string[]
-  onChange: (c: BiCard) => void
+  onChange: (c: BiChartDef) => void
 }) {
   const byKey = new Map(queries.map((q) => [q.queryKey, q]))
-  const query = byKey.get(card.queryKey)
+  const query = byKey.get(chart.queryKey)
   const cols = query?.columns ?? []
-  const set = (p: Partial<BiCard>) => onChange({ ...card, ...p })
+  const set = (p: Partial<BiChartDef>) => onChange({ ...chart, ...p })
 
   const changeType = (type: BiCardType) => {
-    const layout = type === 'kpi' ? { w: Math.min(card.layout.w, 4), h: 1 } : card.type === 'kpi' ? { w: 6, h: 2 } : card.layout
-    set({ type, encoding: defaultEncoding(type, cols, cleanEncoding(type, card.encoding)), layout })
+    const size = type === 'kpi' ? { w: Math.min(chart.size.w, 4), h: 1 } : chart.type === 'kpi' ? { w: 6, h: 2 } : chart.size
+    set({ type, encoding: defaultEncoding(type, cols, cleanEncoding(type, chart.encoding)), size })
   }
   const changeQuery = (queryKey: string) => {
     const q = byKey.get(queryKey)
     set({
       queryKey,
-      title: card.title || q?.label || '',
-      params: autoBindParams(q?.params ?? [], filters, {}),
-      encoding: defaultEncoding(card.type, q?.columns ?? [], {}),
+      label: chart.label || q?.label || '',
+      params: {},
+      encoding: defaultEncoding(chart.type, q?.columns ?? [], {}),
     })
   }
 
   // 下钻
-  const sourceColsAt = (i: number): BiColumnSemantic[] => (i === 0 ? cols : (byKey.get(card.drill[i - 1].queryKey)?.columns ?? []))
-  const setLevel = (i: number, p: Partial<BiDrillLevel>) => set({ drill: card.drill.map((d, j) => (j === i ? { ...d, ...p } : d)) })
+  const sourceColsAt = (i: number): BiColumnSemantic[] => (i === 0 ? cols : (byKey.get(chart.drill[i - 1].queryKey)?.columns ?? []))
+  const setLevel = (i: number, p: Partial<BiDrillLevel>) => set({ drill: chart.drill.map((d, j) => (j === i ? { ...d, ...p } : d)) })
   const changeLevelQuery = (i: number, queryKey: string) => {
     const q = byKey.get(queryKey)
-    const auto = autoBindDrill(q?.params ?? [], sourceColsAt(i).map((c) => c.column), filters, { bind: {}, params: {} })
-    const d = card.drill[i]
+    const auto = autoBindDrill(q?.params ?? [], sourceColsAt(i).map((c) => c.column), [], { bind: {}, params: {} })
+    const d = chart.drill[i]
     setLevel(i, { queryKey, label: d.label || q?.label || '', ...auto, encoding: defaultEncoding(d.type, q?.columns ?? [], {}) })
   }
   const moveLevel = (i: number, dir: -1 | 1) => {
-    const next = [...card.drill]
+    const next = [...chart.drill]
     const j = i + dir
     if (j < 0 || j >= next.length) return
     ;[next[i], next[j]] = [next[j], next[i]]
@@ -415,39 +401,39 @@ export default function CardEditor({
       <div className="flex flex-col gap-2">
         <SubHeading>数据</SubHeading>
         <Row label="查询">
-          <QuerySelect ariaLabel="卡片查询" queries={queries} value={card.queryKey} onChange={changeQuery} />
+          <QuerySelect ariaLabel="图表查询" queries={queries} value={chart.queryKey} onChange={changeQuery} />
         </Row>
         {query?.description && <p className="text-[11.5px] text-subtle pl-[7.5rem] -mt-1">{query.description}</p>}
         {query && (
-          <ParamBindings query={query} filters={filters} params={card.params} onChange={(params) => set({ params })} />
+          <ParamBindings query={query} params={chart.params} onChange={(params) => set({ params })} />
         )}
       </div>
 
       <div className="flex flex-col gap-2">
         <SubHeading>展示</SubHeading>
         <Row label="类型">
-          <Segmented size="sm" options={CARD_TYPES} value={card.type} onChange={changeType} />
+          <Segmented size="sm" options={CARD_TYPES} value={chart.type} onChange={changeType} />
         </Row>
         <div className="grid grid-cols-2 gap-2">
           <Field label="标题">
-            <Input value={card.title} onChange={(e) => set({ title: e.target.value })} placeholder="应收账款" />
+            <Input value={chart.label} onChange={(e) => set({ label: e.target.value })} placeholder="客户销售额 Top 10" />
           </Field>
           <Field label="副标题">
-            <Input value={card.subtitle || ''} onChange={(e) => set({ subtitle: e.target.value || undefined })} placeholder="可选" />
+            <Input value={chart.subtitle || ''} onChange={(e) => set({ subtitle: e.target.value || undefined })} placeholder="可选" />
           </Field>
         </div>
-        {query && <EncodingFields type={card.type} enc={card.encoding} columns={cols} onChange={(encoding) => set({ encoding })} />}
-        <Row label="宽度 / 高度">
+        {query && <EncodingFields type={chart.type} enc={chart.encoding} columns={cols} onChange={(encoding) => set({ encoding })} />}
+        <Row label="默认尺寸" hint="放进看板时的宽 / 高，看板里可再调整">
           <div className="grid grid-cols-2 gap-2">
-            <select className={compactInputClass} aria-label="宽度" value={card.layout.w} onChange={(e) => set({ layout: { ...card.layout, w: Number(e.target.value) } })}>
-              {!WIDTHS.some((w) => w.value === card.layout.w) && <option value={card.layout.w}>{card.layout.w}/12</option>}
+            <select className={compactInputClass} aria-label="宽度" value={chart.size.w} onChange={(e) => set({ size: { ...chart.size, w: Number(e.target.value) } })}>
+              {!WIDTHS.some((w) => w.value === chart.size.w) && <option value={chart.size.w}>{chart.size.w}/12</option>}
               {WIDTHS.map((w) => (
                 <option key={w.value} value={w.value}>
                   {w.label}
                 </option>
               ))}
             </select>
-            <select className={compactInputClass} aria-label="高度" value={card.layout.h} disabled={card.type === 'kpi'} onChange={(e) => set({ layout: { ...card.layout, h: Number(e.target.value) } })}>
+            <select className={compactInputClass} aria-label="高度" value={chart.size.h} disabled={chart.type === 'kpi'} onChange={(e) => set({ size: { ...chart.size, h: Number(e.target.value) } })}>
               {HEIGHTS.map((h) => (
                 <option key={h.value} value={h.value}>
                   {h.label}
@@ -461,27 +447,27 @@ export default function CardEditor({
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <SubHeading>下钻（点中后逐级展开）</SubHeading>
-          <Button size="sm" variant="ghost" icon={<Plus className="w-3.5 h-3.5" />} disabled={card.drill.length >= 5} onClick={() => set({ drill: [...card.drill, newDrillLevel()] })}>
+          <Button size="sm" variant="ghost" icon={<Plus className="w-3.5 h-3.5" />} disabled={chart.drill.length >= 5} onClick={() => set({ drill: [...chart.drill, newDrillLevel()] })}>
             添加一级
           </Button>
         </div>
-        {card.drill.length === 0 && <p className="text-[12px] text-subtle">未配置下钻：点击只用于 AI 解读</p>}
-        {card.drill.map((d, i) => {
+        {chart.drill.length === 0 && <p className="text-[12px] text-subtle">未配置下钻：点击只用于 AI 解读</p>}
+        {chart.drill.map((d, i) => {
           const q = byKey.get(d.queryKey)
           return (
             <div key={i} className="rounded-xl border border-line p-3 flex flex-col gap-2 bg-surface-2/40">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[12.5px] font-medium text-fg-2">
-                  第 {i + 1} 级 · 点中「{i === 0 ? card.title || '卡片' : card.drill[i - 1].label || `第 ${i} 级`}」的一行后
+                  第 {i + 1} 级 · 点中「{i === 0 ? chart.label || '图表' : chart.drill[i - 1].label || `第 ${i} 级`}」的一行后
                 </span>
                 <div className="flex items-center">
                   <IconButton label="上移" disabled={i === 0} onClick={() => moveLevel(i, -1)}>
                     <ArrowUp className="w-3.5 h-3.5" />
                   </IconButton>
-                  <IconButton label="下移" disabled={i === card.drill.length - 1} onClick={() => moveLevel(i, 1)}>
+                  <IconButton label="下移" disabled={i === chart.drill.length - 1} onClick={() => moveLevel(i, 1)}>
                     <ArrowDown className="w-3.5 h-3.5" />
                   </IconButton>
-                  <IconButton label="删除这一级" className="hover:text-danger" onClick={() => set({ drill: card.drill.filter((_, j) => j !== i) })}>
+                  <IconButton label="删除这一级" className="hover:text-danger" onClick={() => set({ drill: chart.drill.filter((_, j) => j !== i) })}>
                     <Trash2 className="w-3.5 h-3.5" />
                   </IconButton>
                 </div>
@@ -495,7 +481,6 @@ export default function CardEditor({
               {q && (
                 <ParamBindings
                   query={q}
-                  filters={filters}
                   params={d.params}
                   bind={d.bind}
                   sourceColumns={sourceColsAt(i)}

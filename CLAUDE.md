@@ -96,13 +96,14 @@ cd frontend && npm run lint
 
 ### BI 看板（第一期已完成，见 README「BI 看板」）
 
-- 三处分开维护：查询库 `bi_queries`（`bi-queries.js`，只读 SQL + 参数 + 维度 + 口径 + 缓存 + 角色）、看板 `bi_dashboards`（`bi-dashboards.js`，筛选 + 卡片，卡片只引用 `queryKey`）、`agents.dashboard_key`
+- 三层分开维护：查询库 `bi_queries`（`bi-queries.js`，只读 SQL + 参数 + 列语义 + 口径 + 缓存 + 角色）→ 图表 `bi_charts`（`bi-charts.js`，引用一个 queryKey + 类型 + encoding + 下钻 + 默认尺寸，参数只写固定值，可被多个看板复用）→ 看板 `bi_dashboards`（`bi-dashboards.js`，筛选 + 卡片；卡片只是图表引用 `{ id, chartKey, title?, params?, layout? }`）；Agent 用 `agents.dashboard_key` 关联看板
+- 展开：`bi-charts.js` 的 `resolveCard` / `expandDashboard` 把看板引用展开成完整卡片（参数优先级：看板覆盖 > 图表固定值 > **同名筛选自动绑定** > 查询默认；下钻 bind 最优先）。运行时接口、前端渲染、AI 查询目录只认展开后的卡片（`loadExpandedDashboard`）；前端 `utils/biAdmin.ts` 的 `resolveCard` 须与之一致
 - 执行与缓存：`bi-exec.js`（缓存 key 含角色集合）；路由 `server/src/routes/bi.js`
 - 卡片、下钻、Agent 追问（`run_named_query`）共用同一命名查询，保证口径一致
 - 前端：`components/bi/`（`DashboardPanel`、`BiCardView`、`BiChart`、`BiPickPopover`）、`utils/bi*.ts`（结构须与后端校验保持一致）
 - 查询库是语义层：`bi_queries.columns_json`（输出列语义：role = dimension / measure / time / attr，format / unit / scale）+ `sample_questions_json`；维度 `dimensions` 由 dimension / time 列推导。卡片 encoding 没写的格式/单位/列名在前端经 `withColumnSemantics()` 继承列语义
-- 引用完整性：`bi-dashboards.js` 的 `checkDashboardRefs()`（参数存在、必填参数有来源、encoding / bind 的列在输出列中）保存看板时校验；保存查询时对引用它的看板做影响分析（返回 `warnings`）。前端 `utils/biAdmin.ts` 的 `cardProblems()` 规则须与之一致
-- 管理页 `views/BiAdminView.tsx`（列表）+ `components/bi/admin/`（`QueryEditor`：SQL → 自动识别参数 → 试运行识别输出列 → 标注语义；`DashboardEditor` / `CardEditor`：筛选表格、列下拉、参数来源绑定、下钻、实时预览、JSON 模式）。预览复用 `DashboardPanel.tsx` 导出的 `DashboardView`
+- 引用完整性：`bi-charts.js` 的 `checkCardRefs()`（参数存在、必填参数有来源、encoding / bind 的列在输出列中）；保存图表时不要求必填参数有来源（由看板同名筛选提供），保存看板时展开后完整检查；保存查询 / 图表时对下游做影响分析（返回 `warnings`）。前端 `utils/biAdmin.ts` 的 `cardProblems()` / `chartProblems()` / `refProblems()` 规则须与之一致
+- 管理页 `views/BiAdminView.tsx`（查询 / 图表 / 看板三个页签）+ `components/bi/admin/`（`QueryEditor`：SQL → 自动识别参数 → 试运行识别输出列 → 标注语义；`ChartEditor` + `ChartForm`：选查询、列下拉、固定参数、下钻、实时预览；`DashboardEditor`：筛选表格、添加图表、参数来源展示与覆盖、整板预览、JSON 模式）。预览复用 `DashboardPanel.tsx` 导出的 `DashboardView`
 
 ### IM 与消息
 

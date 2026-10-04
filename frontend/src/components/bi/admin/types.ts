@@ -1,5 +1,5 @@
 /** BI 管理界面共用的数据结构（与 /admin/bi/* 接口一致） */
-import type { BiCard, BiColumnSemantic, BiFilter, BiParamDef } from '../../../utils/bi'
+import type { BiCardRef, BiChartDef, BiColumnSemantic, BiFilter, BiParamDef } from '../../../utils/bi'
 
 export interface BiQueryAdmin {
   queryKey: string
@@ -17,17 +17,23 @@ export interface BiQueryAdmin {
   updatedAt?: string | null
 }
 
+export interface BiChartAdmin extends BiChartDef {
+  usedByDashboards?: string[]
+  updatedAt?: string | null
+}
+
 export interface BiDashboardAdmin {
   dashboardKey: string
   label: string
   description: string
   filters: BiFilter[]
-  cards: BiCard[]
+  /** 卡片 = 对图表库的引用 */
+  cards: BiCardRef[]
   enabled: boolean
   usedByAgents?: string[]
 }
 
-/** 看板编辑器可引用的查询（公开元数据，不含 SQL） */
+/** 图表 / 看板编辑器可引用的查询（公开元数据，不含 SQL） */
 export interface QueryOption {
   queryKey: string
   label: string

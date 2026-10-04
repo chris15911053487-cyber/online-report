@@ -91,10 +91,11 @@ function resolveParams(defs, input) {
   return out;
 }
 
-function sqlTypeFor(def) {
+/** 整数值绑 BigInt（TOP (@n)、OFFSET/FETCH 等只接受整数）；其余数字绑 Decimal，避免浮点误差 */
+function sqlTypeFor(def, value) {
   switch (def.type) {
     case 'number':
-      return sql.Decimal(38, 10);
+      return Number.isSafeInteger(Number(value)) ? sql.BigInt : sql.Decimal(38, 10);
     case 'bool':
       return sql.Bit;
     case 'date':
@@ -111,7 +112,8 @@ async function executeQuery(pool, query, params, opts = {}) {
   request.timeout = envInt('BI_QUERY_TIMEOUT_MS', 30000, 1000);
   for (const def of query.params || []) {
     const v = params[def.name];
-    request.input(def.name, sqlTypeFor(def), def.type === 'number' && v != null ? String(v) : v);
+    const isInt = def.type === 'number' && v != null && Number.isSafeInteger(Number(v));
+    request.input(def.name, sqlTypeFor(def, v), def.type === 'number' && v != null ? (isInt ? Number(v) : String(v)) : v);
   }
   // hardCap = maxRows + 1：只需知道「是否超出」，不为统计总数扫完大结果集
   const r = await runSqlLimited(request, query.sqlText, { limit: maxRows, hardCap: maxRows + 1 });

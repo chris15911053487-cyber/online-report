@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 const { validateQueryInput, normalizeColumns } = require('../src/bi-queries');
 const { validateDashboardInput, checkDashboardRefs } = require('../src/bi-dashboards');
+const { validateChartInput } = require('../src/bi-charts');
 
 const baseQuery = {
   queryKey: 'fin_ar',
@@ -59,8 +60,12 @@ const goodCard = {
 };
 const filters = [{ name: 'period', label: '期间', type: 'month' }];
 
-test('引用完整性：配置正确时通过', () => {
-  const r = validateDashboardInput({ dashboardKey: 'fin', label: '财务', filters, cards: [goodCard] }, queries);
+test('引用完整性：配置正确时通过（图表 → 看板引用，期间由同名筛选自动提供）', () => {
+  const { params: _p, drill, ...rest } = goodCard;
+  const chart = validateChartInput({ ...rest, chartKey: 'ar_by_cust', label: '按客户', drill: [{ ...drill[0], params: {} }] }, queries);
+  assert.equal(chart.ok, true, chart.error);
+  const charts = new Map([['ar_by_cust', chart.value]]);
+  const r = validateDashboardInput({ dashboardKey: 'fin', label: '财务', filters, cards: [{ chartKey: 'ar_by_cust' }] }, { charts, queries });
   assert.equal(r.ok, true, r.error);
 });
 
@@ -80,9 +85,10 @@ test('引用完整性：列不存在、参数不存在、必填参数无来源�
   assert.doesNotMatch(text, /cardCode.*没有取值来源/);
 });
 
-test('引用完整性：未登记输出列的旧查询跳过列检查；传 Set 时不做完整性检查', () => {
+test('引用完整性：未登记输出列的旧查询跳过列检查；只传 Set 时不做完整性检查', () => {
   const card = { id: 'k', type: 'kpi', title: 'K', queryKey: 'legacy', encoding: { value: 'Anything' } };
   assert.deepEqual(checkDashboardRefs({ cards: [card] }, queries), []);
-  const bad = { ...goodCard, encoding: { dimension: 'Customer', value: 'Balance' } };
-  assert.equal(validateDashboardInput({ dashboardKey: 'fin', label: '财务', filters, cards: [bad] }, new Set(['fin_ar', 'fin_docs'])).ok, true);
+  const bad = { ...goodCard, label: '按客户', chartKey: 'x', encoding: { dimension: 'Customer', value: 'Balance' }, params: {}, drill: [{ ...goodCard.drill[0], params: {} }] };
+  assert.equal(validateChartInput(bad, new Set(['fin_ar', 'fin_docs'])).ok, true);
+  assert.match(validateChartInput(bad, queries).error, /Customer/);
 });

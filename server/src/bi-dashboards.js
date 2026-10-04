@@ -1,26 +1,24 @@
 /**
  * BI 看板：bi_dashboards 的校验与增删改查，以及按用户角色裁剪。
  *
- * 看板只描述「展示什么」：全局筛选 + 卡片；卡片通过 queryKey 引用查询库，不含 SQL。
+ * 看板只描述「组合与排版」：全局筛选 + 卡片；卡片引用图表库（chartKey），图表再引用查询库，看板不含 SQL 与列映射。
+ * 运行时经 bi-charts.js expandDashboard() 展开为完整卡片。
  * 访问控制：看板本身不设角色，经由关联的 Agent（canUseAgent）进入；
  * 每张卡片 / 每级下钻再按其查询的 roles 过滤——用户看不到无权查询的卡片。
  */
 const { sql } = require('./db');
 const { SQL_CHINA_LOCAL_NOW_EXPR } = require('./china-datetime');
-const { canUseQuery, toPublicQuery } = require('./bi-queries');
+const { canUseQuery, toPublicQuery, listAllQueries } = require('./bi-queries');
+const { normalizeParamMap, checkCardRefs, expandDashboard, listAllCharts } = require('./bi-charts');
 
 const DASHBOARD_KEY_RE = /^[a-z][a-z0-9_-]{0,63}$/;
 const CARD_ID_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
-const COLUMN_RE = /^[^\s[\]"'`;]{1,128}$/;
-const CARD_TYPES = new Set(['kpi', 'bar', 'line', 'pie', 'table']);
 const FILTER_TYPES = new Set(['month', 'date', 'string', 'select']);
-const FORMATS = new Set(['number', 'money', 'percent', 'integer']);
 // 默认值支持的动态记号（前端按当天解析）
 const DEFAULT_TOKENS = new Set(['$today', '$yesterday', '$thisMonth', '$lastMonth', '$monthStart', '$yearStart']);
 const MAX_CARDS = 40;
 const MAX_FILTERS = 10;
-const MAX_DRILL = 5;
 const MAX_OPTIONS = 100;
 
 function sqlErrorNumber(err) {
@@ -83,121 +81,11 @@ function normalizeFilters(input) {
   return { ok: true, value: out };
 }
 
-/** 参数映射：值为 "$filter.xxx"（须为已定义的筛选项）或简单常量 */
-function normalizeParamMap(input, filterNames, where) {
-  if (input == null) return { ok: true, value: {} };
-  if (!isPlainObject(input)) return fail(`${where} params 须为对象`);
-  const out = {};
-  for (const [k, v] of Object.entries(input)) {
-    if (!NAME_RE.test(k)) return fail(`${where} 参数名非法：「${k}」`);
-    if (!isScalar(v)) return fail(`${where} 参数「${k}」须为简单值或 $filter.xxx`);
-    if (typeof v === 'string' && v.startsWith('$filter.')) {
-      const f = v.slice('$filter.'.length);
-      if (!filterNames.has(f)) return fail(`${where} 参数「${k}」引用了不存在的筛选项：${f}`);
-    }
-    out[k] = v;
-  }
-  return { ok: true, value: out };
-}
-
-function column(v, where, field) {
-  if (v == null || v === '') return { ok: true, value: undefined };
-  const s = String(v).trim();
-  if (!COLUMN_RE.test(s)) return fail(`${where} encoding.${field} 列名非法：「${s}」`);
-  return { ok: true, value: s };
-}
-
-function normalizeEncoding(input, type, where) {
-  const e = isPlainObject(input) ? input : {};
-  const out = {};
-  for (const f of ['dimension', 'value', 'compare', 'series', 'label']) {
-    const c = column(e[f], where, f);
-    if (!c.ok) return c;
-    if (c.value) out[f] = c.value;
-  }
-  if (e.values != null) {
-    if (!Array.isArray(e.values) || e.values.length > 10) return fail(`${where} encoding.values 须为 ≤10 个列名的数组`);
-    out.values = [];
-    for (const v of e.values) {
-      const c = column(v, where, 'values');
-      if (!c.ok) return c;
-      if (c.value) out.values.push(c.value);
-    }
-  }
-  if (e.columns != null) {
-    if (!Array.isArray(e.columns) || e.columns.length > 50) return fail(`${where} encoding.columns 须为 ≤50 项的数组`);
-    out.columns = [];
-    for (const c0 of e.columns) {
-      const name = isPlainObject(c0) ? c0.column : c0;
-      const c = column(name, where, 'columns');
-      if (!c.ok) return c;
-      const item = { column: c.value };
-      if (isPlainObject(c0)) {
-        if (c0.label) item.label = str(c0.label, 64);
-        if (c0.format) {
-          if (!FORMATS.has(c0.format)) return fail(`${where} 列「${c.value}」format 不支持`);
-          item.format = c0.format;
-        }
-      }
-      out.columns.push(item);
-    }
-  }
-  if (e.format != null && e.format !== '') {
-    if (!FORMATS.has(e.format)) return fail(`${where} encoding.format 须为 ${[...FORMATS].join(' / ')}`);
-    out.format = e.format;
-  }
-  if (e.unit) out.unit = str(e.unit, 16);
-  if (e.scale != null) {
-    const n = Number(e.scale);
-    if (!Number.isFinite(n) || n <= 0) return fail(`${where} encoding.scale 须为正数（如 10000 表示按万显示）`);
-    out.scale = n;
-  }
-  if (e.topN != null) {
-    const n = Math.floor(Number(e.topN));
-    if (!Number.isFinite(n) || n < 1 || n > 500) return fail(`${where} encoding.topN 须为 1~500`);
-    out.topN = n;
-  }
-  if (e.horizontal != null) out.horizontal = !!e.horizontal;
-  // 必需字段
-  if (type === 'kpi' && !out.value) return fail(`${where} KPI 卡片须设置 encoding.value`);
-  if (['bar', 'line', 'pie'].includes(type)) {
-    if (!out.dimension) return fail(`${where} 图表卡片须设置 encoding.dimension`);
-    if (!out.value && !(out.values && out.values.length)) return fail(`${where} 图表卡片须设置 encoding.value 或 values`);
-  }
-  return { ok: true, value: out };
-}
-
-function normalizeDrill(input, filterNames, knownQueries, where) {
-  if (input == null) return { ok: true, value: [] };
-  if (!Array.isArray(input)) return fail(`${where} drill 须为数组`);
-  if (input.length > MAX_DRILL) return fail(`${where} 下钻不能超过 ${MAX_DRILL} 级`);
-  const out = [];
-  for (let i = 0; i < input.length; i++) {
-    const d = input[i];
-    const w = `${where} 第 ${i + 1} 级下钻`;
-    if (!isPlainObject(d)) return fail(`${w} 须为对象`);
-    const queryKey = str(d.queryKey, 64).toLowerCase();
-    if (!knownQueries.has(queryKey)) return fail(`${w} 引用了不存在的查询：「${queryKey}」`);
-    const bind = isPlainObject(d.bind) ? d.bind : {};
-    const outBind = {};
-    for (const [p, c] of Object.entries(bind)) {
-      if (!NAME_RE.test(p)) return fail(`${w} bind 参数名非法：「${p}」`);
-      const cc = String(c ?? '').trim();
-      if (!COLUMN_RE.test(cc)) return fail(`${w} bind「${p}」列名非法`);
-      outBind[p] = cc;
-    }
-    const pm = normalizeParamMap(d.params, filterNames, w);
-    if (!pm.ok) return pm;
-    const type = str(d.type || 'table', 16).toLowerCase();
-    if (!CARD_TYPES.has(type) || type === 'kpi') return fail(`${w} type 须为 bar / line / pie / table`);
-    const enc = normalizeEncoding(d.encoding, type, w);
-    if (!enc.ok) return enc;
-    out.push({ queryKey, label: str(d.label || queryKey, 32), bind: outBind, params: pm.value, type, encoding: enc.value });
-  }
-  return { ok: true, value: out };
-}
-
-function normalizeCards(input, filters, knownQueries) {
+/**
+ * 看板里的卡片 = 对图表库的引用：{ id, chartKey, title?, params?, layout? }。
+ * params 只在需要时覆盖（同名筛选会自动绑定，见 bi-charts.js resolveCard）；layout 不填用图表默认尺寸。
+ */
+function normalizeCardRefs(input, filters, knownCharts) {
   const arr = input == null ? [] : input;
   if (!Array.isArray(arr)) return fail('cards 须为数组');
   if (arr.length > MAX_CARDS) return fail(`卡片不能超过 ${MAX_CARDS} 张`);
@@ -207,110 +95,54 @@ function normalizeCards(input, filters, knownQueries) {
   for (let i = 0; i < arr.length; i++) {
     const raw = arr[i];
     if (!isPlainObject(raw)) return fail(`第 ${i + 1} 张卡片须为对象`);
-    const id = str(raw.id, 64);
+    const chartKey = str(raw.chartKey, 64).toLowerCase();
+    if (!chartKey) return fail(`第 ${i + 1} 张卡片未选择图表`);
+    if (knownCharts && !knownCharts.has(chartKey)) return fail(`第 ${i + 1} 张卡片引用了不存在的图表：「${chartKey}」`);
+    let id = str(raw.id, 64);
+    if (!id) {
+      id = /^[a-z]/.test(chartKey) ? chartKey : `c_${chartKey}`;
+      for (let n = 2; seen.has(id); n++) id = `${chartKey}_${n}`;
+    }
     if (!CARD_ID_RE.test(id)) return fail(`第 ${i + 1} 张卡片 id 非法：「${id}」`);
     if (seen.has(id)) return fail(`卡片 id 重复：「${id}」`);
     seen.add(id);
     const where = `卡片「${id}」`;
-    const type = str(raw.type, 16).toLowerCase();
-    if (!CARD_TYPES.has(type)) return fail(`${where} type 须为 ${[...CARD_TYPES].join(' / ')}`);
-    const title = str(raw.title, 64);
-    if (!title) return fail(`${where} 标题不能为空`);
-    const queryKey = str(raw.queryKey, 64).toLowerCase();
-    if (!knownQueries.has(queryKey)) return fail(`${where} 引用了不存在的查询：「${queryKey}」`);
     const pm = normalizeParamMap(raw.params, filterNames, where);
     if (!pm.ok) return pm;
-    const enc = normalizeEncoding(raw.encoding, type, where);
-    if (!enc.ok) return enc;
-    const drill = normalizeDrill(raw.drill, filterNames, knownQueries, where);
-    if (!drill.ok) return drill;
-    const lay = isPlainObject(raw.layout) ? raw.layout : {};
-    const w = Math.min(12, Math.max(1, Math.floor(Number(lay.w) || (type === 'kpi' ? 3 : 6))));
-    const h = Math.min(4, Math.max(1, Math.floor(Number(lay.h) || (type === 'kpi' ? 1 : 2))));
-    out.push({
-      id,
-      type,
-      title,
-      subtitle: str(raw.subtitle, 128),
-      queryKey,
-      params: pm.value,
-      encoding: enc.value,
-      drill: drill.value,
-      layout: { w, h },
-    });
+    const ref = { id, chartKey };
+    const title = str(raw.title, 64);
+    if (title) ref.title = title;
+    if (Object.keys(pm.value).length > 0) ref.params = pm.value;
+    if (isPlainObject(raw.layout)) {
+      ref.layout = {
+        w: Math.min(12, Math.max(1, Math.floor(Number(raw.layout.w) || 6))),
+        h: Math.min(4, Math.max(1, Math.floor(Number(raw.layout.h) || 2))),
+      };
+    }
+    out.push(ref);
   }
   return { ok: true, value: out };
 }
 
-/** encoding 里引用的全部列名 */
-function encodingColumns(enc) {
-  const cols = [];
-  for (const f of ['dimension', 'value', 'compare', 'series', 'label']) if (enc[f]) cols.push(enc[f]);
-  for (const v of enc.values || []) cols.push(v);
-  for (const c of enc.columns || []) cols.push(c.column);
-  return cols;
-}
-
 /**
- * 引用完整性：卡片 / 下钻与查询定义对得上。queriesByKey：Map<queryKey, { label, params, columns }>。
- * - params / bind 的参数名须是该查询声明的参数；
- * - 必填且无默认值的参数须有来源（卡片：params；下钻：本级 params + 各级 bind 累积）；
- * - 查询登记了输出列时：encoding 用到的列、bind 取值的列须在其中（未登记列的旧查询跳过列检查）。
+ * 引用完整性（作用于展开后的完整卡片）：参数存在、必填参数有来源、用到的列在输出列中。
  * 返回问题列表（空 = 通过）。
  */
 function checkDashboardRefs(dashboard, queriesByKey) {
   const problems = [];
-  const paramNames = (q) => new Set((q.params || []).map((p) => p.name.toLowerCase()));
-  const columnSet = (q) => ((q.columns || []).length > 0 ? new Set(q.columns.map((c) => c.column)) : null);
-  const checkLevel = (where, q, params, encoding, provided) => {
-    const names = paramNames(q);
-    for (const k of Object.keys(params || {})) {
-      if (!names.has(k.toLowerCase())) problems.push(`${where}：「${k}」不是查询「${q.label}」的参数`);
-    }
-    const have = new Set([...Object.keys(params || {}), ...provided].map((k) => k.toLowerCase()));
-    for (const p of q.params || []) {
-      if (p.required && p.default == null && !have.has(p.name.toLowerCase())) {
-        problems.push(`${where}：查询「${q.label}」的必填参数「${p.label || p.name}」没有取值来源`);
-      }
-    }
-    const cols = columnSet(q);
-    if (cols) {
-      for (const c of encodingColumns(encoding || {})) {
-        if (!cols.has(c)) problems.push(`${where}：列「${c}」不在查询「${q.label}」的输出列中`);
-      }
-    }
-  };
   for (const card of dashboard.cards || []) {
-    const q = queriesByKey.get(card.queryKey);
-    if (!q) continue;
-    const where = `卡片「${card.title}」`;
-    checkLevel(where, q, card.params, card.encoding, []);
-    let source = q;
-    const bound = [];
-    (card.drill || []).forEach((d, i) => {
-      const target = queriesByKey.get(d.queryKey);
-      if (!target) return;
-      const w = `${where} 第 ${i + 1} 级下钻「${d.label}」`;
-      const names = paramNames(target);
-      const srcCols = columnSet(source);
-      for (const [p, col] of Object.entries(d.bind || {})) {
-        if (!names.has(p.toLowerCase())) problems.push(`${w}：「${p}」不是查询「${target.label}」的参数`);
-        if (srcCols && !srcCols.has(col)) problems.push(`${w}：取值列「${col}」不在上一级查询「${source.label}」的输出列中`);
-        bound.push(p);
-      }
-      checkLevel(w, target, d.params, d.encoding, bound);
-      source = target;
-    });
+    if (!queriesByKey.get(card.queryKey)) continue;
+    problems.push(...checkCardRefs(card, queriesByKey, `卡片「${card.title}」`));
   }
   return problems;
 }
 
 /**
- * 校验输入。knownQueries：已存在的 queryKey 集合（卡片与下钻引用必须存在）；
- * 传 Map<queryKey, 查询定义> 时还会做引用完整性检查（checkDashboardRefs）。
+ * 校验输入。ctx.charts：已有图表（Set 或 Map<chartKey, 图表>，卡片引用必须存在）；
+ * 同时传 Map 形式的 ctx.charts 与 ctx.queries 时，展开卡片并做引用完整性检查（checkDashboardRefs）。
  * 返回 { ok, error?, value? }
  */
-function validateDashboardInput(input, knownQueries) {
+function validateDashboardInput(input, ctx = {}) {
   const dashboardKey = str(input?.dashboardKey, 64).toLowerCase();
   if (!DASHBOARD_KEY_RE.test(dashboardKey)) {
     return fail('dashboardKey 须为小写字母开头、仅含小写字母/数字/下划线/连字符、≤64 字符');
@@ -322,12 +154,13 @@ function validateDashboardInput(input, knownQueries) {
   if (description.length > 1024) return fail('说明不能超过 1024 字符');
   const filters = normalizeFilters(input?.filters);
   if (!filters.ok) return filters;
-  const byKey = knownQueries instanceof Map ? knownQueries : null;
-  const known = byKey ? new Set(byKey.keys()) : knownQueries instanceof Set ? knownQueries : new Set(knownQueries || []);
-  const cards = normalizeCards(input?.cards, filters.value, known);
+  const chartMap = ctx.charts instanceof Map ? ctx.charts : null;
+  const knownCharts = chartMap ? new Set(chartMap.keys()) : ctx.charts instanceof Set ? ctx.charts : null;
+  const cards = normalizeCardRefs(input?.cards, filters.value, knownCharts);
   if (!cards.ok) return cards;
-  if (byKey) {
-    const problems = checkDashboardRefs({ cards: cards.value }, byKey);
+  if (chartMap && ctx.queries instanceof Map) {
+    const expanded = expandDashboard({ filters: filters.value, cards: cards.value }, chartMap, ctx.queries);
+    const problems = checkDashboardRefs(expanded, ctx.queries);
     if (problems.length > 0) return fail(problems.slice(0, 5).join('；'));
   }
   return {
@@ -446,13 +279,23 @@ function filterDashboardForRoles(dashboard, queries, roles) {
     filters: dashboard.filters || [],
     cards,
     queries: queryMeta,
-    hiddenCards: (dashboard.cards || []).length - cards.length,
+    hiddenCards: (dashboard.missingCharts || 0) + (dashboard.cards || []).length - cards.length,
   };
+}
+
+/**
+ * 读看板并把图表引用展开成完整卡片（运行时：Agent 看板、AI 查询目录都用它）。
+ * 返回 { dashboard: 展开后的看板, queries: 全部查询 }；看板不存在返回 null。
+ */
+async function loadExpandedDashboard(pool, dashboardKey) {
+  const dashboard = await getDashboard(pool, dashboardKey);
+  if (!dashboard) return null;
+  const [charts, queries] = await Promise.all([listAllCharts(pool), listAllQueries(pool)]);
+  return { dashboard: expandDashboard(dashboard, charts, queries), queries };
 }
 
 module.exports = {
   DASHBOARD_KEY_RE,
-  CARD_TYPES,
   DEFAULT_TOKENS,
   validateDashboardInput,
   checkDashboardRefs,
@@ -462,4 +305,5 @@ module.exports = {
   upsertDashboard,
   deleteDashboard,
   filterDashboardForRoles,
+  loadExpandedDashboard,
 };

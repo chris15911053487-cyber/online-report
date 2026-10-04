@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
   autoBindDrill,
-  bindFilterEverywhere,
+  chartProblems,
+  effectiveSource,
+  newChart,
+  nextRefId,
+  refProblems,
   renameFilterRefs,
+  resolveCard,
   suggestFilterParams,
   autoBindParams,
   cardProblems,
@@ -12,11 +17,10 @@ import {
   filterFromParam,
   guessColumnRole,
   mergeDetectedColumns,
-  nextCardId,
   syncParamsWithSql,
   type QueryRef,
 } from './biAdmin'
-import { withColumnSemantics, type BiCard, type BiColumnSemantic } from './bi'
+import { withColumnSemantics, type BiCard, type BiChartDef, type BiColumnSemantic } from './bi'
 
 describe('SQL 参数', () => {
   it('提取 @参数，忽略字符串、注释、标识符与 @@系统变量', () => {
@@ -106,9 +110,9 @@ describe('卡片', () => {
     expect(cleanEncoding('line', { dimension: 'A', value: 'B', horizontal: true })).toEqual({ dimension: 'A', value: 'B' })
   })
 
-  it('卡片 id 取最小未占用序号', () => {
-    expect(nextCardId(['card1', 'card3'])).toBe('card2')
-    expect(nextCardId([])).toBe('card1')
+  it('看板卡片 id 优先用图表标识，重复时加序号', () => {
+    expect(nextRefId('sales_kpi', [])).toBe('sales_kpi')
+    expect(nextRefId('sales_kpi', ['sales_kpi', 'sales_kpi_2'])).toBe('sales_kpi_3')
   })
 
   it('引用检查与后端规则一致', () => {
@@ -164,12 +168,57 @@ describe('筛选维护', () => {
     expect(suggestFilterParams([{ ...card, params: {} }], queries, []).map((p) => p.name)).toEqual(['period', 'whs'])
   })
 
-  it('新建筛选后自动绑定到所有卡片', () => {
-    const out = bindFilterEverywhere([{ ...card, params: {} }], queries, { name: 'whs', label: '仓库', type: 'string' })
-    expect(out[0].params).toEqual({ whs: '$filter.whs' })
-  })
 
   it('引用不存在的筛选会被检查出来', () => {
     expect(cardProblems(card, queries, new Set(['period']))).toContain('参数「period」引用的筛选「p」不存在')
+  })
+})
+
+describe('图表与看板引用（与后端 bi-charts.js 一致）', () => {
+  const queries = new Map<string, QueryRef>([
+    ['sales', { queryKey: 'sales', label: '销售', params: [{ name: 'period', type: 'string', required: true }, { name: 'top', type: 'number', default: 20 }], columns: [{ column: 'CardCode', role: 'attr' }, { column: 'CardName', role: 'dimension' }, { column: 'Amount', role: 'measure' }] }],
+    ['docs', { queryKey: 'docs', label: '单据', params: [{ name: 'Period', type: 'string', required: true }, { name: 'cardCode', type: 'string', required: true }] }],
+  ])
+  const chart: BiChartDef = {
+    ...newChart(),
+    chartKey: 'top_cust',
+    label: '客户 Top',
+    queryKey: 'sales',
+    params: { top: 10 },
+    encoding: { dimension: 'CardName', value: 'Amount' },
+    drill: [{ queryKey: 'docs', label: '单据', bind: { cardCode: 'CardCode' }, params: {}, type: 'table', encoding: {} }],
+  }
+  const filters = [{ name: 'period', label: '期间', type: 'month' as const }, { name: 'cardcode', label: '客户', type: 'string' as const }]
+
+  it('图表自身不要求必填参数有来源', () => {
+    expect(chartProblems(chart, queries)).toEqual([])
+    expect(chartProblems({ ...chart, chartKey: 'Bad' }, queries)[0]).toMatch(/图表标识/)
+  })
+
+  it('展开：同名筛选自动绑定，图表固定值优先，下钻 bind 优先于筛选', () => {
+    const card = resolveCard({ id: 'a', chartKey: 'top_cust' }, chart, filters, queries)
+    expect(card.params).toEqual({ top: 10, period: '$filter.period' })
+    expect(card.drill[0].params).toEqual({ Period: '$filter.period' })
+    expect(card.layout).toEqual({ w: 6, h: 2 })
+    const over = resolveCard({ id: 'a', chartKey: 'top_cust', title: 'T', params: { TOP: 5, period: '2026-01' } }, chart, filters, queries)
+    expect(over.params).toEqual({ TOP: 5, period: '2026-01' })
+    expect(over.drill[0].params).toEqual({ period: '2026-01' })
+    expect(over.title).toBe('T')
+  })
+
+  it('看板卡片问题：缺图表、缺筛选来源', () => {
+    expect(refProblems({ id: 'a', chartKey: '' }, undefined, filters, queries)).toEqual(['未选择图表'])
+    expect(refProblems({ id: 'a', chartKey: 'x' }, undefined, filters, queries)).toEqual(['图表「x」不存在'])
+    expect(refProblems({ id: 'a', chartKey: 'top_cust' }, chart, filters, queries)).toEqual([])
+    expect(refProblems({ id: 'a', chartKey: 'top_cust' }, chart, [], queries).join()).toMatch(/必填参数「period」没有取值来源/)
+  })
+
+  it('参数实际来源：覆盖 > 图表固定 > 同名筛选 > 查询默认', () => {
+    const [period, top] = queries.get('sales')!.params
+    expect(effectiveSource(period, { id: 'a', chartKey: 'top_cust' }, chart, filters)).toEqual({ kind: 'filter', filter: 'period' })
+    expect(effectiveSource(top, { id: 'a', chartKey: 'top_cust' }, chart, filters)).toEqual({ kind: 'fixed', value: 10 })
+    expect(effectiveSource(top, { id: 'a', chartKey: 'top_cust' }, { ...chart, params: {} }, filters)).toEqual({ kind: 'default', value: 20 })
+    expect(effectiveSource(period, { id: 'a', chartKey: 'top_cust', params: { period: 'x' } }, chart, filters)).toEqual({ kind: 'override', value: 'x' })
+    expect(effectiveSource(period, { id: 'a', chartKey: 'top_cust' }, chart, [])).toEqual({ kind: 'none' })
   })
 })

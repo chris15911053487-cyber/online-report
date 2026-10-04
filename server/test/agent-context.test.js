@@ -23,7 +23,12 @@ stub('agents.js', {
 });
 let dashboardImpl = async () => null;
 let queriesImpl = async () => [];
-stub('bi-dashboards.js', { getDashboard: async (...a) => dashboardImpl(...a) });
+stub('bi-dashboards.js', {
+  loadExpandedDashboard: async (...a) => {
+    const dashboard = await dashboardImpl(...a);
+    return dashboard ? { dashboard, queries: await queriesImpl() } : null;
+  },
+});
 stub('bi-queries.js', {
   listAllQueries: async (...a) => queriesImpl(...a),
   canUseQuery: (u, q) => u.includes('admin') || q.some((r) => u.includes(r)),

@@ -2,7 +2,7 @@
  * 查询库编辑器（语义层）：SQL → 自动识别参数 → 试运行 → 自动识别输出列 → 标注列语义 → 给 AI 的说明。
  *
  * 输出列语义是看板配置的基础：卡片的维度 / 度量只能从这里选，格式 / 单位默认从这里继承。
- * 保存后若引用它的看板对不上（删了列、改了参数），接口返回 warnings，编辑器保持打开并列出。
+ * 保存后若用到它的图表 / 看板对不上（删了列、改了参数），接口返回 warnings，编辑器保持打开并列出。
  */
 import { useMemo, useState } from 'react'
 import { Play, Trash2, Wand2 } from 'lucide-react'
@@ -92,7 +92,7 @@ export default function QueryEditor({
         onDone(true)
         return
       }
-      showToast('已保存，但有看板需要调整')
+      showToast('已保存，但有图表 / 看板需要调整')
       setWarnings(w)
       setCreated(true)
       setSavedOnce(true)
@@ -133,13 +133,13 @@ export default function QueryEditor({
   return (
     <AdminPage
       title={created ? `编辑查询：${d.label || d.queryKey}` : '新增查询'}
-      description="SQL 只写一次；看板卡片、下钻和 AI 追问都引用这条查询，口径一致"
+      description="SQL 只写一次；图表、下钻和 AI 追问都引用这条查询，口径一致"
       onBack={() => onDone(savedOnce)}
       withActionBar
     >
       {warnings.length > 0 && (
         <Notice tone="warning">
-          <p className="font-medium mb-1">已保存。以下看板配置与新定义对不上，请到「看板」里调整：</p>
+          <p className="font-medium mb-1">已保存。以下图表 / 看板与新定义对不上，请到「图表」「看板」里调整：</p>
           <ul className="list-disc pl-5 space-y-0.5">
             {warnings.map((w) => (
               <li key={w}>{w}</li>

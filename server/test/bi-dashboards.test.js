@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { validateDashboardInput, filterDashboardForRoles } = require('../src/bi-dashboards');
 
-const known = new Set(['fin_ar', 'fin_ar_docs', 'fin_cost', 'fin_kpi']);
+const knownCharts = new Set(['ar_kpi', 'ar_by_cust']);
 const base = {
   dashboardKey: 'finance',
   label: '财务看板',
@@ -11,29 +11,26 @@ const base = {
     { name: 'company', type: 'select', options: [{ value: 'A', label: '甲公司' }, 'B'] },
   ],
   cards: [
-    { id: 'kpi_ar', type: 'kpi', title: '应收', queryKey: 'fin_kpi', params: { period: '$filter.period' }, encoding: { value: 'AR', compare: 'PrevAR', format: 'money', scale: 10000, unit: '万' } },
-    {
-      id: 'ar_by_cust',
-      type: 'bar',
-      title: '应收按客户',
-      queryKey: 'fin_ar',
-      params: { period: '$filter.period', top: 10 },
-      encoding: { dimension: 'CardName', value: 'Balance' },
-      drill: [{ queryKey: 'fin_ar_docs', bind: { cardCode: 'CardCode' }, label: '单据', params: { period: '$filter.period' } }],
-      layout: { w: 99, h: 0 },
-    },
+    { chartKey: 'ar_kpi' },
+    { id: 'ar', chartKey: 'AR_BY_CUST', title: '应收按客户（本部）', params: { company: '$filter.company', top: 10 }, layout: { w: 99, h: 0 } },
   ],
 };
 
-test('合法看板：规范化默认值、布局夹紧、select 选项', () => {
-  const r = validateDashboardInput(base, known);
+test('合法看板：卡片为图表引用；id 缺省取 chartKey；布局夹紧；select 选项', () => {
+  const r = validateDashboardInput(base, { charts: knownCharts });
   assert.equal(r.ok, true, r.error);
   const [kpi, bar] = r.value.cards;
-  assert.deepEqual(kpi.layout, { w: 3, h: 1 });
-  assert.deepEqual(bar.layout, { w: 12, h: 2 }, 'w 夹紧到 12；h=0 视为未设置，用图表默认 2');
-  assert.equal(bar.drill[0].type, 'table');
+  assert.deepEqual(kpi, { id: 'ar_kpi', chartKey: 'ar_kpi' }, '未写的项不保存，运行时用图表默认');
+  assert.equal(bar.chartKey, 'ar_by_cust');
+  assert.equal(bar.title, '应收按客户（本部）');
+  assert.deepEqual(bar.params, { company: '$filter.company', top: 10 });
+  assert.deepEqual(bar.layout, { w: 12, h: 2 }, 'w 夹紧到 12；h=0 视为未设置');
   assert.deepEqual(r.value.filters[1].options, [{ value: 'A', label: '甲公司' }, { value: 'B', label: 'B' }]);
-  assert.equal(kpi.encoding.scale, 10000);
+});
+
+test('同一图表放两次：id 自动去重', () => {
+  const r = validateDashboardInput({ ...base, cards: [{ chartKey: 'ar_kpi' }, { chartKey: 'ar_kpi' }] }, { charts: knownCharts });
+  assert.deepEqual(r.value.cards.map((c) => c.id), ['ar_kpi', 'ar_kpi_2']);
 });
 
 test('看板校验：各种错误', () => {
@@ -44,32 +41,26 @@ test('看板校验：各种错误', () => {
     [{ filters: [{ name: 'p', type: 'week' }] }, /type/],
     [{ filters: [{ name: 'p', type: 'month', default: '$tomorrow' }] }, /记号不支持/],
     [{ filters: [{ name: 'c', type: 'select' }] }, /options/],
-    [{ cards: [{ ...card, queryKey: 'nope' }] }, /不存在的查询/],
-    [{ cards: [{ ...card, type: 'gauge' }] }, /type/],
-    [{ cards: [{ ...card, title: '' }] }, /标题/],
+    [{ cards: [{ ...card, chartKey: 'nope' }] }, /不存在的图表/],
+    [{ cards: [{ ...card, chartKey: '' }] }, /未选择图表/],
     [{ cards: [card, card] }, /重复/],
+    [{ cards: [{ ...card, id: '1bad' }] }, /id 非法/],
     [{ cards: [{ ...card, params: { period: '$filter.nope' } }] }, /不存在的筛选项/],
     [{ cards: [{ ...card, params: { x: { a: 1 } } }] }, /简单值/],
-    [{ cards: [{ ...card, encoding: { value: 'Balance' } }] }, /dimension/],
-    [{ cards: [{ ...card, encoding: { dimension: 'a;b', value: 'v' } }] }, /列名非法/],
-    [{ cards: [{ ...card, encoding: { dimension: 'd', value: 'v', format: 'bytes' } }] }, /format/],
-    [{ cards: [{ ...base.cards[0], encoding: {} }] }, /KPI/],
-    [{ cards: [{ ...card, drill: [{ queryKey: 'nope' }] }] }, /下钻.*不存在的查询/],
-    [{ cards: [{ ...card, drill: [{ queryKey: 'fin_ar_docs', type: 'kpi' }] }] }, /下钻 type/],
-    [{ cards: [{ ...card, drill: [{ queryKey: 'fin_ar_docs', bind: { cardCode: 'x y' } }] }] }, /bind/],
   ];
   for (const [patch, re] of cases) {
-    const r = validateDashboardInput({ ...base, ...patch }, known);
+    const r = validateDashboardInput({ ...base, ...patch }, { charts: knownCharts });
     assert.equal(r.ok, false, JSON.stringify(patch));
     assert.match(r.error, re, JSON.stringify(patch));
   }
 });
 
-test('按角色裁剪：删无权卡片；下钻遇无权一级即截断；附公开元数据（无 SQL）', () => {
+test('按角色裁剪（作用于展开后的卡片）：删无权卡片；下钻遇无权一级即截断；附公开元数据（无 SQL）', () => {
   const dashboard = {
     dashboardKey: 'finance',
     label: 'x',
     filters: [],
+    missingCharts: 1,
     cards: [
       { id: 'a', queryKey: 'fin_ar', drill: [{ queryKey: 'fin_cost' }, { queryKey: 'fin_ar_docs' }] },
       { id: 'b', queryKey: 'fin_cost', drill: [] },
@@ -83,7 +74,7 @@ test('按角色裁剪：删无权卡片；下钻遇无权一级即截断；附�
   const fin = filterDashboardForRoles(dashboard, queries, ['finance']);
   assert.deepEqual(fin.cards.map((c) => c.id), ['a']);
   assert.deepEqual(fin.cards[0].drill, [], '第 1 级无权 → 后续级一并截断');
-  assert.equal(fin.hiddenCards, 3);
+  assert.equal(fin.hiddenCards, 4, '含 1 张引用了已停用 / 已删除图表的卡片');
   assert.deepEqual(Object.keys(fin.queries), ['fin_ar']);
   assert.equal(JSON.stringify(fin).includes('secret'), false);
 

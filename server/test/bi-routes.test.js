@@ -12,7 +12,7 @@ function stub(rel, exports) {
 }
 
 // ---- 内存「数据库」----
-const db = { queries: new Map(), dashboards: new Map(), agents: new Map(), execCount: 0, lastInputs: null };
+const db = { queries: new Map(), charts: new Map(), dashboards: new Map(), agents: new Map(), execCount: 0, lastInputs: null };
 const fakeSql = new Proxy({}, { get: (_t, k) => (k === 'MAX' ? -1 : (...a) => ({ type: k, a })) });
 fakeSql.MAX = -1;
 
@@ -56,6 +56,13 @@ function makeRequest() {
         return {};
       }
       if (/DELETE FROM dbo\.bi_queries/.test(q)) return { rowsAffected: [db.queries.delete(inputs.k) ? 1 : 0] };
+      if (/FROM dbo\.bi_charts WHERE/.test(q)) return { recordset: db.charts.has(inputs.k) ? [db.charts.get(inputs.k)] : [] };
+      if (/FROM dbo\.bi_charts ORDER BY/.test(q)) return { recordset: [...db.charts.values()] };
+      if (/MERGE dbo\.bi_charts/.test(q)) {
+        db.charts.set(inputs.chart_key, { id: 1, ...inputs, enabled: inputs.enabled ? 1 : 0 });
+        return {};
+      }
+      if (/DELETE FROM dbo\.bi_charts/.test(q)) return { rowsAffected: [db.charts.delete(inputs.k) ? 1 : 0] };
       if (/FROM dbo\.bi_dashboards WHERE/.test(q)) return { recordset: db.dashboards.has(inputs.k) ? [db.dashboards.get(inputs.k)] : [] };
       if (/FROM dbo\.bi_dashboards ORDER BY/.test(q)) return { recordset: [...db.dashboards.values()] };
       if (/MERGE dbo\.bi_dashboards/.test(q)) {
@@ -195,19 +202,26 @@ test('试运行：用未保存的定义执行，不进缓存', async () => {
   assert.equal(bad.status, 400);
 });
 
-test('看板 + Agent 关联：校验、按角色裁剪、门禁、删除保护', async () => {
+test('图表 + 看板 + Agent 关联：校验、按角色裁剪、门禁、删除保护', async () => {
   await call('POST', '/admin/bi/queries', 'admin', { ...arQuery, queryKey: 'fin_cost', roles: ['cost-viewer'] });
+  // 图表：引用查询；period 不写，由看板同名筛选提供
+  assert.equal((await call('POST', '/admin/bi/charts', 'operator', {})).status, 403);
+  const badChart = await call('POST', '/admin/bi/charts', 'admin', { chartKey: 'x', label: 'X', type: 'kpi', queryKey: 'ghost', encoding: { value: 'Balance' } });
+  assert.equal(badChart.status, 400);
+  const arChart = { chartKey: 'ar', label: '应收', type: 'bar', queryKey: 'fin_ar', encoding: { dimension: 'CardCode', value: 'Balance' } };
+  assert.equal((await call('POST', '/admin/bi/charts', 'admin', arChart)).status, 200);
+  assert.equal((await call('POST', '/admin/bi/charts', 'admin', { chartKey: 'cost', label: '成本', type: 'kpi', queryKey: 'fin_cost', encoding: { value: 'Balance' } })).status, 200);
+
   const dash = {
     dashboardKey: 'finance',
     label: '财务看板',
     filters: [{ name: 'period', type: 'month', default: '$thisMonth' }],
-    cards: [
-      { id: 'ar', type: 'bar', title: '应收', queryKey: 'fin_ar', params: { period: '$filter.period' }, encoding: { dimension: 'CardCode', value: 'Balance' } },
-      { id: 'cost', type: 'kpi', title: '成本', queryKey: 'fin_cost', params: { period: '$filter.period' }, encoding: { value: 'Balance' } },
-    ],
+    cards: [{ chartKey: 'ar' }, { chartKey: 'cost' }],
   };
-  const badDash = await call('POST', '/admin/bi/dashboards', 'admin', { ...dash, cards: [{ ...dash.cards[0], queryKey: 'ghost' }] });
-  assert.equal(badDash.status, 400);
+  assert.equal((await call('POST', '/admin/bi/dashboards', 'admin', { ...dash, cards: [{ chartKey: 'ghost' }] })).status, 400);
+  const noFilter = await call('POST', '/admin/bi/dashboards', 'admin', { ...dash, filters: [] });
+  assert.equal(noFilter.status, 400, '必填参数 period 没有同名筛选');
+  assert.match(noFilter.body.error, /period/);
   assert.equal((await call('POST', '/admin/bi/dashboards', 'admin', dash)).status, 200);
 
   // Agent 关联不存在的看板 → 400；关联存在的 → 写入 dashboard_key
@@ -225,13 +239,26 @@ test('看板 + Agent 关联：校验、按角色裁剪、门禁、删除保护',
   const fin = await call('GET', '/agents/finance-analysis/dashboard', 'finance');
   assert.equal(fin.status, 200);
   assert.deepEqual(fin.body.dashboard.cards.map((c) => c.id), ['ar']);
+  assert.deepEqual(fin.body.dashboard.cards[0].params, { period: '$filter.period' }, '下发展开后的完整卡片');
+  assert.equal(fin.body.dashboard.cards[0].type, 'bar');
   assert.equal(fin.body.dashboard.queries.fin_ar.caliberNote, '按过账日期');
   assert.equal(JSON.stringify(fin.body).includes('V_AR'), false, '不下发 SQL');
   const both = await call('GET', '/agents/finance-analysis/dashboard', 'finance,cost-viewer');
   assert.deepEqual(both.body.dashboard.cards.map((c) => c.id), ['ar', 'cost']);
 
-  // 删除保护：查询被看板引用 → 409；看板被 Agent 关联 → 409
+  // 删除保护：查询被图表引用 → 409；图表被看板引用 → 409；看板被 Agent 关联 → 409
   assert.equal((await call('DELETE', '/admin/bi/queries/fin_ar', 'admin')).status, 409);
+  const delChart = await call('DELETE', '/admin/bi/charts/ar', 'admin');
+  assert.equal(delChart.status, 409);
+  assert.match(delChart.body.error, /财务看板/);
+  const charts = await call('GET', '/admin/bi/charts', 'admin');
+  assert.deepEqual(charts.body.items.find((c) => c.chartKey === 'ar').usedByDashboards, ['财务看板']);
+
+  // 影响分析：查询改名参数后，保存成功但提示受影响的看板卡片
+  const changed = await call('POST', '/admin/bi/queries', 'admin', { ...arQuery, sqlText: 'SELECT CardCode, Balance FROM V_AR WHERE Period = @ym', params: [{ name: 'ym', type: 'string', required: true }] });
+  assert.equal(changed.status, 200);
+  assert.ok(changed.body.warnings.some((w) => /看板「财务看板」.*必填参数/.test(w)), JSON.stringify(changed.body.warnings));
+  await call('POST', '/admin/bi/queries', 'admin', arQuery);
   const delDash = await call('DELETE', '/admin/bi/dashboards/finance', 'admin');
   assert.equal(delDash.status, 409);
   assert.match(delDash.body.error, /财务分析/);

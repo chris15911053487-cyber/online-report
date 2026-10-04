@@ -37,8 +37,13 @@ export interface BiDrillLevel {
   encoding: BiEncoding
 }
 
+/**
+ * 看板里的完整卡片（服务端由「看板引用 + 图表」展开得到，运行时只认它）。
+ * chartKey：来源图表（管理端预览 / 定位用）。
+ */
 export interface BiCard {
   id: string
+  chartKey?: string
   type: BiCardType
   title: string
   subtitle?: string
@@ -47,6 +52,30 @@ export interface BiCard {
   encoding: BiEncoding
   drill: BiDrillLevel[]
   layout: { w: number; h: number }
+}
+
+/** 图表库中的图表：引用一个查询 + 展示方式；参数只写固定值，其余由看板同名筛选提供 */
+export interface BiChartDef {
+  chartKey: string
+  label: string
+  subtitle?: string
+  description?: string
+  type: BiCardType
+  queryKey: string
+  params: Record<string, BiScalar>
+  encoding: BiEncoding
+  drill: BiDrillLevel[]
+  size: { w: number; h: number }
+  enabled: boolean
+}
+
+/** 看板对图表的引用：标题、参数（$filter.xxx 或固定值）、尺寸都可选覆盖 */
+export interface BiCardRef {
+  id: string
+  chartKey: string
+  title?: string
+  params?: Record<string, BiScalar>
+  layout?: { w: number; h: number }
 }
 
 export interface BiFilter {

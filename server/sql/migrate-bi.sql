@@ -75,3 +75,33 @@ IF OBJECT_ID(N'dbo.bi_queries', N'U') IS NOT NULL
 BEGIN
   ALTER TABLE dbo.bi_queries ADD sample_questions_json NVARCHAR(MAX) NULL;
 END;
+
+-- 图表库：查询 → 图表 → 看板 三层。图表 = 引用一个查询 + 展示方式（类型、列映射、下钻），可被多个看板复用；
+-- 看板 cards_json 改为图表引用 [{ "id", "chartKey", "title"?, "params"?, "layout"? }]
+IF OBJECT_ID(N'dbo.bi_charts', N'U') IS NULL
+BEGIN
+  CREATE TABLE dbo.bi_charts (
+    id INT IDENTITY(1,1) PRIMARY KEY,
+    chart_key NVARCHAR(64) NOT NULL,
+    label NVARCHAR(64) NOT NULL,
+    subtitle NVARCHAR(128) NULL,
+    description NVARCHAR(1024) NULL,
+    -- kpi | bar | line | pie | table
+    chart_type NVARCHAR(16) NOT NULL,
+    query_key NVARCHAR(64) NOT NULL,
+    -- 固定参数值 { "top": 10 }；其余参数由看板同名筛选自动提供
+    params_json NVARCHAR(MAX) NULL,
+    -- 列映射 { "dimension", "value", "values", "series", "compare", "columns", "format", "unit", "scale", "topN", "horizontal" }
+    encoding_json NVARCHAR(MAX) NULL,
+    -- 下钻 [{ "queryKey", "label", "bind", "params", "type", "encoding" }]
+    drill_json NVARCHAR(MAX) NULL,
+    -- 默认尺寸 { "w": 6, "h": 2 }（12 栅格）
+    size_json NVARCHAR(64) NULL,
+    enabled BIT NOT NULL CONSTRAINT DF_bi_charts_enabled DEFAULT 1,
+    created_at DATETIME2(3) NOT NULL
+      CONSTRAINT DF_bi_charts_created DEFAULT (DATEADD(HOUR,8,SYSUTCDATETIME())),
+    updated_at DATETIME2(3) NOT NULL
+      CONSTRAINT DF_bi_charts_updated DEFAULT (DATEADD(HOUR,8,SYSUTCDATETIME()))
+  );
+  CREATE UNIQUE INDEX ux_bi_charts_key ON dbo.bi_charts (chart_key);
+END;

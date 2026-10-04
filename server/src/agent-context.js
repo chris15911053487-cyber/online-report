@@ -12,8 +12,8 @@
  */
 const { listSkillsForRoles } = require('./agent-skills');
 const { getAgent } = require('./agents');
-const { getDashboard } = require('./bi-dashboards');
-const { listAllQueries, canUseQuery } = require('./bi-queries');
+const { loadExpandedDashboard } = require('./bi-dashboards');
+const { canUseQuery } = require('./bi-queries');
 
 const MAX_CATALOG_QUERIES = 30;
 const MAX_CATALOG_CHARS = 6000;
@@ -48,16 +48,15 @@ function formatQueryCatalog(queries) {
 /** 取 Agent 关联看板用到、且用户有权访问的命名查询 */
 async function loadAgentQueryCatalog(pool, agent, userRoles) {
   if (!agent || !agent.dashboardKey) return [];
-  const dashboard = await getDashboard(pool, agent.dashboardKey);
-  if (!dashboard || !dashboard.enabled) return [];
+  const loaded = await loadExpandedDashboard(pool, agent.dashboardKey);
+  if (!loaded || !loaded.dashboard.enabled) return [];
   const keys = new Set();
-  for (const c of dashboard.cards || []) {
+  for (const c of loaded.dashboard.cards || []) {
     if (c.queryKey) keys.add(c.queryKey);
     for (const d of c.drill || []) if (d.queryKey) keys.add(d.queryKey);
   }
   if (keys.size === 0) return [];
-  const all = await listAllQueries(pool);
-  return all
+  return loaded.queries
     .filter((q) => keys.has(q.queryKey) && q.enabled && canUseQuery(userRoles, q.roles))
     .sort((a, b) => a.queryKey.localeCompare(b.queryKey));
 }

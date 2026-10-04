@@ -185,11 +185,14 @@ test('executeQuery：按类型绑定参数、设置超时、流式限行并标�
     },
   };
   const pool = { request: () => request };
-  const q = { ...query, params: [{ name: 'period', type: 'string' }, { name: 'top', type: 'number' }] };
-  const r = await executeQuery(pool, q, { period: '2026-09', top: 3 }, { maxRows: 3 });
+  const q = { ...query, params: [{ name: 'period', type: 'string' }, { name: 'top', type: 'number' }, { name: 'rate', type: 'number' }] };
+  const r = await executeQuery(pool, q, { period: '2026-09', top: 3, rate: 0.15 }, { maxRows: 3 });
   assert.equal(r.rowCount, 3);
   assert.equal(r.truncated, true);
   assert.deepEqual(r.columns, ['v']);
-  assert.deepEqual(inputs.map((i) => [i.name, i.value]), [['period', '2026-09'], ['top', '3']]);
+  assert.deepEqual(inputs.map((i) => [i.name, i.value]), [['period', '2026-09'], ['top', 3], ['rate', '0.15']]);
+  // 整数绑 BigInt（TOP (@top) 只接受整数），小数绑 Decimal
+  assert.equal(inputs[1].type, 'BigInt');
+  assert.notEqual(inputs[2].type, 'BigInt');
   assert.ok(request.timeout >= 1000);
 });

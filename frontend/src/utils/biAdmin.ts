@@ -1,10 +1,13 @@
 /**
- * BI 管理（查询库 / 看板编辑器）的纯逻辑：SQL 参数识别、输出列识别、筛选与参数自动绑定、
- * 卡片默认配置、引用完整性检查。与后端 bi-queries.js / bi-dashboards.js 的规则保持一致。
+ * BI 管理（查询库 / 图表库 / 看板编辑器）的纯逻辑：SQL 参数识别、输出列识别、筛选与参数自动绑定、
+ * 图表默认配置、看板引用展开、引用完整性检查。
+ * 与后端 bi-queries.js / bi-charts.js / bi-dashboards.js 的规则保持一致。
  */
 import type {
   BiCard,
+  BiCardRef,
   BiCardType,
+  BiChartDef,
   BiColumnRole,
   BiColumnSemantic,
   BiDrillLevel,
@@ -274,27 +277,6 @@ export function defaultEncoding(type: BiCardType, cols: BiColumnSemantic[], curr
   return enc
 }
 
-/** 新卡片 id：card1、card2 … 取未被占用的最小序号 */
-export function nextCardId(existing: string[]): string {
-  const used = new Set(existing)
-  let n = 1
-  while (used.has(`card${n}`)) n += 1
-  return `card${n}`
-}
-
-export function newCard(id: string, type: BiCardType = 'kpi'): BiCard {
-  return {
-    id,
-    type,
-    title: '',
-    queryKey: '',
-    params: {},
-    encoding: {},
-    drill: [],
-    layout: { w: type === 'kpi' ? 3 : 6, h: type === 'kpi' ? 1 : 2 },
-  }
-}
-
 export function newDrillLevel(): BiDrillLevel {
   return { queryKey: '', label: '', bind: {}, params: {}, type: 'table', encoding: {} }
 }
@@ -334,8 +316,16 @@ function encodingColumns(enc: BiEncoding): string[] {
   return cols
 }
 
-/** 单张卡片的问题列表（空 = 通过）；未选查询 / 查询不存在 / 引用了不存在的筛选也算问题 */
-export function cardProblems(card: BiCard, queries: Map<string, QueryRef>, filterNames?: Set<string>): string[] {
+/**
+ * 单张卡片（或图表）的问题列表（空 = 通过）；未选查询 / 查询不存在 / 引用了不存在的筛选也算问题。
+ * requireSources = false：不要求必填参数有来源（图表自身：由看板同名筛选提供）。
+ */
+export function cardProblems(
+  card: BiCard,
+  queries: Map<string, QueryRef>,
+  filterNames?: Set<string>,
+  { requireSources = true }: { requireSources?: boolean } = {},
+): string[] {
   const problems: string[] = []
   if (!card.title.trim()) problems.push('标题不能为空')
   const q = queries.get(card.queryKey)
@@ -353,7 +343,7 @@ export function cardProblems(card: BiCard, queries: Map<string, QueryRef>, filte
       if (filterNames && src.kind === 'filter' && !filterNames.has(src.filter)) problems.push(`${where}参数「${k}」引用的筛选「${src.filter}」不存在`)
     }
     const have = new Set([...Object.keys(params || {}), ...provided].map((k) => k.toLowerCase()))
-    for (const p of target.params) {
+    for (const p of requireSources ? target.params : []) {
       if (p.required && p.default == null && !have.has(p.name.toLowerCase())) {
         problems.push(`${where}必填参数「${p.label || p.name}」没有取值来源`)
       }
@@ -388,23 +378,23 @@ export function cardProblems(card: BiCard, queries: Map<string, QueryRef>, filte
   return problems
 }
 
-/** 筛选改名 / 删除（to = null）时同步卡片与下钻里的 $filter 引用；删除时去掉该参数映射 */
-export function renameFilterRefs(cards: BiCard[], from: string, to: string | null): BiCard[] {
-  const fix = (params: Record<string, BiScalar>) => {
+/** 筛选改名 / 删除（to = null）时同步看板卡片（引用）里的 $filter 覆盖；删除时去掉该参数映射 */
+export function renameFilterRefs<T extends { params?: Record<string, BiScalar> }>(refs: T[], from: string, to: string | null): T[] {
+  return refs.map((r) => {
+    if (!r.params) return r
     const out: Record<string, BiScalar> = {}
-    for (const [k, v] of Object.entries(params || {})) {
+    for (const [k, v] of Object.entries(r.params)) {
       if (v === filterRef(from)) {
         if (to) out[k] = filterRef(to)
       } else out[k] = v
     }
-    return out
-  }
-  return cards.map((c) => ({ ...c, params: fix(c.params), drill: c.drill.map((d) => ({ ...d, params: fix(d.params) })) }))
+    return { ...r, params: out }
+  })
 }
 
 /**
  * 建议建成全局筛选的参数：卡片 / 下钻所用查询里，既没有取值来源、又没有同名筛选的参数
- * （按名称去重，必填的排前面）。
+ * （按名称去重，必填的排前面）。cards 为展开后的完整卡片。
  */
 export function suggestFilterParams(cards: BiCard[], queries: Map<string, QueryRef>, filters: BiFilter[]): BiParamDef[] {
   const have = new Set(filters.map((f) => f.name.toLowerCase()))
@@ -429,14 +419,124 @@ export function suggestFilterParams(cards: BiCard[], queries: Map<string, QueryR
   return [...out.values()].sort((a, b) => Number(!!b.required) - Number(!!a.required))
 }
 
-/** 新建筛选后，把所有卡片 / 下钻里同名且未设置的参数绑定到它 */
-export function bindFilterEverywhere(cards: BiCard[], queries: Map<string, QueryRef>, filter: BiFilter): BiCard[] {
-  return cards.map((c) => ({
-    ...c,
-    params: autoBindParams(queries.get(c.queryKey)?.params ?? [], [filter], c.params),
-    drill: c.drill.map((d) => {
-      if (Object.keys(d.bind).some((k) => k.toLowerCase() === filter.name.toLowerCase())) return d
-      return { ...d, params: autoBindParams(queries.get(d.queryKey)?.params ?? [], [filter], d.params) }
-    }),
-  }))
+// ─── 图表与看板引用（与后端 bi-charts.js 一致） ─────────────────────────────
+
+export function newChart(): BiChartDef {
+  return { chartKey: '', label: '', type: 'bar', queryKey: '', params: {}, encoding: {}, drill: [], size: { w: 6, h: 2 }, enabled: true }
+}
+
+/** 图表当作一张独立卡片（编辑器预览、问题检查用） */
+export function chartAsCard(chart: BiChartDef, id = 'preview'): BiCard {
+  return {
+    id,
+    chartKey: chart.chartKey,
+    type: chart.type,
+    title: chart.label,
+    subtitle: chart.subtitle,
+    queryKey: chart.queryKey,
+    params: chart.params,
+    encoding: chart.encoding,
+    drill: chart.drill,
+    layout: chart.size,
+  }
+}
+
+/** 图表自身的问题：不要求必填参数有来源 */
+export function chartProblems(chart: BiChartDef, queries: Map<string, QueryRef>): string[] {
+  const problems = cardProblems(chartAsCard(chart), queries, undefined, { requireSources: false })
+  if (!/^[a-z][a-z0-9_-]{0,63}$/.test(chart.chartKey)) problems.unshift('图表标识须为小写字母开头，仅含小写字母、数字、下划线、连字符')
+  return problems
+}
+
+const lowerKeys = (o?: Record<string, unknown>) => new Set(Object.keys(o || {}).map((k) => k.toLowerCase()))
+const withoutKeys = <V,>(o: Record<string, V> | undefined, keys: Set<string>) =>
+  Object.fromEntries(Object.entries(o || {}).filter(([k]) => !keys.has(k.toLowerCase()))) as Record<string, V>
+
+function autoBindFilters(defs: BiParamDef[] | undefined, filters: BiFilter[], taken: Set<string>): Record<string, BiScalar> {
+  const byLower = new Map(filters.map((f) => [f.name.toLowerCase(), f.name]))
+  const out: Record<string, BiScalar> = {}
+  for (const p of defs || []) {
+    const k = p.name.toLowerCase()
+    if (taken.has(k)) continue
+    const f = byLower.get(k)
+    if (f) out[p.name] = filterRef(f)
+  }
+  return out
+}
+
+/**
+ * 看板引用 + 图表 → 完整卡片。参数优先级：看板覆盖 > 图表固定值 > 同名筛选；
+ * 下钻：bind 最优先，看板覆盖作用于同名参数，其后为该级固定值、同名筛选。
+ */
+export function resolveCard(ref: BiCardRef, chart: BiChartDef, filters: BiFilter[], queries: Map<string, QueryRef>): BiCard {
+  const overrides = ref.params || {}
+  const overrideKeys = lowerKeys(overrides)
+  const fixed = withoutKeys(chart.params, overrideKeys)
+  const taken = new Set([...overrideKeys, ...lowerKeys(fixed)])
+  const params = { ...fixed, ...autoBindFilters(queries.get(chart.queryKey)?.params, filters, taken), ...overrides }
+  const bound = new Set<string>()
+  const drill = chart.drill.map((d) => {
+    for (const k of Object.keys(d.bind || {})) bound.add(k.toLowerCase())
+    const target = queries.get(d.queryKey)
+    const names = new Set((target?.params || []).map((p) => p.name.toLowerCase()))
+    const over = Object.fromEntries(Object.entries(overrides).filter(([k]) => names.has(k.toLowerCase()) && !bound.has(k.toLowerCase())))
+    const own = withoutKeys(d.params, new Set([...lowerKeys(over), ...bound]))
+    const t = new Set([...bound, ...lowerKeys(own), ...lowerKeys(over)])
+    return { ...d, params: { ...own, ...autoBindFilters(target?.params, filters, t), ...over } }
+  })
+  return {
+    id: ref.id,
+    chartKey: chart.chartKey,
+    type: chart.type,
+    title: ref.title || chart.label,
+    subtitle: chart.subtitle,
+    queryKey: chart.queryKey,
+    params,
+    encoding: chart.encoding,
+    drill,
+    layout: ref.layout || chart.size,
+  }
+}
+
+/** 看板一张卡片（引用）的问题：图表缺失 / 停用，或展开后引用完整性不通过 */
+export function refProblems(ref: BiCardRef, chart: BiChartDef | undefined, filters: BiFilter[], queries: Map<string, QueryRef>): string[] {
+  if (!ref.chartKey) return ['未选择图表']
+  if (!chart) return [`图表「${ref.chartKey}」不存在`]
+  const problems = chart.enabled ? [] : ['图表已停用，看板上不会显示']
+  const card = resolveCard(ref, chart, filters, queries)
+  return [...problems, ...cardProblems(card, queries, new Set(filters.map((f) => f.name)))]
+}
+
+/** 新卡片 id：优先用 chartKey，重复时加序号 */
+export function nextRefId(chartKey: string, existing: string[]): string {
+  const used = new Set(existing)
+  const base = /^[A-Za-z]/.test(chartKey) ? chartKey : `c_${chartKey}`
+  if (!used.has(base)) return base
+  let n = 2
+  while (used.has(`${base}_${n}`)) n += 1
+  return `${base}_${n}`
+}
+
+/**
+ * 参数在看板里的实际来源（看板卡片编辑时展示）：
+ * override = 看板覆盖；fixed = 图表固定值；filter = 同名筛选自动提供；default = 查询默认值；none = 没有来源。
+ */
+export type EffectiveSource =
+  | { kind: 'override'; value: BiScalar }
+  | { kind: 'fixed'; value: BiScalar }
+  | { kind: 'filter'; filter: string }
+  | { kind: 'default'; value: BiScalar }
+  | { kind: 'none' }
+
+export function effectiveSource(p: BiParamDef, ref: BiCardRef, chart: BiChartDef, filters: BiFilter[]): EffectiveSource {
+  const k = p.name.toLowerCase()
+  const find = (o?: Record<string, BiScalar>) => Object.entries(o || {}).find(([x]) => x.toLowerCase() === k)
+  const ov = find(ref.params)
+  if (ov) return { kind: 'override', value: ov[1] }
+  const fx = find(chart.params)
+  if (fx) return { kind: 'fixed', value: fx[1] }
+  const f = filters.find((x) => x.name.toLowerCase() === k)
+  if (f) return { kind: 'filter', filter: f.name }
+  if (p.default != null) return { kind: 'default', value: p.default }
+  return { kind: 'none' }
 }

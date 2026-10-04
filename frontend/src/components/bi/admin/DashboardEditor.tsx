@@ -1,21 +1,21 @@
 /**
- * 看板编辑器：基本信息 + 全局筛选（表格）+ 卡片（左列表 / 中编辑 / 右实时预览）+ 整板预览。
+ * 看板编辑器：基本信息 + 全局筛选（表格）+ 卡片（左列表 / 中设置 / 右实时预览）+ 整板预览。
  *
- * - 筛选可从卡片查询的参数一键生成，生成后自动绑定到所有同名参数；改名 / 删除同步更新引用
- * - 每张卡片实时检查引用完整性（与后端同规则），有问题的卡片在列表里标出，保存前拦截
+ * - 卡片 = 从图表库选一张图表；图表的参数默认由同名筛选自动提供，需要时再覆盖（筛选 / 固定值）、改标题与尺寸
+ * - 筛选可从图表查询的参数一键生成；改名 / 删除同步更新卡片里的覆盖引用
+ * - 每张卡片展开后实时检查引用完整性（与后端同规则），有问题的卡片在列表里标出，保存前拦截
  * - 预览用真实数据（POST /bi/query，管理员不受查询角色限制）
  * - 高级：JSON 模式，与表单双向切换
  */
 import { useMemo, useState } from 'react'
-import { AlertTriangle, BarChart3, Copy, Eye, EyeOff, LineChart, PieChart, Plus, Sparkles, Table2, Trash2, Hash, ArrowUp, ArrowDown } from 'lucide-react'
+import { AlertTriangle, BarChart3, Eye, EyeOff, LineChart, PieChart, Plus, Sparkles, Table2, Trash2, Hash, ArrowUp, ArrowDown } from 'lucide-react'
 import { useStore } from '../../../store'
 import { apiFetch } from '../../../utils/api'
-import { parseJsonField, toJsonText, type BiCard, type BiCardType, type BiDashboard, type BiDrillLevel, type BiFilter, type BiQueryMeta } from '../../../utils/bi'
-import { bindFilterEverywhere, cardProblems, filterFromParam, newCard, newDrillLevel, nextCardId, renameFilterRefs, suggestFilterParams, type QueryRef } from '../../../utils/biAdmin'
+import { parseJsonField, toJsonText, type BiCard, type BiCardRef, type BiCardType, type BiChartDef, type BiDashboard, type BiFilter, type BiQueryMeta, type BiScalar } from '../../../utils/bi'
+import { effectiveSource, filterFromParam, nextRefId, refProblems, renameFilterRefs, resolveCard, suggestFilterParams, type QueryRef } from '../../../utils/biAdmin'
 import { AdminPage, Badge, Button, Card, Checkbox, EditorActions, EmptyState, Field, IconButton, Input, JsonField, Notice, Section, Segmented, Textarea } from '../../../ui'
 import { cn, compactInputClass, tableClass, tdClass, thClass } from '../../../ui/classes'
 import { DashboardView } from '../DashboardPanel'
-import CardEditor from './CardEditor'
 import { errMsg, type BiDashboardAdmin, type QueryOption } from './types'
 
 const TYPE_ICON: Record<BiCardType, typeof Hash> = { kpi: Hash, bar: BarChart3, line: LineChart, pie: PieChart, table: Table2 }
@@ -76,7 +76,7 @@ function FiltersEditor({
       {suggestions.length > 0 && (
         <div className="flex items-center gap-1.5 flex-wrap text-[12.5px]">
           <Sparkles className="w-3.5 h-3.5 text-primary" />
-          <span className="text-muted">卡片查询需要的参数，建议建成筛选：</span>
+          <span className="text-muted">图表需要的参数，建议建成筛选：</span>
           {suggestions.map((p) => (
             <button
               key={p.name}
@@ -92,7 +92,7 @@ function FiltersEditor({
         </div>
       )}
       {filters.length === 0 ? (
-        <p className="text-[13px] text-subtle">暂无筛选。卡片参数也可以写固定值，或不传使用查询默认值。</p>
+        <p className="text-[13px] text-subtle">暂无筛选。图表参数可以在图表里写固定值，或在卡片上覆盖。</p>
       ) : (
         <div className="overflow-x-auto">
           <table className={tableClass}>
@@ -192,16 +192,198 @@ function FiltersEditor({
   )
 }
 
+
+// ─── 卡片（图表引用）设置 ────────────────────────────────────────────────────
+
+const WIDTHS = [
+  { value: 3, label: '1/4' },
+  { value: 4, label: '1/3' },
+  { value: 6, label: '1/2' },
+  { value: 8, label: '2/3' },
+  { value: 9, label: '3/4' },
+  { value: 12, label: '整行' },
+]
+const HEIGHTS = [
+  { value: 1, label: '矮' },
+  { value: 2, label: '中' },
+  { value: 3, label: '高' },
+  { value: 4, label: '很高' },
+]
+
+function ChartSelect({ charts, value, onChange, placeholder, ariaLabel }: { charts: BiChartDef[]; value: string; onChange: (k: string) => void; placeholder: string; ariaLabel: string }) {
+  return (
+    <select className={compactInputClass} aria-label={ariaLabel} value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">{placeholder}</option>
+      {value && !charts.some((c) => c.chartKey === value) && <option value={value}>{value}（不存在）</option>}
+      {charts.map((c) => (
+        <option key={c.chartKey} value={c.chartKey}>
+          {TYPE_LABEL[c.type]} · {c.label}（{c.chartKey}）{c.enabled ? '' : ' · 已停用'}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+/** 一张卡片的参数来源：默认显示自动结果（同名筛选 / 图表固定值 / 查询默认），可覆盖为筛选或固定值 */
+function ParamOverrides({ cardRef, chart, query, filters, onChange }: { cardRef: BiCardRef; chart: BiChartDef; query: QueryOption; filters: BiFilter[]; onChange: (params: Record<string, BiScalar> | undefined) => void }) {
+  if (query.params.length === 0) return <p className="text-[12px] text-subtle">图表的查询没有参数</p>
+  const params = cardRef.params || {}
+  const setOverride = (name: string, v: BiScalar | undefined) => {
+    const next = Object.fromEntries(Object.entries(params).filter(([k]) => k.toLowerCase() !== name.toLowerCase()))
+    if (v !== undefined) next[name] = v
+    onChange(Object.keys(next).length ? next : undefined)
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      {query.params.map((p) => {
+        const src = effectiveSource(p, cardRef, chart, filters)
+        const autoLabel = (() => {
+          const s = effectiveSource(p, { ...cardRef, params: undefined }, chart, filters)
+          if (s.kind === 'filter') return `自动：筛选「${filters.find((f) => f.name === s.filter)?.label || s.filter}」`
+          if (s.kind === 'fixed') return `自动：图表固定值 ${String(s.value)}`
+          if (s.kind === 'default') return `自动：查询默认值 ${String(s.value)}`
+          return p.required ? '自动：无来源（必填！）' : '自动：不传'
+        })()
+        const ov = src.kind === 'override' ? src.value : undefined
+        const key = ov === undefined ? 'auto' : typeof ov === 'string' && ov.startsWith('$filter.') ? `filter:${ov.slice(8)}` : 'fixed'
+        return (
+          <div key={p.name} className="grid grid-cols-[6rem_minmax(0,2fr)_minmax(0,1fr)] items-center gap-2">
+            <span className="text-[12.5px] text-fg-2 truncate" title={p.name}>
+              {p.label || p.name}
+              {p.required && p.default == null && <span className="text-danger"> *</span>}
+            </span>
+            <select
+              className={cn(compactInputClass, src.kind === 'none' && p.required && p.default == null && 'border-danger')}
+              aria-label={`参数 ${p.name} 来源`}
+              value={key}
+              onChange={(e) => {
+                const v = e.target.value
+                if (v === 'auto') setOverride(p.name, undefined)
+                else if (v === 'fixed') setOverride(p.name, '')
+                else setOverride(p.name, `$filter.${v.slice(7)}`)
+              }}
+            >
+              <option value="auto">{autoLabel}</option>
+              {filters.length > 0 && (
+                <optgroup label="改用筛选">
+                  {filters.map((f) => (
+                    <option key={f.name} value={`filter:${f.name}`}>
+                      筛选：{f.label}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              {key.startsWith('filter:') && !filters.some((f) => `filter:${f.name}` === key) && <option value={key}>筛选：{key.slice(7)}（不存在）</option>}
+              <option value="fixed">固定值</option>
+            </select>
+            {key === 'fixed' ? (
+              <input
+                className={compactInputClass}
+                aria-label={`参数 ${p.name} 固定值`}
+                value={ov == null ? '' : String(ov)}
+                onChange={(e) => setOverride(p.name, p.type === 'number' && e.target.value !== '' && Number.isFinite(Number(e.target.value)) ? Number(e.target.value) : e.target.value)}
+              />
+            ) : (
+              <span className="text-[11px] text-subtle font-mono truncate">@{p.name}</span>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function CardRefEditor({
+  cardRef,
+  charts,
+  chart,
+  query,
+  filters,
+  problems,
+  onChange,
+}: {
+  cardRef: BiCardRef
+  charts: BiChartDef[]
+  chart?: BiChartDef
+  query?: QueryOption
+  filters: BiFilter[]
+  problems: string[]
+  onChange: (r: BiCardRef) => void
+}) {
+  const size = cardRef.layout || chart?.size || { w: 6, h: 2 }
+  return (
+    <div className="flex flex-col gap-3">
+      {problems.length > 0 && (
+        <Notice tone="warning">
+          <ul className="list-disc pl-5 space-y-0.5">
+            {problems.map((p) => (
+              <li key={p}>{p}</li>
+            ))}
+          </ul>
+        </Notice>
+      )}
+      <Field label="图表" hint={chart?.description || (chart ? `查询：${query?.label || chart.queryKey}` : '图表在「② 图表」页签里维护')}>
+        <ChartSelect
+          ariaLabel="卡片图表"
+          charts={charts}
+          value={cardRef.chartKey}
+          placeholder="请选择图表…"
+          onChange={(k) => {
+            const c = charts.find((x) => x.chartKey === k)
+            onChange({ id: cardRef.id, chartKey: k, layout: c ? { ...c.size } : cardRef.layout })
+          }}
+        />
+      </Field>
+      {chart && (
+        <>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="标题" hint="不填用图表标题">
+              <Input value={cardRef.title || ''} placeholder={chart.label} onChange={(e) => onChange({ ...cardRef, title: e.target.value || undefined })} />
+            </Field>
+            <Field label="宽度 / 高度">
+              <div className="grid grid-cols-2 gap-2">
+                <select className={compactInputClass} aria-label="宽度" value={size.w} onChange={(e) => onChange({ ...cardRef, layout: { ...size, w: Number(e.target.value) } })}>
+                  {!WIDTHS.some((w) => w.value === size.w) && <option value={size.w}>{size.w}/12</option>}
+                  {WIDTHS.map((w) => (
+                    <option key={w.value} value={w.value}>
+                      {w.label}
+                    </option>
+                  ))}
+                </select>
+                <select className={compactInputClass} aria-label="高度" value={size.h} disabled={chart.type === 'kpi'} onChange={(e) => onChange({ ...cardRef, layout: { ...size, h: Number(e.target.value) } })}>
+                  {HEIGHTS.map((h) => (
+                    <option key={h.value} value={h.value}>
+                      {h.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </Field>
+          </div>
+          {query && (
+            <div className="flex flex-col gap-2">
+              <h4 className="text-[12px] font-semibold text-muted">参数来源（默认自动按同名筛选，一般不用改）</h4>
+              <ParamOverrides cardRef={cardRef} chart={chart} query={query} filters={filters} onChange={(params) => onChange({ ...cardRef, params })} />
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 // ─── 主编辑器 ────────────────────────────────────────────────────────────────
 
 export default function DashboardEditor({
   initial,
   isNew,
+  availableCharts,
   availableQueries,
   onDone,
 }: {
   initial: BiDashboardAdmin
   isNew: boolean
+  availableCharts: BiChartDef[]
   availableQueries: QueryOption[]
   onDone: (changed: boolean) => void
 }) {
@@ -215,12 +397,17 @@ export default function DashboardEditor({
   const patch = (p: Partial<BiDashboardAdmin>) => setD((cur) => ({ ...cur, ...p }))
 
   const queryMap = useMemo(() => new Map<string, QueryRef>(availableQueries.map((q) => [q.queryKey, q])), [availableQueries])
-  const filterNames = useMemo(() => new Set(d.filters.map((f) => f.name)), [d.filters])
-  const problems = useMemo(() => d.cards.map((c) => cardProblems(c, queryMap, filterNames)), [d.cards, queryMap, filterNames])
-  const suggestions = useMemo(() => suggestFilterParams(d.cards, queryMap, d.filters), [d.cards, queryMap, d.filters])
-  const card = d.cards[selected]
+  const chartMap = useMemo(() => new Map(availableCharts.map((c) => [c.chartKey, c])), [availableCharts])
+  const problems = useMemo(() => d.cards.map((r) => refProblems(r, chartMap.get(r.chartKey), d.filters, queryMap)), [d.cards, d.filters, chartMap, queryMap])
+  // 展开后的卡片（预览、建议筛选用）；未选图表 / 图表不存在的为 null
+  const expanded = useMemo(
+    () => d.cards.map((r) => (chartMap.get(r.chartKey) ? resolveCard(r, chartMap.get(r.chartKey)!, d.filters, queryMap) : null)),
+    [d.cards, d.filters, chartMap, queryMap],
+  )
+  const suggestions = useMemo(() => suggestFilterParams(expanded.filter((c): c is BiCard => !!c), queryMap, d.filters), [expanded, queryMap, d.filters])
+  const ref = d.cards[selected]
+  const refChart = ref ? chartMap.get(ref.chartKey) : undefined
 
-  // 预览用的看板：queries 为公开元数据（口径、列语义）
   const previewQueries = useMemo(() => {
     const out: Record<string, BiQueryMeta> = {}
     for (const q of availableQueries) out[q.queryKey] = q
@@ -229,19 +416,12 @@ export default function DashboardEditor({
   const toPreview = (cards: BiCard[]): BiDashboard => ({ dashboardKey: d.dashboardKey, label: d.label, description: d.description, filters: d.filters, cards, queries: previewQueries, hiddenCards: 0 })
 
   // 卡片操作
-  const setCard = (i: number, c: BiCard) => patch({ cards: d.cards.map((x, j) => (j === i ? c : x)) })
-  const addCard = () => {
-    const c = newCard(nextCardId(d.cards.map((x) => x.id)))
-    patch({ cards: [...d.cards, c] })
+  const setRef = (i: number, r: BiCardRef) => patch({ cards: d.cards.map((x, j) => (j === i ? r : x)) })
+  const addChart = (chartKey: string) => {
+    const c = chartMap.get(chartKey)
+    if (!c) return
+    patch({ cards: [...d.cards, { id: nextRefId(chartKey, d.cards.map((x) => x.id)), chartKey, layout: { ...c.size } }] })
     setSelected(d.cards.length)
-  }
-  const duplicateCard = (i: number) => {
-    const src = d.cards[i]
-    const c: BiCard = { ...structuredClone(src), id: nextCardId(d.cards.map((x) => x.id)), title: `${src.title} 副本` }
-    const cards = [...d.cards]
-    cards.splice(i + 1, 0, c)
-    patch({ cards })
-    setSelected(i + 1)
   }
   const removeCard = (i: number) => {
     patch({ cards: d.cards.filter((_, j) => j !== i) })
@@ -256,12 +436,10 @@ export default function DashboardEditor({
     setSelected(j)
   }
 
-  // 筛选操作（同步卡片里的引用）
+  // 筛选操作（同名参数自动绑定；改名 / 删除同步卡片里的覆盖）
   const addFilterFromParam = (name: string) => {
     const p = suggestions.find((x) => x.name === name)
-    if (!p) return
-    const f = filterFromParam(p)
-    setD((cur) => ({ ...cur, filters: [...cur.filters, f], cards: bindFilterEverywhere(cur.cards, queryMap, f) }))
+    if (p) patch({ filters: [...d.filters, filterFromParam(p)] })
   }
   const renameFilter = (from: string, to: string) => {
     if (!NAME_RE.test(to)) return showToast('筛选名称须为字母或下划线开头，仅含字母、数字、下划线')
@@ -276,6 +454,13 @@ export default function DashboardEditor({
   }
 
   // 表单 ⇄ JSON
+  const parseJson = () => {
+    const f = parseJsonField<BiFilter[]>(json.filters, '全局筛选', 'array')
+    if (!f.ok) return f
+    const c = parseJsonField<BiCardRef[]>(json.cards, '卡片', 'array')
+    if (!c.ok) return c
+    return { ok: true as const, filters: f.value, cards: c.value.map((x, i) => ({ ...x, id: x.id || nextRefId(x.chartKey || `card${i + 1}`, []) })) }
+  }
   const switchMode = (next: 'form' | 'json') => {
     if (next === mode) return
     if (next === 'json') {
@@ -283,23 +468,9 @@ export default function DashboardEditor({
       setMode('json')
       return
     }
-    const f = parseJsonField<BiFilter[]>(json.filters, '全局筛选', 'array')
-    if (!f.ok) return showToast(f.error)
-    const c = parseJsonField<Partial<BiCard>[]>(json.cards, '卡片', 'array')
-    if (!c.ok) return showToast(c.error)
-    // 补齐表单需要的字段，避免手写 JSON 缺字段导致编辑器报错
-    const cards: BiCard[] = c.value.map((x, i) => {
-      const base = newCard(x.id || `card${i + 1}`, x.type)
-      return {
-        ...base,
-        ...x,
-        params: x.params || {},
-        encoding: x.encoding || {},
-        drill: (x.drill || []).map((l: Partial<BiDrillLevel>) => ({ ...newDrillLevel(), ...l })),
-        layout: { ...base.layout, ...x.layout },
-      }
-    })
-    patch({ filters: f.value, cards })
+    const r = parseJson()
+    if (!r.ok) return showToast(r.error)
+    patch({ filters: r.filters, cards: r.cards })
     setSelected(0)
     setMode('form')
   }
@@ -307,16 +478,14 @@ export default function DashboardEditor({
   const save = async () => {
     let body: BiDashboardAdmin = d
     if (mode === 'json') {
-      const f = parseJsonField<BiFilter[]>(json.filters, '全局筛选', 'array')
-      if (!f.ok) return showToast(f.error)
-      const c = parseJsonField<BiCard[]>(json.cards, '卡片', 'array')
-      if (!c.ok) return showToast(c.error)
-      body = { ...d, filters: f.value, cards: c.value }
+      const r = parseJson()
+      if (!r.ok) return showToast(r.error)
+      body = { ...d, filters: r.filters, cards: r.cards }
     } else {
       const bad = problems.findIndex((p) => p.length > 0)
       if (bad >= 0) {
         setSelected(bad)
-        return showToast(`卡片「${d.cards[bad].title || d.cards[bad].id}」还有 ${problems[bad].length} 个问题`)
+        return showToast(`卡片「${expanded[bad]?.title || d.cards[bad].id}」还有 ${problems[bad].length} 个问题`)
       }
     }
     setSaving(true)
@@ -335,11 +504,12 @@ export default function DashboardEditor({
   }
 
   const problemCount = problems.filter((p) => p.length > 0).length
+  const previewCard = expanded[selected]
 
   return (
     <AdminPage
       title={isNew ? '新增看板' : `编辑看板：${d.label || d.dashboardKey}`}
-      description="看板只描述展示：卡片引用查询库的查询，不写 SQL；在「Agent 配置」里关联到 Agent"
+      description="看板只负责组合：选图表、设筛选、排版；在「Agent 配置」里关联到 Agent"
       onBack={() => onDone(false)}
       withActionBar
       actions={
@@ -359,10 +529,10 @@ export default function DashboardEditor({
         <Section title="基本信息">
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="看板标识（dashboardKey）" hint={isNew ? '小写字母开头；创建后不可修改' : undefined}>
-              <Input value={d.dashboardKey} disabled={!isNew} onChange={(e) => patch({ dashboardKey: e.target.value })} placeholder="finance" />
+              <Input value={d.dashboardKey} disabled={!isNew} onChange={(e) => patch({ dashboardKey: e.target.value })} placeholder="sales" />
             </Field>
             <Field label="显示名称">
-              <Input value={d.label} onChange={(e) => patch({ label: e.target.value })} placeholder="财务经营看板" />
+              <Input value={d.label} onChange={(e) => patch({ label: e.target.value })} placeholder="销售经营看板" />
             </Field>
             <Field label="说明" className="sm:col-span-2">
               <Textarea rows={2} value={d.description} onChange={(e) => patch({ description: e.target.value })} />
@@ -374,7 +544,7 @@ export default function DashboardEditor({
         {mode === 'form' ? (
           <Section
             title="全局筛选"
-            hint="看板顶部的筛选条。卡片参数选择「筛选：xx」即随之变化。"
+            hint="看板顶部的筛选条。图表里与筛选同名的参数自动跟随筛选变化。"
             actions={
               <Button size="sm" variant="ghost" icon={<Plus className="w-3.5 h-3.5" />} onClick={addBlankFilter}>
                 添加筛选
@@ -398,30 +568,29 @@ export default function DashboardEditor({
       </div>
 
       {mode === 'json' ? (
-        <Section title="卡片（JSON）" hint="高级：直接编辑卡片定义。切回「表单」时会解析校验。">
-          <JsonField label="卡片定义" expect="array" rows={28} value={json.cards} onChange={(v) => setJson((j) => ({ ...j, cards: v }))} />
+        <Section title="卡片（JSON）" hint={'高级：每项 { "chartKey", "title"?, "params"?, "layout"? }。切回「表单」时会解析校验。'}>
+          <JsonField label="卡片定义" expect="array" rows={20} value={json.cards} onChange={(v) => setJson((j) => ({ ...j, cards: v }))} />
         </Section>
       ) : (
         <div className="grid gap-4 lg:grid-cols-[16rem_minmax(0,1fr)] xl:grid-cols-[16rem_minmax(0,1fr)_minmax(0,1fr)] items-start">
           {/* 卡片列表 */}
           <Card className="overflow-hidden lg:sticky lg:top-20">
-            <div className="flex items-center justify-between px-3 py-2 border-b border-line">
+            <div className="flex flex-col gap-2 px-3 py-2 border-b border-line">
               <span className="text-[13px] font-semibold text-fg">
                 卡片 <span className="text-subtle font-normal">{d.cards.length}</span>
               </span>
-              <Button size="sm" variant="ghost" icon={<Plus className="w-3.5 h-3.5" />} onClick={addCard}>
-                添加
-              </Button>
+              <ChartSelect ariaLabel="添加图表" charts={availableCharts} value="" placeholder="＋ 添加图表…" onChange={addChart} />
             </div>
             {d.cards.length === 0 ? (
-              <EmptyState title="还没有卡片" description="点「添加」创建第一张" />
+              <EmptyState title="还没有卡片" description={availableCharts.length ? '从上面的下拉里选图表' : '图表库为空：请先到「② 图表」新增'} />
             ) : (
               <ul className="max-h-[60vh] overflow-y-auto">
-                {d.cards.map((c, i) => {
-                  const Icon = TYPE_ICON[c.type]
+                {d.cards.map((r, i) => {
+                  const c = chartMap.get(r.chartKey)
+                  const Icon = c ? TYPE_ICON[c.type] : Hash
                   const bad = problems[i].length > 0
                   return (
-                    <li key={c.id + i}>
+                    <li key={r.id + i}>
                       <button
                         type="button"
                         onClick={() => setSelected(i)}
@@ -429,9 +598,9 @@ export default function DashboardEditor({
                       >
                         <Icon className={cn('w-4 h-4 shrink-0', i === selected ? 'text-primary' : 'text-subtle')} />
                         <span className="min-w-0 flex-1">
-                          <span className="block text-[13px] text-fg truncate">{c.title || <span className="text-subtle">（未命名）</span>}</span>
+                          <span className="block text-[13px] text-fg truncate">{r.title || c?.label || <span className="text-subtle">（未选图表）</span>}</span>
                           <span className="block text-[11px] text-subtle truncate">
-                            {TYPE_LABEL[c.type]} · {c.layout.w}/12{c.drill.length ? ` · 下钻 ${c.drill.length} 级` : ''}
+                            {c ? TYPE_LABEL[c.type] : '—'} · {(r.layout || c?.size)?.w ?? '-'}/12{c?.drill.length ? ` · 下钻 ${c.drill.length} 级` : ''}
                           </span>
                         </span>
                         {bad && <AlertTriangle className="w-4 h-4 text-warning shrink-0" aria-label="有问题" />}
@@ -443,11 +612,11 @@ export default function DashboardEditor({
             )}
           </Card>
 
-          {/* 卡片编辑 */}
-          {card ? (
+          {/* 卡片设置 */}
+          {ref ? (
             <Section
-              title={card.title || '未命名卡片'}
-              hint={<span className="font-mono">{card.id}</span>}
+              title={ref.title || refChart?.label || '未选图表'}
+              hint={<span className="font-mono">{ref.id}</span>}
               actions={
                 <div className="flex items-center">
                   <IconButton label="上移" disabled={selected === 0} onClick={() => moveCard(selected, -1)}>
@@ -456,33 +625,38 @@ export default function DashboardEditor({
                   <IconButton label="下移" disabled={selected === d.cards.length - 1} onClick={() => moveCard(selected, 1)}>
                     <ArrowDown className="w-4 h-4" />
                   </IconButton>
-                  <IconButton label="复制" onClick={() => duplicateCard(selected)}>
-                    <Copy className="w-4 h-4" />
-                  </IconButton>
-                  <IconButton label="删除卡片" className="hover:text-danger" onClick={() => removeCard(selected)}>
+                  <IconButton label="移除卡片" className="hover:text-danger" onClick={() => removeCard(selected)}>
                     <Trash2 className="w-4 h-4" />
                   </IconButton>
                 </div>
               }
             >
-              <CardEditor card={card} queries={availableQueries} filters={d.filters} problems={problems[selected]} onChange={(c) => setCard(selected, c)} />
+              <CardRefEditor
+                cardRef={ref}
+                charts={availableCharts}
+                chart={refChart}
+                query={refChart ? availableQueries.find((q) => q.queryKey === refChart.queryKey) : undefined}
+                filters={d.filters}
+                problems={problems[selected]}
+                onChange={(r) => setRef(selected, r)}
+              />
             </Section>
           ) : (
             <Card className="p-8">
-              <EmptyState title="选择或添加一张卡片" description={availableQueries.length === 0 ? '查询库为空：请先到「查询库」新增查询' : undefined} />
+              <EmptyState title="选择或添加一张卡片" />
             </Card>
           )}
 
           {/* 单卡实时预览（宽屏第三列，其余放在编辑区下方） */}
-          {card && (
+          {ref && (
             <div className="lg:col-start-2 xl:col-start-auto xl:sticky xl:top-20 flex flex-col gap-2 min-w-0">
               <p className="text-[12px] text-subtle">实时预览（真实数据，筛选取默认值）</p>
-              {problems[selected].length > 0 ? (
+              {problems[selected].length > 0 || !previewCard ? (
                 <Card className="p-6 text-center text-[13px] text-subtle">配置完成后显示预览</Card>
               ) : (
                 <DashboardView
-                  key={JSON.stringify([card.queryKey, card.params, card.type, card.drill, d.filters])}
-                  dashboard={toPreview([{ ...card, layout: { ...card.layout, w: 12 } }])}
+                  key={JSON.stringify([previewCard.queryKey, previewCard.params, previewCard.type, previewCard.drill, d.filters])}
+                  dashboard={toPreview([{ ...previewCard, layout: { ...previewCard.layout, w: 12 } }])}
                   pcMode
                   showHeader={false}
                 />
@@ -506,7 +680,7 @@ export default function DashboardEditor({
             (problemCount > 0 ? (
               <Notice tone="warning">有 {problemCount} 张卡片配置未完成，修正后再预览。</Notice>
             ) : (
-              <DashboardView key={JSON.stringify([d.cards, d.filters])} dashboard={toPreview(d.cards)} pcMode />
+              <DashboardView key={JSON.stringify([expanded, d.filters])} dashboard={toPreview(expanded.filter((c): c is BiCard => !!c))} pcMode />
             ))}
         </Section>
       )}
@@ -515,11 +689,7 @@ export default function DashboardEditor({
         onCancel={() => onDone(false)}
         onSave={() => void save()}
         saving={saving}
-        leading={
-          mode === 'form' && problemCount > 0 ? (
-            <Badge tone="warning">{problemCount} 张卡片待完善</Badge>
-          ) : undefined
-        }
+        leading={mode === 'form' && problemCount > 0 ? <Badge tone="warning">{problemCount} 张卡片待完善</Badge> : undefined}
       />
     </AdminPage>
   )
