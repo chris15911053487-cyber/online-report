@@ -148,6 +148,19 @@ function FilterInput({ filter, value, onChange }: { filter: BiFilter; value: BiS
         ))}
       </select>
     )
+  } else if (filter.type === 'year') {
+    // 年份：近 10 年下拉；当前值不在范围内时也列出
+    const now = new Date().getFullYear()
+    const years = Array.from({ length: 10 }, (_, i) => String(now - i))
+    const cur = value == null ? '' : String(value)
+    if (cur && !years.includes(cur)) years.unshift(cur)
+    control = (
+      <select id={id} className={cls} value={cur} onChange={(e) => onChange(e.target.value || null)}>
+        {years.map((y) => (
+          <option key={y} value={y}>{y} 年</option>
+        ))}
+      </select>
+    )
   } else if (filter.type === 'month' || filter.type === 'date') {
     control = (
       <input id={id} type={filter.type} className={cls} value={value == null ? '' : String(value)} onChange={(e) => onChange(e.target.value || null)} />

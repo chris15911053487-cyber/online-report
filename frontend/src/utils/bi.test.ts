@@ -17,6 +17,8 @@ describe('resolveDefaultToken', () => {
     expect(resolveDefaultToken('$today', NOW)).toBe('2026-01-15')
     expect(resolveDefaultToken('$yesterday', new Date(2026, 0, 1))).toBe('2025-12-31')
     expect(resolveDefaultToken('$thisMonth', NOW)).toBe('2026-01')
+    expect(resolveDefaultToken('$thisYear', NOW)).toBe('2026')
+    expect(resolveDefaultToken('$lastYear', NOW)).toBe('2025')
     expect(resolveDefaultToken('$lastMonth', NOW)).toBe('2025-12')
     expect(resolveDefaultToken('$monthStart', NOW)).toBe('2026-01-01')
     expect(resolveDefaultToken('$yearStart', NOW)).toBe('2026-01-01')

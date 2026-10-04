@@ -73,6 +73,8 @@ describe('筛选与绑定', () => {
     expect(filterFromParam({ name: 'period', type: 'string', label: '期间' })).toEqual({ name: 'period', label: '期间', type: 'month', default: '$thisMonth' })
     expect(filterFromParam({ name: 'dateFrom', type: 'date' }).type).toBe('date')
     expect(filterFromParam({ name: 'whs', type: 'string' }).type).toBe('string')
+    expect(filterFromParam({ name: 'year', type: 'string', label: '年份' })).toEqual({ name: 'year', label: '年份', type: 'year', default: '$thisYear' })
+    expect(filterFromParam({ name: 'fiscalYear', type: 'string' }).type).toBe('string')
   })
 
   it('卡片参数自动绑定同名筛选，已设置的不动', () => {

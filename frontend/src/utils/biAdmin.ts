@@ -194,8 +194,10 @@ export function filterFromParam(p: BiParamDef): BiFilter {
   let type: BiFilter['type'] = 'string'
   if (p.type === 'date') type = 'date'
   else if (/(period|month|ym)$/i.test(p.name) || /^(period|month)/i.test(p.name)) type = 'month'
+  else if (/(^|_)(year|yr)$/i.test(p.name) || /^year/i.test(p.name)) type = 'year'
   const f: BiFilter = { name: p.name, label: p.label || p.name, type }
   if (type === 'month') f.default = '$thisMonth'
+  else if (type === 'year') f.default = '$thisYear'
   else if (type === 'date') f.default = '$today'
   return f
 }

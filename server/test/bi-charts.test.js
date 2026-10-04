@@ -104,5 +104,9 @@ test('看板保存：必填参数既无同名筛选也无覆盖 → 报错；加
   assert.equal(bad.ok, false);
   assert.match(bad.error, /必填参数「period」没有取值来源/);
   assert.equal(validateDashboardInput({ ...dash, filters: [{ name: 'period', type: 'month' }] }, ctx).ok, true);
+  // 年份筛选 + 今年 / 去年记号；未知记号报错
+  const yr = validateDashboardInput({ ...dash, filters: [{ name: 'period', type: 'month' }, { name: 'year', type: 'year', default: '$lastYear' }] }, ctx);
+  assert.equal(yr.ok, true, yr.error);
+  assert.match(validateDashboardInput({ ...dash, filters: [{ name: 'period', type: 'month', default: '$nextYear' }] }, ctx).error, /默认值记号不支持：\$nextYear/);
   assert.equal(validateDashboardInput({ ...dash, filters: [], cards: [{ chartKey: 'sales_top_cust', params: { period: '2026-09' } }] }, ctx).ok, true, '也可在看板里写固定值');
 });

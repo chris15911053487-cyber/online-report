@@ -21,6 +21,7 @@ import { errMsg, type BiDashboardAdmin, type QueryOption } from './types'
 const TYPE_LABEL: Record<BiCardType, string> = { kpi: 'KPI', bar: '柱状', line: '折线', pie: '饼图', table: '表格' }
 const FILTER_TYPES: { value: BiFilter['type']; label: string }[] = [
   { value: 'month', label: '月份' },
+  { value: 'year', label: '年份' },
   { value: 'date', label: '日期' },
   { value: 'select', label: '下拉' },
   { value: 'string', label: '文本' },
@@ -29,6 +30,10 @@ const DEFAULT_TOKENS: Record<string, { value: string; label: string }[]> = {
   month: [
     { value: '$thisMonth', label: '本月' },
     { value: '$lastMonth', label: '上月' },
+  ],
+  year: [
+    { value: '$thisYear', label: '今年' },
+    { value: '$lastYear', label: '去年' },
   ],
   date: [
     { value: '$today', label: '今天' },
@@ -168,7 +173,7 @@ function FiltersEditor({
                             <option value="custom">指定…</option>
                           </select>
                           {!isToken && f.default != null && (
-                            <input className={compactInputClass} type={f.type} aria-label="指定默认值" value={String(f.default)} onChange={(e) => patch(i, { default: e.target.value })} />
+                            <input className={compactInputClass} type={f.type === 'year' ? 'number' : f.type} placeholder={f.type === 'year' ? '2026' : undefined} aria-label="指定默认值" value={String(f.default)} onChange={(e) => patch(i, { default: e.target.value })} />
                           )}
                         </div>
                       ) : (

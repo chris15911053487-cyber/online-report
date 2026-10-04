@@ -14,9 +14,10 @@ const { normalizeParamMap, checkCardRefs, expandDashboard, listAllCharts } = req
 const DASHBOARD_KEY_RE = /^[a-z][a-z0-9_-]{0,63}$/;
 const CARD_ID_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
-const FILTER_TYPES = new Set(['month', 'date', 'string', 'select']);
+const FILTER_TYPES = new Set(['month', 'year', 'date', 'string', 'select']);
 // 默认值支持的动态记号（前端按当天解析）
-const DEFAULT_TOKENS = new Set(['$today', '$yesterday', '$thisMonth', '$lastMonth', '$monthStart', '$yearStart']);
+// 默认值动态记号：与服务端解析（bi-tokens.js）、前端 resolveDefaultToken 同一清单
+const DEFAULT_TOKENS = new Set(require('./bi-tokens').TOKENS);
 const MAX_CARDS = 40;
 const MAX_FILTERS = 10;
 const MAX_OPTIONS = 100;
@@ -56,7 +57,7 @@ function normalizeFilters(input) {
     if (seen.has(name)) return fail(`筛选项重复：「${name}」`);
     seen.add(name);
     const type = str(raw.type || 'string', 16).toLowerCase();
-    if (!FILTER_TYPES.has(type)) return fail(`筛选项「${name}」type 须为 month / date / string / select`);
+    if (!FILTER_TYPES.has(type)) return fail(`筛选项「${name}」type 须为 month / year / date / string / select`);
     const f = { name, label: str(raw.label || name, 64), type };
     if (raw.default !== undefined && raw.default !== null && raw.default !== '') {
       if (!isScalar(raw.default)) return fail(`筛选项「${name}」默认值须为简单值`);

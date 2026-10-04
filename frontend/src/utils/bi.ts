@@ -81,7 +81,7 @@ export interface BiCardRef {
 export interface BiFilter {
   name: string
   label: string
-  type: 'month' | 'date' | 'string' | 'select'
+  type: 'month' | 'year' | 'date' | 'string' | 'select'
   default?: BiScalar
   options?: { value: string | number | boolean; label: string }[]
 }
@@ -175,6 +175,10 @@ export function resolveDefaultToken(value: BiScalar | undefined, now: Date = new
       return ymd(new Date(now.getFullYear(), now.getMonth(), 1))
     case '$yearStart':
       return `${now.getFullYear()}-01-01`
+    case '$thisYear':
+      return String(now.getFullYear())
+    case '$lastYear':
+      return String(now.getFullYear() - 1)
     default:
       return null
   }
