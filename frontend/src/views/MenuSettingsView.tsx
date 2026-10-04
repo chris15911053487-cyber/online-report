@@ -35,7 +35,6 @@ interface MenuItemData {
   voiceActions?: any[]
 }
 
-const RESERVED_ROUTES = ['orders', 'menu-settings']
 const DETAIL_KEY_TYPES = ['string', 'int', 'decimal', 'date', 'datetime', 'bool']
 
 function normalizePromptText(s: string): string {
@@ -120,28 +119,25 @@ const VOICE_ACTIONS_PLACEHOLDER =
 type SaveBody = Record<string, unknown>
 
 /** 表单 → 提交体；JSON 字段解析失败返回错误文案。与原有新增/编辑逻辑一致。 */
-function formToBody(form: MenuEditFormState, isReserved: boolean): { ok: true; value: SaveBody } | { ok: false; error: string } {
-  const mk = isReserved ? 'builtin' : form.menuKind
-  let filterSchema: unknown[] = []
+function formToBody(form: MenuEditFormState): { ok: true; value: SaveBody } | { ok: false; error: string } {
+  const mk = form.menuKind
   let columnLabels: Record<string, string> = {}
   let columnNameMapping: Record<string, string> = {}
-  if (!isReserved) {
-    const fs = parseJsonField<unknown[]>(form.filterSchema, '查询条件', 'array')
-    if (!fs.ok) return fs
-    filterSchema = fs.value
-    if (mk === 'report') {
-      const cl = parseJsonField<Record<string, string>>(form.columnLabels, '列标题映射', 'object')
-      if (!cl.ok) return cl
-      columnLabels = cl.value
-      const cm = parseJsonField<Record<string, string>>(form.columnNameMapping, '列名映射', 'object')
-      if (!cm.ok) return cm
-      columnNameMapping = cm.value
-    }
+  const fs = parseJsonField<unknown[]>(form.filterSchema, '查询条件', 'array')
+  if (!fs.ok) return fs
+  const filterSchema = fs.value
+  if (mk === 'report') {
+    const cl = parseJsonField<Record<string, string>>(form.columnLabels, '列标题映射', 'object')
+    if (!cl.ok) return cl
+    columnLabels = cl.value
+    const cm = parseJsonField<Record<string, string>>(form.columnNameMapping, '列名映射', 'object')
+    if (!cm.ok) return cm
+    columnNameMapping = cm.value
   }
   const va = parseJsonField<unknown[]>(form.voiceActions, '语音动作', 'array')
   if (!va.ok) return va
 
-  const isReport = !isReserved && mk === 'report'
+  const isReport = mk === 'report'
   return {
     ok: true,
     value: {
@@ -152,7 +148,7 @@ function formToBody(form: MenuEditFormState, isReserved: boolean): { ok: true; v
       enabled: form.enabled,
       roles: [...form.selectedRoles],
       menuKind: mk,
-      queryTemplate: isReserved ? '' : form.queryTemplate.trim(),
+      queryTemplate: form.queryTemplate.trim(),
       filterSchema,
       columnLabels,
       columnNameMapping,
@@ -190,8 +186,7 @@ function MenuEditor({
   const [error, setError] = useState('')
 
   const isNew = item == null
-  const isReserved = !!item && RESERVED_ROUTES.includes(item.routeKey)
-  const isReport = !isReserved && form.menuKind === 'report'
+  const isReport = form.menuKind === 'report'
 
   const update = (patch: Partial<MenuEditFormState>) => setForm((prev) => ({ ...prev, ...patch }))
 
@@ -201,7 +196,7 @@ function MenuEditor({
       setError('请填写名称和路由标识')
       return
     }
-    const body = formToBody(form, isReserved)
+    const body = formToBody(form)
     if (!body.ok) {
       setError(body.error)
       return
@@ -279,7 +274,6 @@ function MenuEditor({
         )}
       </div>
 
-      {isReserved && <Notice tone="info">系统保留菜单：不能改类型，也没有报表 SQL、AI、语音配置。</Notice>}
       {error && <Notice tone="danger">{error}</Notice>}
 
       <Section title="基本信息">
@@ -298,8 +292,8 @@ function MenuEditor({
           </Field>
           <Field label="菜单类型" className="sm:col-span-2">
             <Segmented
-              value={isReserved ? 'builtin' : form.menuKind}
-              onChange={(v) => !isReserved && update({ menuKind: v })}
+              value={form.menuKind}
+              onChange={(v) => update({ menuKind: v })}
               options={[
                 { value: 'report', label: '可配置报表（SQL）' },
                 { value: 'builtin', label: '内置页面' },
@@ -393,18 +387,16 @@ function MenuEditor({
         </>
       )}
 
-      {!isReserved && (
-        <Section title="语音动作（可选）" hint="配置语音可带参数操作本菜单。占位符：{n}=数字 {t}=文本 {d}=日期；fill 的键为查询条件的 name。">
-          <JsonField
-            label="动作模板（JSON 数组）"
-            expect="array"
-            rows={7}
-            value={form.voiceActions}
-            placeholder={VOICE_ACTIONS_PLACEHOLDER}
-            onChange={(v) => update({ voiceActions: v })}
-          />
-        </Section>
-      )}
+      <Section title="语音动作（可选）" hint="配置语音可带参数操作本菜单。占位符：{n}=数字 {t}=文本 {d}=日期；fill 的键为查询条件的 name。">
+        <JsonField
+          label="动作模板（JSON 数组）"
+          expect="array"
+          rows={7}
+          value={form.voiceActions}
+          placeholder={VOICE_ACTIONS_PLACEHOLDER}
+          onChange={(v) => update({ voiceActions: v })}
+        />
+      </Section>
 
       <EditorActions onCancel={onCancel} onSave={() => void handleSave()} saving={saving} saveLabel={isNew ? '添加菜单' : '保存'} />
 

@@ -8,9 +8,6 @@ import CatalogView from '../views/CatalogView'
 import DynamicReportView from '../views/DynamicReportView'
 import SettingsView from '../views/SettingsView'
 import MenuSettingsView from '../views/MenuSettingsView'
-import OworView from '../views/OworView'
-import OrdersView from '../views/OrdersView'
-import DetailView from '../views/DetailView'
 import ReportRowDetailView from '../views/ReportRowDetailView'
 import ProSignReceiveView from '../views/ProSignReceiveView'
 import ProSignOrderDetailView from '../views/ProSignOrderDetailView'
@@ -48,9 +45,6 @@ const viewComponents: Record<string, React.ComponentType> = {
   'scheduled-reports': ScheduledReportsView,
   'alert-push': AlertPushView,
   admin: AdminHubView,
-  owor: OworView,
-  orders: OrdersView,
-  detail: DetailView,
   'report-row-detail': ReportRowDetailView,
   'pro-sign-receive': ProSignReceiveView,
   'pro-sign-order-detail': ProSignOrderDetailView,
@@ -73,14 +67,11 @@ function getPageTitle(
     'bi-admin': 'BI 看板管理',
     messages: '消息',
     settings: '设置',
-    owor: '生产订单',
-    orders: '报工订单',
     'menu-settings': '菜单与角色',
     'ai-skills': 'AI Skill 管理',
     'message-alert-settings': '消息提醒',
     'scheduled-reports': '定时报告',
     'alert-push': '警报推送',
-    detail: '订单报工',
     'report-row-detail': '行详情',
     'work-registration': '报工登记',
     'pro-sign-order-detail': '订单详情',

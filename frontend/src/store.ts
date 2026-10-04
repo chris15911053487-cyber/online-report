@@ -43,7 +43,6 @@ interface AppState {
   reportDetailKey: any
 
   // Order detail context
-  currentOrderId: number | null
 
   // Work registration context
   workRegBatchId: number | null
@@ -84,7 +83,6 @@ interface AppState {
   openProSign: (menu: NavMenuItem, opts?: { prefilledFilters?: Record<string, any>; autoQuery?: boolean }) => void
   consumePrefilledFilters: () => void
   openReportRowDetail: (routeKey: string, params: Record<string, any>, columnLabels: Record<string, string>, detailKey?: any) => void
-  openOrderDetail: (orderId: number) => void
   openWorkRegistration: (batchId: number, menu: NavMenuItem | null) => void
   openProSignReceive: (mergeItems: any[], lineResults: any[], buttonLabel: string) => void
   openProSignOrderDetail: (orderNo: string) => void
@@ -118,7 +116,6 @@ export const useStore = create<AppState>((set, get) => ({
   reportDetailParams: {},
   reportDetailColumnLabels: {},
   reportDetailKey: null,
-  currentOrderId: null,
   workRegBatchId: null,
   workRegMenu: null,
   proSignMergeItems: null,
@@ -262,7 +259,6 @@ export const useStore = create<AppState>((set, get) => ({
       viewHistory: [],
       activeMenu: null,
       proSignMode: false,
-      currentOrderId: null,
       proSignOrderDetailOrderNo: null,
       workRegBatchId: null,
       proSignMergeItems: null,
@@ -300,10 +296,6 @@ export const useStore = create<AppState>((set, get) => ({
       return
     }
 
-    if (currentView === 'detail') {
-      set({ currentView: 'orders', currentOrderId: null })
-      return
-    }
     if (currentView === 'report-row-detail') {
       set({ currentView: 'dynamic-report' })
       return
@@ -389,14 +381,6 @@ export const useStore = create<AppState>((set, get) => ({
 
   openMenuItem: (menu: NavMenuItem) => {
     const s = get()
-    if (menu.routeKey === 'orders') {
-      s.navigateTo('owor')
-      return
-    }
-    if (menu.routeKey === 'menu-settings') {
-      s.navigateTo('menu-settings')
-      return
-    }
     if (menu.routeKey === 'pro-sign') {
       s.openProSign(menu)
       return
@@ -444,10 +428,6 @@ export const useStore = create<AppState>((set, get) => ({
       reportDetailKey: detailKey ?? null,
       currentView: 'report-row-detail',
     })
-  },
-
-  openOrderDetail: (orderId: number) => {
-    set({ currentOrderId: orderId, currentView: 'detail' })
   },
 
   openWorkRegistration: (batchId: number, menu: NavMenuItem | null) => {
@@ -508,16 +488,6 @@ if (typeof window !== 'undefined') {
     }
     if (target.menuKind === 'report') {
       state.openMenu(target, { prefilledFilters: cleanFilters, autoQuery })
-      return true
-    }
-    // 非 report 菜单（如 orders/menu-settings）暂不支持预填筛选，
-    // 仅做导航：维持与点击菜单按钮一致的行为
-    if (target.routeKey === 'orders') {
-      state.navigateTo('owor')
-      return true
-    }
-    if (target.routeKey === 'menu-settings') {
-      state.navigateTo('menu-settings')
       return true
     }
     state.showToast('该菜单不支持语音参数操作')

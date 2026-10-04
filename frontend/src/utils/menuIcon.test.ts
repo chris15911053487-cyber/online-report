@@ -27,6 +27,6 @@ describe('menuKindLabel', () => {
   it('区分报工、报表与内置功能', () => {
     expect(menuKindLabel({ routeKey: 'pro-sign', menuKind: 'builtin' })).toBe('报工')
     expect(menuKindLabel({ routeKey: 'r', menuKind: 'report' })).toBe('报表查询')
-    expect(menuKindLabel({ routeKey: 'orders', menuKind: 'builtin' })).toBe('功能')
+    expect(menuKindLabel({ routeKey: 'x', menuKind: 'builtin' })).toBe('功能')
   })
 })

@@ -1,7 +1,5 @@
 const { sql } = require('./db');
 
-const RESERVED_ROUTE_KEYS = new Set(['orders', 'menu-settings']);
-
 const DANGEROUS_SQL_PATTERN =
   /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|MERGE|GRANT|REVOKE|DENY)\b/i;
 
@@ -835,10 +833,6 @@ function validateReportMenuConfig(cfg) {
     return { ok: false, error: 'menuKind 须为 builtin 或 report' };
   }
 
-  if (RESERVED_ROUTE_KEYS.has(routeKey) && menuKind === 'report') {
-    return { ok: false, error: '内置路由不可配置为报表类型' };
-  }
-
   if (menuKind === 'builtin') {
     if (qt.trim()) {
       return { ok: false, error: '内置菜单不应填写 SQL 模板' };
@@ -1309,7 +1303,6 @@ module.exports = {
   getFilterOptionsSqlMaxRows,
   getFilterOptionsSqlTimeoutMs,
   normalizeReportPaging,
-  RESERVED_ROUTE_KEYS,
   normalizeTemplate,
   detectTemplateKind,
   parseFilterSchemaJson,

@@ -9,7 +9,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **server/** — Fastify (Node.js) 后端，连接 SQL Server 数据库
 - **frontend/** — React 19 + Vite + TypeScript + TailwindCSS + Zustand 前端（PC 与手机浏览器/钉钉 H5 共用）
 - **ai-agent/** — Python LangGraph Agent 独立服务（FastAPI/uvicorn，port 8080）
-- **mobile/** — 早期 React Native (Expo) 原生 App（仅订单页，基本不再维护）
 - **mobile-webview/** — Expo WebView 壳 + 原生语音按钮
 
 README.md 有各功能的详细说明（配置字段、接口、环境变量），改功能时同步更新。
@@ -49,7 +48,7 @@ cd frontend && npm run lint
 - `.env` 加载顺序：根目录 `.env` → `server/.env`（后者覆盖）
 - 认证：基于 OUSR 表（`USER_CODE` / `MobileIMEI`），JWT 签发，Fastify decorator `fastify.authenticate` 和 `fastify.requireAdmin`；钉钉 H5 免登通过 `OUSR.U_DDUserId` 映射
 - 角色：`server/src/roles.js`（`resolveUserRoles`、`canAccessMenu`）；`app_roles` / `user_roles` 表；`ADMIN_USER_CODES` env var 指定管理员；无分配默认 `operator`；内置 `cost-viewer`、`attachment-generator`、`web-access` 等能力型角色
-- 路由注册方式：`fastify.register(routeFn)`，但 `owor` 用 `registerOworRoutes(fastify)` 直接调用
+- 路由注册方式：`fastify.register(routeFn)`
 - 错误响应格式：`{ error: string, code: string, detail?: string }`
 - `/api` 前缀：前端统一请求 `/api/...`，`Fastify({ rewriteUrl })` 去掉前缀再匹配（`server/src/spa.js`）；路由本身**不写** `/api`。机器人回调、ai-agent 回调等外部调用方继续用无前缀地址
 - SPA 回退：浏览器导航（GET + `Accept: text/html`，非 `/api`、非静态资源）返回 `frontend/dist/index.html`，所以页面地址可以与 GET 接口同名

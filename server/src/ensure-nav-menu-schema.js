@@ -94,6 +94,7 @@ const SQL_BOT_MESSAGE_LOGS_PATH = path.join(
 const SQL_AGENTS_PATH = path.join(__dirname, '..', 'sql', 'migrate-agents.sql');
 const SQL_BI_PATH = path.join(__dirname, '..', 'sql', 'migrate-bi.sql');
 const SQL_UI_SETTINGS_PATH = path.join(__dirname, '..', 'sql', 'migrate-ui-settings.sql');
+const SQL_REMOVE_LEGACY_MENUS_PATH = path.join(__dirname, '..', 'sql', 'migrate-remove-legacy-menus.sql');
 
 /**
  * 启动时自动执行 migrate-nav-menu-items-only.sql（需账号有建表权限）。
@@ -138,6 +139,7 @@ async function ensureNavMenuSchema(getPool, log) {
     SQL_AGENTS_PATH, // 可配置 Agent 中心：agents 表
     SQL_BI_PATH, // BI 看板：查询库、看板表、agents.dashboard_key（须在 agents 表之后）
     SQL_UI_SETTINGS_PATH, // 界面设置：公司默认主题 + 用户偏好
+    SQL_REMOVE_LEGACY_MENUS_PATH, // 删除早期内置菜单 orders / menu-settings
   ];
 
   let pool;

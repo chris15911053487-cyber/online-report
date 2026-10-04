@@ -15,13 +15,11 @@ const fastifyMultipart = require('@fastify/multipart');
 const authRoutes = require('./routes/auth');
 const authDingtalkRoutes = require('./routes/auth-dingtalk');
 const rolesAdminRoutes = require('./routes/roles-admin');
-const ordersRoutes = require('./routes/orders');
 const menusRoutes = require('./routes/menus');
 const { isAdminUser } = require('./roles');
 const reportsRoutes = require('./routes/reports');
 const proSignRoutes = require('./routes/pro-sign');
 const returnproRoutes = require('./routes/returnpro');
-const registerOworRoutes = require('./routes/owor');
 const aiRoutes = require('./routes/ai');
 const aiAgentRoutes = require('./routes/ai-agent');
 const agentsRoutes = require('./routes/agents');
@@ -122,7 +120,6 @@ async function build() {
   await fastify.register(authRoutes);
   await fastify.register(authDingtalkRoutes);
   await fastify.register(rolesAdminRoutes);
-  await fastify.register(ordersRoutes);
   await fastify.register(menusRoutes);
   await fastify.register(reportsRoutes);
   await fastify.register(proSignRoutes);
@@ -148,8 +145,6 @@ async function build() {
   } else {
     fastify.log.info('voice feature disabled via VOICE_ENABLED=false');
   }
-
-  registerOworRoutes(fastify);
 
   // 向 HTML 页面注入 voice-enabled meta 标签和 voice.js 脚本（仅在尚未包含时）
   fastify.addHook('onSend', async (_request, _reply, payload) => {

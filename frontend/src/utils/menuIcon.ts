@@ -19,8 +19,6 @@ import type { NavMenuItem } from '../types'
 
 const BY_ROUTE: Record<string, LucideIcon> = {
   'pro-sign': Factory,
-  orders: ShoppingCart,
-  'menu-settings': Settings,
 }
 
 /** 顺序即优先级：先匹配更具体的词 */

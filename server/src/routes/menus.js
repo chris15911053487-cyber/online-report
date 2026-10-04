@@ -31,37 +31,9 @@ function isInvalidObjectNameError(err) {
 const NAV_TABLE_MISSING_MSG =
   '数据库尚未创建表 nav_menu_items。请在当前库执行 server/sql/migrate-nav-menu-items-only.sql（或完整 schema-mssql.sql），或运行 npm run init-db。';
 
-/** 表未建好时 /menus 使用的内置菜单（与种子数据一致） */
-function defaultMenusForUser(userRoles) {
-  const all = [
-    {
-      id: 1,
-      label: '生产订单',
-      routeKey: 'orders',
-      icon: '📋',
-      sortOrder: 10,
-      enabled: true,
-      roles: ['admin', 'operator'],
-      menuKind: 'builtin',
-      filterSchema: [],
-      columnLabels: {},
-      columnNameMapping: {},
-    },
-    {
-      id: 2,
-      label: '菜单设置',
-      routeKey: 'menu-settings',
-      icon: '⚙',
-      sortOrder: 20,
-      enabled: true,
-      roles: ['admin'],
-      menuKind: 'builtin',
-      filterSchema: [],
-      columnLabels: {},
-      columnNameMapping: {},
-    },
-  ];
-  return all.filter((m) => canAccessMenu(userRoles, m.roles));
+/** 表未建好时 /menus 返回空列表（早期内置的「生产订单 / 菜单设置」已移除，菜单设置在管理后台） */
+function defaultMenusForUser() {
+  return [];
 }
 
 function filterSchemaFromRow(filterSchemaJson) {
@@ -279,7 +251,7 @@ async function menusRoutes(fastify) {
             { err },
             'nav_menu_items 不存在，使用内置默认菜单；请执行 migrate-nav-menu-items-only.sql'
           );
-          return { items: defaultMenusForUser(userRoles) };
+          return { items: defaultMenusForUser() };
         }
         throw err;
       }

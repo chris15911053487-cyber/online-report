@@ -30,8 +30,6 @@ const SIMPLE_VIEWS: Partial<Record<ViewName, string>> = {
   'agent-hub': '/agents',
   messages: '/messages',
   settings: '/settings',
-  owor: '/owor',
-  orders: '/orders',
 }
 const SIMPLE_PATHS = Object.fromEntries(Object.entries(SIMPLE_VIEWS).map(([v, p]) => [p, v])) as Record<string, ViewName>
 
@@ -41,7 +39,6 @@ export interface RouteState {
   activeMenu: Pick<NavMenuItem, 'routeKey'> | null
   currentAgentKey: string | null
   proSignOrderDetailOrderNo: string | null
-  currentOrderId: number | null
   workRegBatchId: number | null
 }
 
@@ -51,7 +48,6 @@ export type Navigation =
   | { kind: 'proSignOrder'; routeKey: string; orderNo: string }
   | { kind: 'workReg'; routeKey: string | null; batchId: number }
   | { kind: 'agent'; agentKey: string }
-  | { kind: 'order'; orderId: number }
 
 const enc = encodeURIComponent
 
@@ -76,17 +72,13 @@ export function pathFor(s: RouteState): string {
     case 'work-registration':
       if (s.workRegBatchId == null) return '/'
       return rk ? `/report/${enc(rk)}/batch/${s.workRegBatchId}` : `/work-registration/${s.workRegBatchId}`
-    case 'detail':
-      return s.currentOrderId != null ? `/orders/${s.currentOrderId}` : '/orders'
     default:
       return '/'
   }
 }
 
-/** 菜单的页面地址（与 store.openMenuItem 的分支一致）；未接入的内置菜单返回 null */
+/** 菜单的页面地址（与 store.openMenuItem 的分支一致）；未接入的菜单返回 null */
 export function menuPath(menu: Pick<NavMenuItem, 'routeKey' | 'menuKind'>): string | null {
-  if (menu.routeKey === 'orders') return '/owor'
-  if (menu.routeKey === 'menu-settings') return '/admin/menus'
   if (menu.routeKey === 'pro-sign' || menu.menuKind === 'report') return `/report/${enc(menu.routeKey)}`
   return null
 }
@@ -121,7 +113,6 @@ export function parsePath(pathname: string): Navigation {
     return { kind: 'report', routeKey: a }
   }
   if (head === 'work-registration' && int(a) != null) return { kind: 'workReg', routeKey: null, batchId: int(a)! }
-  if (head === 'orders' && int(a) != null) return { kind: 'order', orderId: int(a)! }
   return { kind: 'view', view: 'catalog' }
 }
 
@@ -134,7 +125,6 @@ interface RouterStore {
     openMenuItem: (menu: NavMenuItem) => void
     openAgent: (key: string) => void
     openProSignOrderDetail: (orderNo: string) => void
-    openOrderDetail: (id: number) => void
     openWorkRegistration: (batchId: number, menu: NavMenuItem | null) => void
     showToast: (msg: string) => void
   }
@@ -152,9 +142,6 @@ export function applyNavigation(store: RouterStore, nav: Navigation) {
       return
     case 'agent':
       s.openAgent(nav.agentKey)
-      return
-    case 'order':
-      s.openOrderDetail(nav.orderId)
       return
     case 'report':
     case 'proSignOrder':

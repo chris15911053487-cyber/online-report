@@ -7,7 +7,6 @@ const base: RouteState = {
   activeMenu: null,
   currentAgentKey: null,
   proSignOrderDetailOrderNo: null,
-  currentOrderId: null,
   workRegBatchId: null,
 }
 const at = (p: Partial<RouteState>): RouteState => ({ ...base, ...p })
@@ -32,14 +31,11 @@ describe('pathFor', () => {
     expect(pathFor(at({ currentView: 'pro-sign-order-detail', activeMenu: rk, proSignOrderDetailOrderNo: 'SO 1/2' }))).toBe('/report/pro-sign/order/SO%201%2F2')
     expect(pathFor(at({ currentView: 'work-registration', activeMenu: rk, workRegBatchId: 12 }))).toBe('/report/pro-sign/batch/12')
     expect(pathFor(at({ currentView: 'work-registration', workRegBatchId: 12 }))).toBe('/work-registration/12')
-    expect(pathFor(at({ currentView: 'detail', currentOrderId: 7 }))).toBe('/orders/7')
   })
 })
 
 describe('menuPath', () => {
   it('与 openMenuItem 分支一致，且能被 parsePath 解析回去', () => {
-    expect(menuPath({ routeKey: 'orders', menuKind: 'builtin' })).toBe('/owor')
-    expect(menuPath({ routeKey: 'menu-settings', menuKind: 'builtin' })).toBe('/admin/menus')
     expect(menuPath({ routeKey: 'pro-sign', menuKind: 'builtin' })).toBe('/report/pro-sign')
     expect(menuPath({ routeKey: '库存 查询', menuKind: 'report' })).toBe('/report/%E5%BA%93%E5%AD%98%20%E6%9F%A5%E8%AF%A2')
     expect(parsePath(menuPath({ routeKey: '库存 查询', menuKind: 'report' })!)).toEqual({ kind: 'report', routeKey: '库存 查询' })
@@ -69,13 +65,14 @@ describe('parsePath', () => {
     expect(parsePath('/report/pro-sign/order/SO%201%2F2')).toEqual({ kind: 'proSignOrder', routeKey: 'pro-sign', orderNo: 'SO 1/2' })
     expect(parsePath('/report/pro-sign/batch/12')).toEqual({ kind: 'workReg', routeKey: 'pro-sign', batchId: 12 })
     expect(parsePath('/work-registration/12')).toEqual({ kind: 'workReg', routeKey: null, batchId: 12 })
-    expect(parsePath('/orders/7')).toEqual({ kind: 'order', orderId: 7 })
   })
 
   it('无法识别的地址回首页', () => {
     expect(parsePath('/nope')).toEqual({ kind: 'view', view: 'catalog' })
     expect(parsePath('/admin/unknown')).toEqual({ kind: 'view', view: 'catalog' })
-    expect(parsePath('/orders/abc')).toEqual({ kind: 'view', view: 'catalog' })
+    // 已移除的早期页面：旧书签回到首页
+    expect(parsePath('/orders/7')).toEqual({ kind: 'view', view: 'catalog' })
+    expect(parsePath('/owor')).toEqual({ kind: 'view', view: 'catalog' })
   })
 })
 
