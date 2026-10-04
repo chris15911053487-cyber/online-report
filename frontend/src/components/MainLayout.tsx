@@ -107,6 +107,8 @@ function readSidebarPref(): boolean | null {
   }
 }
 
+const APP_TITLE = '在线平台'
+
 export default function MainLayout() {
   const {
     currentView,
@@ -166,6 +168,13 @@ export default function MainLayout() {
       : currentView === 'help-doc' && helpDocTitle
         ? helpDocTitle
         : getPageTitle(currentView, activeMenu?.label, proSignMergeButtonLabel, reportDetailRouteKey)
+  // 浏览器标签页标题：在线平台 - 当前页面（如 在线平台 - 销售分析 Agent）
+  useEffect(() => {
+    document.title = title && title !== APP_TITLE ? `${APP_TITLE} - ${title}` : APP_TITLE
+    return () => {
+      document.title = APP_TITLE
+    }
+  }, [title])
   // PC 面包屑的上一级（仅用于展示与快速返回）
   const crumbParent: { label: string; view: ViewName } | null =
     ADMIN_VIEWS.has(currentView) && currentView !== 'admin'
