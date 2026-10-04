@@ -91,7 +91,7 @@ cd frontend && npm run lint
 - Skill：`agent-skills.js`，按角色过滤；`run_sql` 只能执行 Skill 中描述的表/模式，仅 SELECT（`agent-sql.js`）
 - 可配置 Agent：`agents` 表（`agents.js`），前端 `AgentHubView` / `AgentRunView` / `AgentsAdminView`
 - AI 写入：`agent_write_targets` 白名单（`agent-write.js`）；API 动作放 `server/src/actions/*.js`，自动扫描加载
-- 定时报告：`scheduled-reports.js`（node-cron → `agentChatCore()` → IM 推送）
+- 定时报告：`scheduled-reports.js`（node-cron → `agentChatCore()` → IM 推送）；设了 `agent_key` 即「看板每日要点」（`bi-digest.js`：按推送对象角色分组取看板数据 → AI 写 3~5 条要点 → 附 `PUBLIC_BASE_URL/agents/:agentKey` 链接）
 
 ### BI 看板（第一期已完成，见 README「BI 看板」）
 

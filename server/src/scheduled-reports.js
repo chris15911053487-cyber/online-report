@@ -7,7 +7,12 @@
 const cron = require('node-cron');
 const { getPool, sql } = require('./db');
 const { agentChatCore } = require('./agent-chat-core');
-const { resolveUserRolesSync, getAdminUserCodesSet } = require('./roles');
+const { resolveUserRolesSync, getAdminUserCodesSet, resolveUserRoles } = require('./roles');
+const { getAgent, canUseAgent } = require('./agents');
+const { loadExpandedDashboard } = require('./bi-dashboards');
+const { runNamedQuery } = require('./bi-exec');
+const { aiService } = require('./ai');
+const { collectDashboardData, writeDigest, digestMessage, groupUsersByRoles } = require('./bi-digest');
 const crypto = require('crypto');
 
 const activeTasks = new Map(); // id -> cron.ScheduledTask
@@ -136,6 +141,14 @@ async function executeReport(report, log) {
       return;
     }
 
+    // 关联了看板 Agent：看板每日要点（按推送对象角色分组取数、写要点）
+    if (report.agent_key) {
+      const r = await executeDigestReport(pool, report, targetUsers, log);
+      await updateLog(pool, logId, 'done', targetUsers.length, r.sentCount, r.skipped || null, r.content);
+      log?.info?.({ reportId: report.id, name: report.name, targets: targetUsers.length, sent: r.sentCount }, 'dashboard digest done');
+      return;
+    }
+
     // 2. 调用 Agent 生成报告（用系统账号身份）
     const systemUser = process.env.SCHEDULED_REPORT_USER || 'SYSTEM';
     const convId = `sched_${report.id}_${Date.now()}`;
@@ -154,20 +167,7 @@ async function executeReport(report, log) {
     let sentCount = 0;
 
     for (const user of targetUsers) {
-      const bindings = await getUserBindings(pool, user.userCode);
-      let sent = false;
-      for (const ch of channels) {
-        const sender = SENDERS[ch];
-        const binding = bindings.find((b) => b.platform === ch);
-        if (!sender || !binding) continue;
-        try {
-          await sender(binding.platform_uid, `**${report.name}**\n\n${content}`, log);
-          sent = true;
-        } catch (err) {
-          log?.warn?.({ err: err.message, ch, user: user.userCode }, 'scheduled push failed');
-        }
-      }
-      if (sent) sentCount++;
+      if (await pushToUser(pool, user, channels, `**${report.name}**\n\n${content}`, log)) sentCount++;
     }
 
     await updateLog(pool, logId, 'done', targetUsers.length, sentCount, null, content);
@@ -176,6 +176,79 @@ async function executeReport(report, log) {
     await updateLog(pool, logId, 'error', 0, 0, String(err.message).slice(0, 1000));
     log?.error?.({ err, reportId: report.id }, 'scheduled report execution error');
   }
+}
+
+/** 推送一条消息给用户的各渠道绑定，返回是否至少发出一条 */
+async function pushToUser(pool, user, channels, text, log) {
+  const bindings = await getUserBindings(pool, user.userCode);
+  let sent = false;
+  for (const ch of channels) {
+    const sender = SENDERS[ch];
+    const binding = bindings.find((b) => b.platform === ch);
+    if (!sender || !binding) continue;
+    try {
+      await sender(binding.platform_uid, text, log);
+      sent = true;
+    } catch (err) {
+      log?.warn?.({ err: err.message, ch, user: user.userCode }, 'scheduled push failed');
+    }
+  }
+  return sent;
+}
+
+const digestLlm = async (messages) => {
+  const r = await aiService.generateChat(messages, { maxTokens: 4000, temperature: 0.3 });
+  if (!r.success) throw new Error(r.fallback || r.error || 'AI 服务不可用');
+  return r.content;
+};
+
+/**
+ * 生成看板要点（不推送）：按角色过滤看板 → 取数（bi-exec 缓存，key 含角色）→ AI 写要点 → 拼消息。
+ * 供定时执行与管理页「预览」共用。
+ */
+async function buildDigest(pool, { agent, roles, title, focus }) {
+  const loaded = await loadExpandedDashboard(pool, agent.dashboardKey);
+  if (!loaded || !loaded.dashboard.enabled) throw new Error(`Agent「${agent.label}」关联的看板不存在或已停用`);
+  const run = async (query, params) => runNamedQuery({ pool, query, params, roles });
+  const data = await collectDashboardData({ loaded, roles, run });
+  const points = await writeDigest(digestLlm, data, focus);
+  return { text: digestMessage({ title, points, agentKey: agent.agentKey, agentLabel: agent.label }), cardCount: data.cards.length };
+}
+
+async function executeDigestReport(pool, report, targetUsers, log) {
+  const agent = await getAgent(pool, report.agent_key);
+  if (!agent || !agent.enabled || !agent.dashboardKey) throw new Error(`Agent「${report.agent_key}」不存在、未启用或未关联看板`);
+  const channels = safeJsonParse(report.channels_json) || ['dingtalk'];
+  const users = [];
+  for (const u of targetUsers) users.push({ ...u, roles: await resolveUserRoles(pool, u.userCode) });
+  let sentCount = 0;
+  const contents = [];
+  const noAccess = [];
+  const noCards = [];
+  for (const { roles, users: group } of groupUsersByRoles(users).values()) {
+    // 看不了这个 Agent 的人不推（看板经 Agent 门禁进入）
+    if (!canUseAgent(roles, agent.roles)) {
+      noAccess.push(...group.map((u) => u.userCode));
+      continue;
+    }
+    const { text, cardCount } = await buildDigest(pool, { agent, roles, title: report.name, focus: report.prompt_template });
+    // 这些角色在看板上一张卡片都看不到：不推「没有要点」打扰人
+    if (cardCount === 0) {
+      noCards.push(...group.map((u) => u.userCode));
+      continue;
+    }
+    contents.push(`【角色 ${roles.join(',') || '无'}】\n${text}`);
+    for (const u of group) if (await pushToUser(pool, u, channels, text, log)) sentCount++;
+  }
+  return {
+    sentCount,
+    content: contents.join('\n\n'),
+    skipped:
+      [noAccess.length ? `无权使用该 Agent，未推送：${noAccess.join('、')}` : '', noCards.length ? `看板上没有可看的卡片，未推送：${noCards.join('、')}` : '']
+        .filter(Boolean)
+        .join('；')
+        .slice(0, 1000) || null,
+  };
 }
 
 async function resolveTargetUsers(pool, report) {
@@ -264,4 +337,4 @@ function stopAll() {
   activeTasks.clear();
 }
 
-module.exports = { loadAndSchedule, stopAll, executeReport };
+module.exports = { loadAndSchedule, stopAll, executeReport, buildDigest };

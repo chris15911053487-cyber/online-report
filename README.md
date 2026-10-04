@@ -373,7 +373,8 @@ node-cron 定时触发 → 加载 scheduled_reports 配置
 | `name` | 任务名称，如「每日生产日报」 |
 | `cron_expr` | cron 表达式，如 `0 8 * * *`（每天 8 点） |
 | `skill_name` | 可选，关联的 AI Skill |
-| `prompt_template` | 给 Agent 的指令，如「请统计今日生产完工情况并生成日报」 |
+| `prompt_template` | 给 Agent 的指令，如「请统计今日生产完工情况并生成日报」；看板要点时为可选的「关注点」 |
+| `agent_key` | 可选：关联了 BI 看板的 Agent。设了即为「看板每日要点」（见下） |
 | `target_roles_json` | 按角色推送，如 `["production","warehouse"]` |
 | `target_users_json` | 按用户推送，如 `["U001","U002"]`（优先于角色） |
 | `channels_json` | 推送渠道，如 `["dingtalk","wecom","feishu"]` |
@@ -395,6 +396,18 @@ node-cron 定时触发 → 加载 scheduled_reports 配置
 | 变量 | 说明 |
 |------|------|
 | `SCHEDULED_REPORT_USER` | Agent 执行报告时使用的系统账号（默认 `SYSTEM`） |
+| `PUBLIC_BASE_URL` | 系统对外访问地址（如 `https://report.example.com`）。看板要点消息末尾附 `{PUBLIC_BASE_URL}/agents/{agentKey}` 链接；未配置时改为提示「在系统 Agent → xx 查看看板」 |
+
+### 看板每日要点
+
+「定时报告」新增任务选「看板每日要点」+ 关联看板的 Agent，可选填关注点。执行时（`scheduled-reports.js` → `bi-digest.js`）：
+
+1. 推送对象逐个解析角色，按角色集合分组；无权使用该 Agent 的不推
+2. 每组按角色过滤看板（无权的卡片不取、不写），筛选取默认值（`$thisMonth` 等按中国日期解析），卡片经 `runNamedQuery` 取数（与看板同一缓存，key 含角色）
+3. 各卡片数据整理成紧凑表格（只取图表用到的列，KPI 1 行、其它 ≤15 行，带列中文名 / 单位 / 口径）交给 AI（`AI_PROVIDER` 主模型）写 3~5 条带数字的要点；AI 不再查数，数据里没有的数字不许写
+4. 推送「标题 + 要点 + 看板链接」；看板上一张卡片都看不到的组不推，日志里注明
+
+表单里可「预览要点（不推送）」，按管理员或某个角色视角生成；接口 `POST /admin/scheduled-reports/digest-preview`（`{ agent_key, name?, prompt_template?, role? }`）。
 
 ### 使用示例
 

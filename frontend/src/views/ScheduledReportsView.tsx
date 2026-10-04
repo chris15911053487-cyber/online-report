@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Clock, History, Pencil, Play, Plus, Trash2 } from 'lucide-react'
+import { Clock, Eye, History, Pencil, Play, Plus, Trash2 } from 'lucide-react'
 import { apiFetch } from '../utils/api'
-import { AdminPage, Badge, Button, Card, Checkbox, EditorActions, EmptyState, Field, IconButton, Input, Notice, RecordRow, Section, Skeleton, TableWrap, Textarea } from '../ui'
+import { AdminPage, Badge, Button, Card, Checkbox, EditorActions, EmptyState, Field, IconButton, Input, Notice, RecordRow, Section, Segmented, Select, Skeleton, TableWrap, Textarea } from '../ui'
+import ChatMarkdown from '../components/ChatMarkdown'
 import { tableClass, tdClass, thClass } from '../ui/classes'
 import { confirmDelete } from '../ui/confirm'
 
@@ -11,6 +12,8 @@ interface ScheduledReport {
   cron_expr: string
   skill_name: string | null
   prompt_template: string
+  /** 看板要点：关联了看板的 Agent */
+  agent_key: string | null
   target_roles_json: string | null
   target_users_json: string | null
   channels_json: string
@@ -32,7 +35,17 @@ interface LogEntry {
 
 type Mode = 'list' | 'form' | 'logs'
 
+interface DashboardAgent {
+  agentKey: string
+  label: string
+  dashboardKey: string
+  roles: string[]
+}
+
 const EMPTY_FORM = {
+  /** prompt：让 Agent 按指令写报告；digest：把关联看板的数据写成 3~5 条要点 */
+  kind: 'prompt' as 'prompt' | 'digest',
+  agent_key: '',
   name: '',
   cron_expr: '',
   skill_name: '',
@@ -54,6 +67,14 @@ export default function ScheduledReportsView() {
   const [error, setError] = useState('')
   const [msg, setMsg] = useState('')
   const [saving, setSaving] = useState(false)
+  const [agents, setAgents] = useState<DashboardAgent[]>([])
+
+  // 关联了看板的 Agent（看板要点用）；进入表单时取一次
+  const loadAgents = () => {
+    apiFetch('/admin/agents')
+      .then((d) => setAgents((Array.isArray(d?.items) ? d.items : []).filter((a: DashboardAgent) => a.dashboardKey)))
+      .catch(() => setAgents([]))
+  }
 
   const load = async () => {
     setLoading(true)
@@ -70,6 +91,7 @@ export default function ScheduledReportsView() {
   useEffect(() => { load() }, [])
 
   const openCreate = () => {
+    loadAgents()
     setEditId(null)
     setForm(EMPTY_FORM)
     setError('')
@@ -77,11 +99,14 @@ export default function ScheduledReportsView() {
   }
 
   const openEdit = (r: ScheduledReport) => {
+    loadAgents()
     setEditId(r.id)
     const roles = safeJsonParse(r.target_roles_json)
     const users = safeJsonParse(r.target_users_json)
     const channels = safeJsonParse(r.channels_json)
     setForm({
+      kind: r.agent_key ? 'digest' : 'prompt',
+      agent_key: r.agent_key || '',
       name: r.name,
       cron_expr: r.cron_expr,
       skill_name: r.skill_name || '',
@@ -96,16 +121,18 @@ export default function ScheduledReportsView() {
   }
 
   const handleSave = async () => {
-    if (!form.name || !form.cron_expr || !form.prompt_template) {
-      setError('名称、cron 表达式、Prompt 为必填')
+    const digest = form.kind === 'digest'
+    if (!form.name || !form.cron_expr || (digest ? !form.agent_key : !form.prompt_template)) {
+      setError(digest ? '名称、cron 表达式、关联看板的 Agent 为必填' : '名称、cron 表达式、Prompt 为必填')
       return
     }
     setError('')
     const body: Record<string, unknown> = {
       name: form.name,
       cron_expr: form.cron_expr,
-      skill_name: form.skill_name || null,
+      skill_name: digest ? null : form.skill_name || null,
       prompt_template: form.prompt_template,
+      agent_key: digest ? form.agent_key : null,
       target_roles_json: splitComma(form.target_roles_json),
       target_users_json: splitComma(form.target_users_json),
       channels_json: splitComma(form.channels_json),
@@ -168,22 +195,70 @@ export default function ScheduledReportsView() {
               <Field label="任务名称 *">
                 <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="如：每日生产日报" />
               </Field>
+              <Field label="报告方式">
+                <Segmented
+                  value={form.kind}
+                  onChange={(kind) => setForm({ ...form, kind })}
+                  options={[
+                    { value: 'prompt', label: 'AI 按指令写报告' },
+                    { value: 'digest', label: '看板每日要点' },
+                  ]}
+                />
+              </Field>
               <div className="grid gap-3 sm:grid-cols-2">
                 <Field label="Cron 表达式 *" hint="分 时 日 月 周，如 0 8 * * 1-5 = 工作日 8 点">
                   <Input className="font-mono" value={form.cron_expr} onChange={(e) => setForm({ ...form, cron_expr: e.target.value })} placeholder="0 8 * * 1-5" />
                 </Field>
-                <Field label="关联 Skill（可选）">
-                  <Input value={form.skill_name} onChange={(e) => setForm({ ...form, skill_name: e.target.value })} placeholder="skill 名称" />
-                </Field>
+                {form.kind === 'digest' ? (
+                  <Field label="看板（关联看板的 Agent）*">
+                    <Select value={form.agent_key} onChange={(e) => setForm({ ...form, agent_key: e.target.value })}>
+                      <option value="">请选择</option>
+                      {agents.map((a) => (
+                        <option key={a.agentKey} value={a.agentKey}>
+                          {a.label}（看板 {a.dashboardKey}）
+                        </option>
+                      ))}
+                      {form.agent_key && !agents.some((a) => a.agentKey === form.agent_key) && <option value={form.agent_key}>{form.agent_key}</option>}
+                    </Select>
+                  </Field>
+                ) : (
+                  <Field label="关联 Skill（可选）">
+                    <Input value={form.skill_name} onChange={(e) => setForm({ ...form, skill_name: e.target.value })} placeholder="skill 名称" />
+                  </Field>
+                )}
               </div>
-              <Field label="Prompt 模板 *">
-                <Textarea
-                  rows={10}
-                  value={form.prompt_template}
-                  onChange={(e) => setForm({ ...form, prompt_template: e.target.value })}
-                  placeholder="请统计昨天的生产完工数量，按工序汇总..."
-                />
-              </Field>
+              {form.kind === 'digest' ? (
+                <>
+                  <Field
+                    label="关注点（可选）"
+                    hint="按看板筛选默认值（如本月）取各卡片数据，AI 写 3~5 条带数字的要点，附看板链接；每组推送对象按自己的角色取数，看不到的卡片不会写进去"
+                  >
+                    <Textarea
+                      rows={3}
+                      value={form.prompt_template}
+                      onChange={(e) => setForm({ ...form, prompt_template: e.target.value })}
+                      placeholder="如：重点关注大客户变化和退货"
+                    />
+                  </Field>
+                  {form.agent_key && (
+                    <DigestPreview
+                      agentKey={form.agent_key}
+                      name={form.name}
+                      focus={form.prompt_template}
+                      roles={agents.find((a) => a.agentKey === form.agent_key)?.roles || []}
+                    />
+                  )}
+                </>
+              ) : (
+                <Field label="Prompt 模板 *">
+                  <Textarea
+                    rows={10}
+                    value={form.prompt_template}
+                    onChange={(e) => setForm({ ...form, prompt_template: e.target.value })}
+                    placeholder="请统计昨天的生产完工数量，按工序汇总..."
+                  />
+                </Field>
+              )}
             </div>
           </Section>
           <Section title="推送" hint="多个值用逗号分隔">
@@ -268,7 +343,12 @@ export default function ScheduledReportsView() {
               key={r.id}
               onClick={() => openEdit(r)}
               title={r.name}
-              badges={<Badge tone={r.enabled ? 'success' : 'neutral'}>{r.enabled ? '启用' : '停用'}</Badge>}
+              badges={
+                <>
+                  <Badge tone={r.enabled ? 'success' : 'neutral'}>{r.enabled ? '启用' : '停用'}</Badge>
+                  {r.agent_key && <Badge tone="info">看板要点 · {r.agent_key}</Badge>}
+                </>
+              }
               meta={
                 <span className="flex items-center gap-3 flex-wrap">
                   <span className="inline-flex items-center gap-1 font-mono">
@@ -300,6 +380,53 @@ export default function ScheduledReportsView() {
         </Card>
       )}
     </AdminPage>
+  )
+}
+
+/** 预览看板要点（不推送）：选一个角色视角，生成将要发出的正文 */
+function DigestPreview({ agentKey, name, focus, roles }: { agentKey: string; name: string; focus: string; roles: string[] }) {
+  const [role, setRole] = useState('')
+  const [text, setText] = useState('')
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  const run = async () => {
+    setBusy(true)
+    setErr('')
+    setText('')
+    try {
+      const r = await apiFetch('/admin/scheduled-reports/digest-preview', {
+        method: 'POST',
+        body: JSON.stringify({ agent_key: agentKey, name: name || '看板要点', prompt_template: focus, role }),
+      })
+      setText(r.text || '')
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : '生成失败')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border border-line p-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <Select className="w-48" value={role} onChange={(e) => setRole(e.target.value)}>
+          <option value="">按管理员视角</option>
+          {roles.map((r) => (
+            <option key={r} value={r}>
+              按角色 {r}
+            </option>
+          ))}
+        </Select>
+        <Button size="sm" variant="secondary" icon={<Eye className="w-3.5 h-3.5" />} disabled={busy} onClick={() => void run()}>
+          {busy ? '取数并生成中…' : '预览要点（不推送）'}
+        </Button>
+      </div>
+      {err && <Notice tone="danger">{err}</Notice>}
+      {text && (
+        <div className="text-[13px] bg-surface-2 rounded-lg p-3">
+          <ChatMarkdown content={text} />
+        </div>
+      )}
+    </div>
   )
 }
 

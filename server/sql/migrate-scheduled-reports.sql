@@ -36,3 +36,7 @@ BEGIN
   );
   CREATE INDEX idx_srl_report ON dbo.scheduled_report_logs (report_id, started_at DESC);
 END;
+
+-- 看板每日要点：关联一个带看板的 Agent（设了即按看板数据写要点，prompt_template 作为关注点，可为空）
+IF COL_LENGTH('dbo.scheduled_reports', 'agent_key') IS NULL
+  ALTER TABLE dbo.scheduled_reports ADD agent_key NVARCHAR(64) NULL;
