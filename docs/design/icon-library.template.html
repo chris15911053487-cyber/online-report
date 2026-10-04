@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>项目图标库</title>
+<style>
+/* 布局：顶部吸顶的搜索 + 分类条，下方自适应图标网格；点图标从右侧（手机为底部）弹出详情 */
+:root {
+  --bg: rgb(245 243 236);
+  --surface: rgb(255 253 248);
+  --surface-2: rgb(240 237 228);
+  --line: rgb(230 226 214);
+  --line-strong: rgb(211 205 189);
+  --fg: rgb(31 30 27);
+  --fg-2: rgb(77 74 66);
+  --muted: rgb(111 107 96);
+  --subtle: rgb(154 149 136);
+  --primary: rgb(193 95 60);
+  --primary-soft: rgb(246 231 222);
+  --primary-fg: rgb(255 255 255);
+  --scrim: rgb(31 30 27 / 0.32);
+  --font-display: "Noto Serif SC", "Songti SC", "STSong", Georgia, serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: rgb(15 17 21); --surface: rgb(23 26 33); --surface-2: rgb(29 33 42); --line: rgb(38 43 53); --line-strong: rgb(55 61 74);
+    --fg: rgb(230 232 238); --fg-2: rgb(195 200 211); --muted: rgb(139 147 165); --subtle: rgb(100 108 125);
+    --primary: rgb(143 176 255); --primary-soft: rgb(29 42 69); --primary-fg: rgb(15 17 21); --scrim: rgb(0 0 0 / 0.5);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: rgb(15 17 21); --surface: rgb(23 26 33); --surface-2: rgb(29 33 42); --line: rgb(38 43 53); --line-strong: rgb(55 61 74);
+  --fg: rgb(230 232 238); --fg-2: rgb(195 200 211); --muted: rgb(139 147 165); --subtle: rgb(100 108 125);
+  --primary: rgb(143 176 255); --primary-soft: rgb(29 42 69); --primary-fg: rgb(15 17 21); --scrim: rgb(0 0 0 / 0.5);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { background: var(--bg); }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--font-sans); font-size: 14px; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); border-bottom: 1px solid var(--line); }
+.top-in { max-width: 1280px; margin: 0 auto; padding: 18px 16px 10px; display: flex; flex-direction: column; gap: 12px; }
+.title-row { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.title-row h1 { margin: 0; font-family: var(--font-display); font-size: 24px; font-weight: 700; }
+.title-row p { margin: 0; color: var(--muted); font-size: 13px; }
+.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.search { position: relative; flex: 1 1 320px; min-width: 0; }
+.search svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--subtle); pointer-events: none; }
+.search input { width: 100%; height: 40px; padding: 0 12px 0 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); font: inherit; font-size: 14px; }
+.search input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+.toggle { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; white-space: nowrap; color: var(--fg-2); }
+.toggle[aria-pressed="true"] { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+.toggle .dot { width: 8px; height: 8px; border-radius: 99px; background: var(--primary); }
+.count { color: var(--muted); font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cats { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: thin; padding-bottom: 4px; }
+.chip { flex-shrink: 0; height: 30px; padding: 0 11px; border-radius: 99px; border: 1px solid var(--line); background: var(--surface); color: var(--fg-2); cursor: pointer; font-size: 13px; white-space: nowrap; }
+.chip small { color: var(--subtle); margin-left: 4px; font-variant-numeric: tabular-nums; }
+.chip[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.chip[aria-pressed="true"] small { color: inherit; opacity: .7; }
+
+main { max-width: 1280px; margin: 0 auto; padding: 16px 16px 48px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+.tile { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 100px; padding: 10px 6px; border-radius: 10px; border: 1px solid transparent; background: var(--surface); color: var(--fg-2); cursor: pointer; content-visibility: auto; contain-intrinsic-size: 104px 100px; }
+.tile:hover { border-color: var(--line-strong); color: var(--fg); }
+.tile[aria-current="true"] { border-color: var(--primary); color: var(--primary); }
+.tile svg { width: 26px; height: 26px; }
+.tile .nm { font-size: 11px; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile .used { position: absolute; top: 7px; right: 7px; width: 7px; height: 7px; border-radius: 99px; background: var(--primary); }
+.empty { padding: 64px 16px; text-align: center; color: var(--muted); }
+.empty b { display: block; color: var(--fg); font-size: 15px; margin-bottom: 6px; }
+
+/* 详情抽屉 */
+.scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 20; }
+.drawer { position: fixed; z-index: 21; top: 0; right: 0; bottom: 0; width: min(380px, 100%); background: var(--surface); border-left: 1px solid var(--line); overflow-y: auto; padding: calc(18px + env(safe-area-inset-top, 0px)) 20px calc(24px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: 18px; }
+@media (max-width: 640px) {
+  .drawer { top: auto; left: 0; width: 100%; max-height: 82vh; border-left: 0; border-top: 1px solid var(--line); border-radius: 16px 16px 0 0; }
+}
+.d-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.d-head h2 { margin: 0; font-size: 18px; font-weight: 650; word-break: break-all; }
+.icon-btn { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface-2); display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
+.icon-btn svg { width: 16px; height: 16px; }
+.stage { display: flex; align-items: end; justify-content: center; gap: 22px; padding: 22px 12px; border-radius: 12px; background: var(--surface-2); color: var(--fg); }
+.stage figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.stage figcaption { font-size: 11px; color: var(--subtle); font-variant-numeric: tabular-nums; }
+.stage .accent { color: var(--primary); }
+.sec h3 { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: .04em; }
+.code { display: flex; align-items: center; gap: 8px; padding: 9px 10px 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); }
+.code code { flex: 1; min-width: 0; font-family: var(--font-mono); font-size: 12.5px; overflow-x: auto; white-space: nowrap; color: var(--fg); }
+.copy { flex-shrink: 0; height: 28px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--line); background: var(--surface); color: var(--fg-2); cursor: pointer; font-size: 12px; }
+.copy:hover { border-color: var(--line-strong); }
+.code + .code { margin-top: 8px; }
+.pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.pill { font-size: 12px; padding: 3px 9px; border-radius: 99px; background: var(--surface-2); color: var(--fg-2); }
+.pill.link { cursor: pointer; border: 0; }
+.pill.link:hover { color: var(--primary); }
+.files { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.files li { font-family: var(--font-mono); font-size: 12px; color: var(--fg-2); word-break: break-all; }
+.note { font-size: 12.5px; color: var(--muted); margin: 0; line-height: 1.6; }
+.foot { max-width: 1280px; margin: 0 auto; padding: 0 16px 32px; color: var(--subtle); font-size: 12px; line-height: 1.7; }
+.foot a { color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="top-in">
+    <div class="title-row">
+      <h1>项目图标库</h1>
+      <p id="sub"></p>
+    </div>
+    <div class="controls">
+      <label class="search" for="q">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        <input id="q" type="search" placeholder="搜索：中文（工厂、仓库、图表…）或英文名 / 标签" autocomplete="off">
+      </label>
+      <button class="toggle" id="only-used" type="button" aria-pressed="false"><span class="dot"></span>只看项目在用</button>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="cats" id="cats" role="toolbar" aria-label="分类"></div>
+  </div>
+</header>
+
+<main>
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="empty" hidden><b>没有找到匹配的图标</b>换个说法试试，比如用英文（box、chart），或者清空分类筛选。</div>
+</main>
+
+<p class="foot">图标来自 <a href="https://lucide.dev/icons" target="_blank" rel="noopener">lucide</a>，与前端依赖 lucide-react 同一版本，页面上能看到的都能直接在项目里用。右上角圆点表示项目里已经用到。lucide-react 升级后运行 <code>docs/design/build-icon-library.mjs</code> 重新生成本页。</p>
+
+<div class="scrim" id="scrim" hidden></div>
+<aside class="drawer" id="drawer" hidden aria-labelledby="d-name" role="dialog"></aside>
+
+<script>
+const DATA = /*__DATA__*/null
+
+const CAT_ZH = {
+  text: '文字', development: '开发', arrows: '箭头', devices: '设备', files: '文件', gaming: '游戏', design: '设计',
+  layout: '布局', multimedia: '多媒体', account: '账号与用户', social: '社交', connectivity: '连接与网络', navigation: '导航与地图',
+  math: '数学', 'food-beverage': '餐饮', photography: '摄影', tools: '工具', travel: '出行', transportation: '交通运输',
+  home: '家居', time: '时间', security: '安全', shapes: '形状', finance: '财务金融', communication: '沟通', weather: '天气',
+  medical: '医疗', notifications: '通知', science: '科学', emoji: '表情', cursors: '光标', charts: '图表', accessibility: '无障碍',
+  shopping: '购物', mail: '邮件', nature: '自然', animals: '动物', buildings: '建筑', sustainability: '环保', sports: '运动',
+  seasons: '季节', people: '人物',
+}
+
+/* 中文搜索词 → 英文关键词（匹配图标名、别名与标签） */
+const ZH = {
+  首页: 'home house', 主页: 'home house', 工作台: 'home layout-dashboard', 工厂: 'factory industry', 生产: 'factory industry manufacture', 车间: 'factory warehouse',
+  仓库: 'warehouse', 库存: 'warehouse package boxes inventory', 物料: 'package box boxes', 箱: 'box package', 包裹: 'package', 托盘: 'pallet',
+  卡车: 'truck', 物流: 'truck shipping delivery', 运输: 'truck transport', 发货: 'truck send shipping', 送货: 'truck delivery', 叉车: 'forklift',
+  购物: 'shopping', 购物车: 'shopping-cart cart', 订单: 'clipboard-list receipt shopping', 销售: 'shopping trending badge-dollar', 采购: 'shopping-bag truck',
+  客户: 'user users contact', 用户: 'user', 人员: 'user users', 团队: 'users group', 员工: 'user users id-card', 组织: 'network building', 公司: 'building building-2 office',
+  钱: 'wallet banknote coins money dollar', 财务: 'wallet banknote landmark finance', 金额: 'banknote coins money', 钱包: 'wallet', 银行: 'landmark bank', 信用卡: 'credit-card',
+  发票: 'receipt', 收据: 'receipt', 账单: 'receipt file-text', 成本: 'calculator coins', 计算器: 'calculator', 百分比: 'percent', 价格: 'tag badge-dollar',
+  图表: 'chart', 柱状图: 'chart-bar chart-column', 折线图: 'chart-line chart-spline', 饼图: 'chart-pie', 面积图: 'chart-area', 散点图: 'chart-scatter', 看板: 'layout-dashboard gauge chart',
+  仪表盘: 'gauge layout-dashboard', 趋势: 'trending', 增长: 'trending-up arrow-up', 下降: 'trending-down arrow-down', 统计: 'chart sigma', 分析: 'chart scan-search',
+  报表: 'file-spreadsheet table chart file-text', 表格: 'table sheet spreadsheet grid', 列表: 'list', 网格: 'grid', 布局: 'layout', 菜单: 'menu', 侧边栏: 'panel-left sidebar',
+  文件: 'file', 文件夹: 'folder', 文档: 'file-text', 附件: 'paperclip', 压缩: 'archive', 下载: 'download', 上传: 'upload', 导出: 'download file-output share', 导入: 'upload file-input import',
+  打印: 'printer', 扫码: 'scan qr-code', 二维码: 'qr-code', 条码: 'barcode', 扫描: 'scan', 相机: 'camera', 图片: 'image', 照片: 'image camera', 视频: 'video',
+  搜索: 'search', 查询: 'search scan-search', 筛选: 'filter funnel', 排序: 'arrow-up-down sort', 刷新: 'refresh rotate', 同步: 'refresh rotate sync',
+  设置: 'settings', 齿轮: 'cog settings', 配置: 'settings sliders cog', 工具: 'wrench hammer tool', 维修: 'wrench', 扳手: 'wrench', 锤子: 'hammer',
+  编辑: 'pencil pen edit square-pen', 修改: 'pencil pen edit', 删除: 'trash', 添加: 'plus', 新增: 'plus', 减少: 'minus', 关闭: 'x', 确认: 'check', 完成: 'check circle-check',
+  保存: 'save', 复制: 'copy', 粘贴: 'clipboard', 剪贴板: 'clipboard', 撤销: 'undo', 重做: 'redo', 返回: 'arrow-left undo chevron-left', 前进: 'arrow-right chevron-right',
+  箭头: 'arrow', 上: 'arrow-up chevron-up', 下: 'arrow-down chevron-down', 左: 'arrow-left chevron-left', 右: 'arrow-right chevron-right', 展开: 'chevron maximize expand', 收起: 'chevron minimize collapse panel-left-close',
+  更多: 'ellipsis more', 链接: 'link', 分享: 'share', 外链: 'external-link',
+  消息: 'message', 聊天: 'message chat', 对话: 'message messages', 通知: 'bell notification', 提醒: 'bell alarm', 预警: 'triangle-alert siren bell-ring', 警告: 'alert triangle-alert',
+  邮件: 'mail', 电话: 'phone', 手机: 'smartphone', 电脑: 'monitor laptop', 平板: 'tablet', 打印机: 'printer',
+  信息: 'info', 帮助: 'circle-question help life-buoy', 问号: 'circle-question', 错误: 'circle-x x', 禁止: 'ban',
+  锁: 'lock', 解锁: 'lock-open unlock', 钥匙: 'key', 密码: 'key lock', 安全: 'shield', 权限: 'shield key lock', 盾牌: 'shield', 眼睛: 'eye', 隐藏: 'eye-off', 指纹: 'fingerprint',
+  登录: 'log-in', 退出: 'log-out', 注销: 'log-out',
+  时间: 'clock time', 时钟: 'clock', 日历: 'calendar', 日期: 'calendar', 计时: 'timer', 秒表: 'timer', 历史: 'history', 闹钟: 'alarm-clock', 沙漏: 'hourglass',
+  AI: 'bot brain sparkles', 人工智能: 'bot brain sparkles', 机器人: 'bot', 大脑: 'brain', 智能: 'brain sparkles bot', 魔法: 'wand sparkles', 星星: 'star sparkle', 灯泡: 'lightbulb', 灵感: 'lightbulb sparkles',
+  语音: 'mic audio speech voice', 麦克风: 'mic', 声音: 'volume audio', 音量: 'volume', 播放: 'play', 暂停: 'pause', 停止: 'square stop',
+  数据库: 'database', 服务器: 'server', 云: 'cloud', 代码: 'code', 终端: 'terminal', 网络: 'network wifi globe', 无线: 'wifi', 蓝牙: 'bluetooth', 地球: 'globe earth', 语言: 'languages', 翻译: 'languages',
+  地图: 'map', 定位: 'map-pin locate', 位置: 'map-pin', 导航: 'navigation compass', 指南针: 'compass', 旗帜: 'flag', 目标: 'target', 火箭: 'rocket',
+  质检: 'clipboard-check shield-check badge-check', 检验: 'clipboard-check scan-search', 质量: 'badge-check shield-check award', 合格: 'badge-check circle-check', 审批: 'stamp file-check signature', 签字: 'signature pen-line',
+  奖杯: 'trophy', 奖励: 'award gift', 礼物: 'gift', 点赞: 'thumbs-up', 收藏: 'star bookmark heart', 书签: 'bookmark', 标签: 'tag', 心: 'heart', 喜欢: 'heart thumbs-up',
+  书: 'book', 笔记: 'notebook sticky-note', 手册: 'book-open', 学习: 'graduation-cap book', 字体: 'type', 文字: 'type text',
+  天气: 'sun cloud', 太阳: 'sun', 月亮: 'moon', 深色: 'moon', 浅色: 'sun', 温度: 'thermometer', 火: 'flame', 闪电: 'zap', 电池: 'battery', 电源: 'power plug', 能源: 'zap battery plug',
+  加载: 'loader', 进度: 'loader gauge', 循环: 'repeat refresh', 过滤: 'filter funnel',
+}
+
+const svg = (inner, size) => `<svg viewBox="0 0 24 24" width="${size || 24}" height="${size || 24}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`
+const pascal = (k) => k.split('-').map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join('')
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
+
+const icons = DATA.icons.map(([kebab, inner, aliases, tags, cats, used]) => {
+  const name = pascal(kebab)
+  return { kebab, name, inner, aliases, tags, cats, used, hay: [kebab, name.toLowerCase(), ...aliases.map((a) => a.toLowerCase()), ...tags].join(' ') }
+})
+const byKebab = Object.fromEntries(icons.map((i) => [i.kebab, i]))
+const usedCount = icons.filter((i) => i.used.length).length
+
+document.getElementById('sub').textContent = `lucide ${DATA.version} · 共 ${icons.length} 个，项目在用 ${usedCount} 个 · 生成于 ${DATA.generatedAt}`
+
+// 分类条
+const catCount = {}
+for (const i of icons) for (const c of i.cats) catCount[c] = (catCount[c] || 0) + 1
+const catKeys = Object.keys(catCount).sort((a, b) => catCount[b] - catCount[a])
+const catsEl = document.getElementById('cats')
+catsEl.innerHTML = `<button type="button" class="chip" data-cat="" aria-pressed="true">全部<small>${icons.length}</small></button>` +
+  catKeys.map((c) => `<button type="button" class="chip" data-cat="${c}" aria-pressed="false">${CAT_ZH[c] || c}<small>${catCount[c]}</small></button>`).join('')
+
+const state = { q: '', cat: '', onlyUsed: false, open: null }
+try {
+  const saved = JSON.parse(localStorage.getItem('icon-lib-state') || '{}')
+  if (typeof saved.onlyUsed === 'boolean') state.onlyUsed = saved.onlyUsed
+  if (typeof saved.cat === 'string' && (saved.cat === '' || catCount[saved.cat])) state.cat = saved.cat
+} catch (e) {}
+
+function terms(q) {
+  const out = []
+  // 长词优先：「下载」命中后不再拆出「下」
+  const zhHits = []
+  let left = q
+  for (const k of Object.keys(ZH).sort((a, b) => b.length - a.length)) {
+    const lk = k.toLowerCase()
+    if (left.includes(lk)) { zhHits.push(k); left = left.split(lk).join(' ') }
+  }
+  for (const k of zhHits) out.push(...ZH[k].split(' '))
+  const rest = left.trim()
+  // 剩下的非中文部分按空格分词，全部都要命中
+  const words = rest.split(/\s+/).filter((w) => w && !/[一-鿿]/.test(w))
+  const hasUnknownZh = /[一-鿿]/.test(rest)
+  return { any: out, all: words, unknownZh: hasUnknownZh && zhHits.length === 0 }
+}
+
+function filtered() {
+  const q = state.q.trim().toLowerCase()
+  const t = q ? terms(q) : null
+  return icons.filter((i) => {
+    if (state.onlyUsed && !i.used.length) return false
+    if (state.cat && !i.cats.includes(state.cat)) return false
+    if (!t) return true
+    if (t.unknownZh) return false
+    if (t.any.length && !t.any.some((w) => i.hay.includes(w))) return false
+    return t.all.every((w) => i.hay.includes(w))
+  }).map((i) => [i, q ? rank(i, q, t) : 0]).sort((a, b) => b[1] - a[1]).map((x) => x[0])
+}
+
+/** 排序：名称 / 别名完全命中 > 名称开头 > 名称包含 > 只命中标签 */
+function rank(i, q, t) {
+  const words = [...t.all, ...t.any]
+  let score = 0
+  for (const w of words.length ? words : [q]) {
+    if (i.kebab === w || i.name.toLowerCase() === w || i.aliases.some((a) => a.toLowerCase() === w)) score = Math.max(score, 4)
+    else if (i.kebab.startsWith(w)) score = Math.max(score, 3)
+    else if (i.kebab.includes(w)) score = Math.max(score, 2)
+    else if (i.tags.includes(w)) score = Math.max(score, 1)
+  }
+  return score
+}
+
+const gridEl = document.getElementById('grid')
+function render() {
+  const list = filtered()
+  gridEl.innerHTML = list.map((i) =>
+    `<button type="button" class="tile" data-k="${i.kebab}" title="${i.name}"${state.open === i.kebab ? ' aria-current="true"' : ''}>` +
+    (i.used.length ? '<span class="used" aria-label="项目在用"></span>' : '') + svg(i.inner) + `<span class="nm">${i.kebab}</span></button>`).join('')
+  document.getElementById('empty').hidden = list.length > 0
+  document.getElementById('count').textContent = `${list.length} 个`
+  catsEl.querySelectorAll('.chip').forEach((c) => c.setAttribute('aria-pressed', String(c.dataset.cat === state.cat)))
+  document.getElementById('only-used').setAttribute('aria-pressed', String(state.onlyUsed))
+  try { localStorage.setItem('icon-lib-state', JSON.stringify({ onlyUsed: state.onlyUsed, cat: state.cat })) } catch (e) {}
+}
+
+const drawer = document.getElementById('drawer')
+const scrim = document.getElementById('scrim')
+let lastFocus = null
+function openDetail(kebab) {
+  const i = byKebab[kebab]
+  if (!i) return
+  state.open = kebab
+  lastFocus = document.activeElement
+  const imp = `import { ${i.name} } from 'lucide-react'`
+  const jsx = `<${i.name} className="w-5 h-5" />`
+  drawer.innerHTML = `
+    <div class="d-head"><h2 id="d-name">${i.name}</h2><button class="icon-btn" type="button" data-close aria-label="关闭">${svg('<path d="M18 6 6 18"/><path d="m6 6 12 12"/>')}</button></div>
+    <div class="stage">
+      <figure>${svg(i.inner, 16)}<figcaption>16</figcaption></figure>
+      <figure>${svg(i.inner, 20)}<figcaption>20</figcaption></figure>
+      <figure>${svg(i.inner, 24)}<figcaption>24</figcaption></figure>
+      <figure class="accent">${svg(i.inner, 48)}<figcaption>48</figcaption></figure>
+    </div>
+    <div class="sec"><h3>在项目里使用</h3>
+      <div class="code"><code>${esc(imp)}</code><button class="copy" type="button" data-copy="${esc(imp)}">复制</button></div>
+      <div class="code"><code>${esc(jsx)}</code><button class="copy" type="button" data-copy="${esc(jsx)}">复制</button></div>
+    </div>
+    <div class="sec"><h3>项目在用</h3>${i.used.length ? `<ul class="files">${i.used.map((f) => `<li>frontend/src/${esc(f)}</li>`).join('')}</ul>` : '<p class="note">还没有用到。</p>'}</div>
+    ${i.cats.length ? `<div class="sec"><h3>分类</h3><div class="pills">${i.cats.map((c) => `<button type="button" class="pill link" data-cat-go="${c}">${CAT_ZH[c] || c}</button>`).join('')}</div></div>` : ''}
+    ${i.tags.length ? `<div class="sec"><h3>标签（可搜索）</h3><div class="pills">${i.tags.map((t) => `<button type="button" class="pill link" data-q-go="${esc(t)}">${esc(t)}</button>`).join('')}</div></div>` : ''}
+    ${i.aliases.length ? `<div class="sec"><h3>别名（同一个图标）</h3><div class="pills">${i.aliases.map((a) => `<span class="pill">${esc(a)}</span>`).join('')}</div></div>` : ''}
+    <p class="note">文件名 <code>${i.kebab}</code>。线宽、颜色跟随所在位置的文字颜色，项目里统一用语义色类名控制。</p>`
+  drawer.hidden = false
+  scrim.hidden = false
+  gridEl.querySelectorAll('.tile[aria-current]').forEach((t) => t.removeAttribute('aria-current'))
+  gridEl.querySelector(`.tile[data-k="${kebab}"]`)?.setAttribute('aria-current', 'true')
+  drawer.querySelector('[data-close]').focus()
+}
+function closeDetail() {
+  state.open = null
+  drawer.hidden = true
+  scrim.hidden = true
+  gridEl.querySelectorAll('.tile[aria-current]').forEach((t) => t.removeAttribute('aria-current'))
+  lastFocus?.focus?.()
+}
+
+gridEl.addEventListener('click', (e) => { const t = e.target.closest('.tile'); if (t) openDetail(t.dataset.k) })
+catsEl.addEventListener('click', (e) => { const c = e.target.closest('.chip'); if (!c) return; state.cat = c.dataset.cat; render() })
+document.getElementById('only-used').addEventListener('click', () => { state.onlyUsed = !state.onlyUsed; render() })
+const qEl = document.getElementById('q')
+let timer
+qEl.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => { state.q = qEl.value; render() }, 120) })
+scrim.addEventListener('click', closeDetail)
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !drawer.hidden) closeDetail()
+  if (e.key === '/' && document.activeElement !== qEl) { e.preventDefault(); qEl.focus() }
+})
+drawer.addEventListener('click', async (e) => {
+  if (e.target.closest('[data-close]')) return closeDetail()
+  const cat = e.target.closest('[data-cat-go]')
+  if (cat) { state.cat = cat.dataset.catGo; state.q = ''; qEl.value = ''; closeDetail(); render(); return }
+  const tag = e.target.closest('[data-q-go]')
+  if (tag) { state.q = tag.dataset.qGo; qEl.value = state.q; state.cat = ''; closeDetail(); render(); return }
+  const btn = e.target.closest('[data-copy]')
+  if (btn) {
+    try { await navigator.clipboard.writeText(btn.dataset.copy); btn.textContent = '已复制' }
+    catch (err) { const code = btn.previousElementSibling; const r = document.createRange(); r.selectNodeContents(code); const s = getSelection(); s.removeAllRanges(); s.addRange(r); btn.textContent = '已选中' }
+    setTimeout(() => { btn.textContent = '复制' }, 1500)
+  }
+})
+render()
+</script>
+</body>
+</html>
