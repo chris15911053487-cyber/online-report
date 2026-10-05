@@ -10,7 +10,7 @@ import { Loader2, Play, Sparkles, Trash2, Undo2, Wand2 } from 'lucide-react'
 import { useStore } from '../../../store'
 import { apiFetch } from '../../../utils/api'
 import type { BiColumnRole, BiColumnSemantic, BiFormat, BiParamDef } from '../../../utils/bi'
-import { COLUMN_ROLE_LABEL, FORMAT_LABEL, extractSqlParams, mergeDetectedColumns, sessionParamsUsed, syncParamsWithSql } from '../../../utils/biAdmin'
+import { COLUMN_ROLE_LABEL, FORMAT_LABEL, bareTableRefs, extractSqlParams, mergeDetectedColumns, sessionParamsUsed, syncParamsWithSql } from '../../../utils/biAdmin'
 import { AdminPage, Badge, Button, Checkbox, ChipSelect, Code, EditorActions, Field, IconButton, Input, Notice, ResultTable, Section, Textarea } from '../../../ui'
 import { compactInputClass, tableClass, tdClass, thClass } from '../../../ui/classes'
 import { errMsg, type BiQueryAdmin, type TestResult } from './types'
@@ -87,6 +87,7 @@ export default function QueryEditor({
     return new Set(d.params.filter((p) => !inSql.has(p.name.toLowerCase())).map((p) => p.name))
   }, [d.sqlText, d.params])
   const sessionUsed = useMemo(() => sessionParamsUsed(d.sqlText), [d.sqlText])
+  const bareTables = useMemo(() => bareTableRefs(d.sqlText), [d.sqlText])
 
   // SQL 改动即同步参数表：新引用的参数自动加入，已有的保留设置
   const setSql = (sqlText: string) => setD((cur) => ({ ...cur, sqlText, params: syncParamsWithSql(cur.params, sqlText).params }))
@@ -278,6 +279,11 @@ export default function QueryEditor({
 
           <Section title="② SQL" hint="只允许一条 SELECT / WITH 只读查询；参数写成 @名称，右侧参数表自动同步。按当前登录用户过滤可直接写 @_loginUser（用户编码）/ @_loginDisplayName（显示名），由系统自动代入，不是参数。">
             <Textarea mono rows={14} value={d.sqlText} onChange={(e) => setSql(e.target.value)} spellCheck={false} placeholder="SELECT T0.CardCode, T0.CardName, SUM(T1.Balance) AS Balance&#10;FROM ... WHERE T1.Period = @period&#10;GROUP BY T0.CardCode, T0.CardName" />
+            {bareTables.length > 0 && (
+              <Notice tone="warning" className="mt-2">
+                表名 {bareTables.map((n) => `@${n}`).join('、')} 需要加方括号，写成 {bareTables.map((n) => `[@${n}]`).join('、')}：SAP 自定义表以 @ 开头，不加括号数据库会当成变量报错（这里也不会把它当参数）。
+              </Notice>
+            )}
             {sessionUsed.length > 0 && (
               <p className="mt-2 text-xs text-muted">
                 按登录用户取数：{sessionUsed.map((n) => `@${n}`).join('、')} 由系统按看板的查看人自动代入（试运行用你自己的账号）；结果按人缓存，不同用户互不共享。

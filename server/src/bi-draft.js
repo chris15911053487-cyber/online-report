@@ -159,6 +159,7 @@ const PICK_SYSTEM = `你是 SAP Business One（SQL Server）数据专家。根�
 const SQL_RULES = `## SQL 规则（必须遵守）
 - 只能是一条 SELECT 或 WITH ... SELECT；禁止 DECLARE / SET / INSERT / UPDATE / DELETE / EXEC / INTO / 临时表 / 多语句 / GO
 - 只用给出的表与列；参数一律写 @name（如 @period），不要拼接常量；不要用 @@ 系统变量
+- SAP 自定义表以 @ 开头，表名必须加方括号：FROM [@U_OHEC] T0（不加会被当成参数 / 变量）
 - 需要按「当前登录用户」过滤时（我的订单、本人负责的客户等）直接写 @_loginUser（OUSR.USER_CODE）/ @_loginDisplayName，由系统按看的人自动代入；它们不是参数，不要写进 params
 - 期间参数用字符串 'YYYY-MM'，例如 CONVERT(char(7), T0.DocDate, 120) = @period；日期参数类型 date
 - 排除已取消单据（CANCELED = 'N'）；金额按本币（DocTotal / LineTotal 等），说明里写清口径

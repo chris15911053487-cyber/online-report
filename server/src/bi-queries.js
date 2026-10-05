@@ -153,6 +153,23 @@ function scanSqlParamNames(scanned) {
   return [...names.values()];
 }
 
+/**
+ * 没加方括号的自定义表名：FROM / JOIN 后（或 dbo. 后）直接跟 @名称，如 FROM @U_OHEC。
+ * SQL Server 会把它当表变量报错；SAP B1 自定义表须写成 [@U_OHEC] 或 "@U_OHEC"。
+ * 传入已 stripSqlForScan 的文本（方括号、双引号里的已替换掉，不会误判）。
+ */
+function bareTableRefs(scanned) {
+  const out = new Map();
+  // 末尾 (?!\s*\)) 排除 TRIM(' ' FROM @s) 这类函数内的 FROM
+  const re = /(?:\b(?:FROM|JOIN|APPLY)\s+(?:\w+\s*\.\s*)?|\.\s*)@([A-Za-z_][A-Za-z0-9_]*)\b(?!\s*\))/gi;
+  let m;
+  while ((m = re.exec(String(scanned || '')))) {
+    const k = m[1].toLowerCase();
+    if (!out.has(k)) out.set(k, m[1]);
+  }
+  return [...out.values()];
+}
+
 /** SQL 里引用的 @参数（排除 @@系统变量与会话变量） */
 function extractSqlParams(scanned) {
   return scanSqlParamNames(scanned).filter((n) => !isSessionParam(n));
@@ -190,6 +207,13 @@ function validateReadonlySql(text) {
     return { ok: false, error: 'SQL 只能以 SELECT 或 WITH 开头' };
   }
   if (body.includes(';')) return { ok: false, error: 'SQL 只能是一条语句（不能含分号分隔的多条语句）' };
+  const bare = bareTableRefs(body);
+  if (bare.length > 0) {
+    return {
+      ok: false,
+      error: `表名 ${bare.map((n) => '@' + n).join('、')} 需要加方括号：写成 ${bare.map((n) => `[@${n}]`).join('、')}（SAP 自定义表以 @ 开头，不加括号会被当成参数）`,
+    };
+  }
   const bad = body.match(FORBIDDEN_RE);
   if (bad) return { ok: false, error: `SQL 含禁止的关键字：${bad[1].toUpperCase()}（只允许只读查询）` };
   const badPrefix = body.match(FORBIDDEN_PREFIX_RE);
@@ -515,6 +539,7 @@ module.exports = {
   isSessionParam,
   sessionParamsUsed,
   stripSqlForScan,
+  bareTableRefs,
   extractSqlParams,
   validateReadonlySql,
   normalizeParamDefs,

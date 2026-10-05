@@ -244,6 +244,8 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 
 **系统变量（按登录用户取数）**：查询 SQL 里可直接写 `@_loginUser`（登录用户编码，OUSR.USER_CODE）、`@_loginDisplayName`（显示名），与报表 SQL 同一约定，例如 `WHERE T0.U_Owner = @_loginUser`。它们不是参数（不进参数表；旧数据或 AI 草稿里声明了会自动去掉；前端传同名参数无效），由服务端按查看人绑定：看板 / 下钻用当前用户，Agent `run_named_query` 用对话用户，管理员试运行与 AI 起草用管理员本人，预警用 `ALERT_SYSTEM_USER`（默认 `SYSTEM`），看板每日要点逐人取数、逐人推送。用到时结果缓存 key 额外含用户（不同人不共享），没有登录用户则拒绝执行；Agent 的查询目录里标注「只返回当前登录用户的数据」。实现 `bi-queries.js` 的 `SESSION_PARAMS` / `sessionParamsUsed`、`bi-exec.js` 的 `bindSession`。
 
+**SAP 自定义表（@ 开头）**：表名写成 `[@U_OHEC]` 或 `"@U_OHEC"`，方括号 / 双引号里的 `@` 不会被识别成参数。不加括号（`FROM @U_OHEC`、`JOIN dbo.@U_OHEC`）时，查询编辑器在 SQL 下方提示改写、不把它放进参数表，服务端拒绝保存与试运行并给出正确写法（SQL Server 本身也会把它当表变量报错）。实现 `bi-queries.js` / `utils/biAdmin.ts` 的 `bareTableRefs`。
+
 **配置流程**（管理后台 →「BI 看板管理」，全部表单化，看板另可切到 JSON）：
 
 1. **查询库**：写 SQL → `@参数` 自动识别成参数表（类型 / 必填 / 默认值）→ 试运行（按参数类型生成输入框）→ **自动识别输出列**（按数据库列类型和列名预填角色：维度 / 度量 / 时间 / 属性，度量预填格式）→ 核对中文名、单位、缩放 → 填「回答什么问题」「示例问法」（AI 据此选查询）

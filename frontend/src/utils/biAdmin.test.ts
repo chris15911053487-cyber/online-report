@@ -10,6 +10,7 @@ import {
   resolveCard,
   suggestFilterParams,
   autoBindParams,
+  bareTableRefs,
   cardProblems,
   cleanEncoding,
   defaultEncoding,
@@ -39,6 +40,14 @@ describe('SQL 参数', () => {
     const legacy = syncParamsWithSql([{ name: '_loginUser', type: 'string' }, { name: 'period', type: 'string' }], sql)
     expect(legacy.params.map((p) => p.name)).toEqual(['period'])
     expect(legacy.unused).toEqual([])
+  })
+
+  it('自定义表 @U_xxx：括号 / 双引号里的不算；不加括号的识别成表名，不进参数表', () => {
+    expect(extractSqlParams(`SELECT 1 FROM [@U_OHEC] T0 JOIN "@U_X" T1 ON 1=1 WHERE T0.U_P = @period`)).toEqual(['period'])
+    expect(bareTableRefs(`SELECT 1 FROM [@U_OHEC] T0 JOIN "@U_X" T1 ON 1=1`)).toEqual([])
+    const bare = `SELECT 1 FROM @U_OHEC T0 LEFT JOIN dbo.@U_B T1 ON 1=1 WHERE T0.U_P = @period AND TRIM(' ' FROM @code) = 'a'`
+    expect(bareTableRefs(bare)).toEqual(['U_OHEC', 'U_B'])
+    expect(extractSqlParams(bare)).toEqual(['period', 'code'])
   })
 
   it('同步参数：保留已有定义、补新参数、标出未使用的', () => {

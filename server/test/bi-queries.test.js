@@ -171,3 +171,27 @@ test('会话变量 @_loginUser：不算参数、声明了也忽略、toPublicQue
   assert.equal(pub({ ...base, sqlText }).perUser, true);
   assert.equal('perUser' in pub({ ...base, sqlText: 'SELECT 1' }), false);
 });
+
+test('自定义表 @U_xxx：加方括号 / 双引号正常；不加括号给出明确提示，不当成参数', () => {
+  const { bareTableRefs, stripSqlForScan } = require('../src/bi-queries');
+  for (const s of [
+    'SELECT T0.Code FROM [@U_OHEC] T0 WHERE T0.U_Period = @period',
+    'SELECT T0.Code FROM dbo.[@U_OHEC] T0 LEFT JOIN "@U_OHEC1" T1 ON T1.Code = T0.Code WHERE T0.U_Period = @period',
+    "SELECT TRIM(' ' FROM @period) AS p FROM [@U_OHEC]",
+  ]) {
+    const r = validateReadonlySql(s);
+    assert.equal(r.ok, true, s);
+    assert.deepEqual(r.params, ['period'], s);
+  }
+  for (const s of [
+    'SELECT T0.Code FROM @U_OHEC T0 WHERE T0.U_Period = @period',
+    'SELECT 1 FROM [@U_A] T0 INNER JOIN @U_OHEC T1 ON 1 = 1',
+    'SELECT 1 FROM dbo.@U_OHEC',
+    'SELECT 1 FROM [@U_A] T0 CROSS APPLY (SELECT TOP 1 * FROM @u_ohec X) T1',
+  ]) {
+    const r = validateReadonlySql(s);
+    assert.equal(r.ok, false, s);
+    assert.match(r.error, /\[@U_OHEC\]|\[@u_ohec\]/, s);
+  }
+  assert.deepEqual(bareTableRefs(stripSqlForScan("SELECT '@x' FROM [@U_A] WHERE a = @p -- FROM @U_B")), []);
+});

@@ -77,17 +77,34 @@ export const SESSION_PARAMS = ['_loginUser', '_loginDisplayName'] as const
 const SESSION_PARAM_KEYS = new Set(SESSION_PARAMS.map((n) => n.toLowerCase()))
 export const isSessionParam = (name: string) => SESSION_PARAM_KEYS.has(name.replace(/^@/, '').toLowerCase())
 
-/** SQL 中引用的 @参数（排除 @@系统变量与 @_loginUser 等会话变量），按出现顺序去重（大小写不敏感，保留首次写法） */
+/** SQL 中引用的 @参数（排除 @@系统变量、@_loginUser 等会话变量、没加方括号的 @自定义表名），按出现顺序去重（大小写不敏感，保留首次写法） */
 export function extractSqlParams(sql: string): string[] {
   const scanned = stripForScan(sql || '')
+  const tables = new Set(bareTableRefs(sql).map((n) => n.toLowerCase()))
   const names = new Map<string, string>()
   const re = /(^|[^@\w])@([A-Za-z_][A-Za-z0-9_]*)/g
   let m: RegExpExecArray | null
   while ((m = re.exec(scanned))) {
     const k = m[2].toLowerCase()
-    if (!names.has(k) && !SESSION_PARAM_KEYS.has(k)) names.set(k, m[2])
+    if (!names.has(k) && !SESSION_PARAM_KEYS.has(k) && !tables.has(k)) names.set(k, m[2])
   }
   return [...names.values()]
+}
+
+/**
+ * 没加方括号的自定义表名（FROM / JOIN 后或 xxx. 后直接跟 @名称，如 FROM @U_OHEC），与服务端 bareTableRefs 同规则。
+ * 写成 [@U_OHEC] 或 "@U_OHEC" 的不算。
+ */
+export function bareTableRefs(sql: string): string[] {
+  const scanned = stripForScan(sql || '')
+  const out = new Map<string, string>()
+  const re = /(?:\b(?:FROM|JOIN|APPLY)\s+(?:\w+\s*\.\s*)?|\.\s*)@([A-Za-z_][A-Za-z0-9_]*)\b(?!\s*\))/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(scanned))) {
+    const k = m[1].toLowerCase()
+    if (!out.has(k)) out.set(k, m[1])
+  }
+  return [...out.values()]
 }
 
 /** SQL 用到了哪些会话变量（规范写法，如 ['_loginUser']；注释、字符串里的不算） */
