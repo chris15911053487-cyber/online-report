@@ -650,7 +650,7 @@ async function aiAgentRoutes(fastify) {
     const n = Number(body.maxRows);
     const maxRows = Number.isFinite(n) && n > 0 ? Math.min(200, Math.floor(n)) : 200;
     try {
-      const r = await runNamedQuery({ pool, query, params: body.params, roles: auth.user.roles });
+      const r = await runNamedQuery({ pool, query, params: body.params, roles: auth.user.roles, session: auth.user });
       return {
         queryKey: query.queryKey,
         label: query.label,

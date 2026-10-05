@@ -13,7 +13,7 @@
 const { listSkillsForRoles } = require('./agent-skills');
 const { getAgent } = require('./agents');
 const { loadExpandedDashboard } = require('./bi-dashboards');
-const { canUseQuery } = require('./bi-queries');
+const { canUseQuery, sessionParamsUsed } = require('./bi-queries');
 
 const MAX_CATALOG_QUERIES = 30;
 const MAX_CATALOG_CHARS = 6000;
@@ -50,6 +50,8 @@ function formatQueryCatalog(queries) {
     const block = [];
     let line = `- \`${q.queryKey}\` ${q.label}`;
     if (q.description) line += `：${q.description}`;
+    // SQL 用了 @_loginUser：结果只含当前用户的数据，服务端自动代入，不用也不能传用户参数
+    if (sessionParamsUsed(q.sqlText).length > 0) line += '（只返回当前登录用户的数据，用户由系统自动代入）';
     block.push(line);
     if (q.columns && q.columns.length > 0) {
       block.push(`  参数：${params || '无'}${caliber ? `；口径：${caliber}` : ''}`);

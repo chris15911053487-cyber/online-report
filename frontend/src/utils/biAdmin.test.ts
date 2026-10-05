@@ -17,6 +17,7 @@ import {
   filterFromParam,
   guessColumnRole,
   mergeDetectedColumns,
+  sessionParamsUsed,
   syncParamsWithSql,
   type QueryRef,
 } from './biAdmin'
@@ -26,6 +27,14 @@ describe('SQL 参数', () => {
   it('提取 @参数，忽略字符串、注释、标识符与 @@系统变量', () => {
     const sql = `SELECT '@x', [@y], N'@z' -- @c\n FROM T /* @d */ WHERE A = @Period AND B = @cardCode AND C = @period AND D = @@ROWCOUNT`
     expect(extractSqlParams(sql)).toEqual(['Period', 'cardCode'])
+  })
+
+  it('@_loginUser / @_loginDisplayName 是系统变量：不进参数表，单独识别', () => {
+    const sql = `SELECT @_loginDisplayName AS n FROM ORDR WHERE U_Owner = @_LoginUser AND P = @period -- @x`
+    expect(extractSqlParams(sql)).toEqual(['period'])
+    expect(sessionParamsUsed(sql)).toEqual(['_loginUser', '_loginDisplayName'])
+    expect(sessionParamsUsed(`SELECT '@_loginUser'`)).toEqual([])
+    expect(syncParamsWithSql([], sql).params.map((p) => p.name)).toEqual(['period'])
   })
 
   it('同步参数：保留已有定义、补新参数、标出未使用的', () => {

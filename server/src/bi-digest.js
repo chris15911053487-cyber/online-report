@@ -2,11 +2,13 @@
  * 看板每日要点：把 Agent 关联看板的数据交给 AI 写 3~5 条要点，推送 IM 并附看板链接。
  *
  * - 取数与看板同口径：展开后的卡片 + 筛选默认值（服务端按中国日期解析）→ runNamedQuery（缓存 key 含角色）
- * - 权限：按推送对象的角色分组，每组按角色过滤看板（filterDashboardForRoles）后单独取数、单独写要点
+ * - 权限：按推送对象的角色分组，每组按角色过滤看板（filterDashboardForRoles）后单独取数、单独写要点；
+ *   卡片查询用了 @_loginUser 等会话变量时改为逐人取数、逐人写要点
  * - AI 只负责把已取到的数字写成要点，不再查数；数据里没有的数字不许写
  */
 const { resolveToken } = require('./bi-tokens');
 const { filterDashboardForRoles } = require('./bi-dashboards');
+const { sessionParamsUsed } = require('./bi-queries');
 
 const MAX_CARDS = 12;
 const MAX_ROWS = 15;
@@ -131,6 +133,12 @@ function groupUsersByRoles(users) {
   return groups;
 }
 
+/** 看板卡片里有没有按登录用户取数的查询（SQL 用了 @_loginUser 等）：有则要点须逐人生成，不能按角色共用 */
+function dashboardUsesSession(loaded) {
+  const keys = new Set((loaded?.dashboard?.cards || []).map((c) => c.queryKey).filter(Boolean));
+  return (loaded?.queries || []).some((q) => keys.has(q.queryKey) && sessionParamsUsed(q.sqlText).length > 0);
+}
+
 module.exports = {
   initialFilterValues,
   resolveCardParams,
@@ -140,5 +148,6 @@ module.exports = {
   writeDigest,
   digestMessage,
   groupUsersByRoles,
+  dashboardUsesSession,
   DIGEST_SYSTEM,
 };

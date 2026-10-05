@@ -197,9 +197,11 @@ function describeBiCheck(check, query) {
   return `查询「${query?.label || check.queryKey}」${paramText ? `（${paramText}）` : ''}中，${conds.join(check.match === 'any' ? ' 或 ' : ' 且 ')}的行`;
 }
 
-/** 执行命名查询（预警用：不走看板缓存，按系统身份，不做角色过滤） */
+/** 执行命名查询（预警用：不走看板缓存，按系统身份，不做角色过滤；@_loginUser 绑定为系统用户，同 SQL 模板预警） */
 function queryRunner(pool) {
-  return (query, params) => executeQuery(pool, query, resolveParams(query.params, params));
+  const systemUser = process.env.ALERT_SYSTEM_USER || 'SYSTEM';
+  const session = { userCode: systemUser, displayName: systemUser };
+  return (query, params) => executeQuery(pool, query, resolveParams(query.params, params), { session });
 }
 
 /** 引擎调用：按规则的 bi_check_json 取命中行 */

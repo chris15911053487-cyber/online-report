@@ -72,7 +72,12 @@ function stripForScan(text: string): string {
   return out
 }
 
-/** SQL 中引用的 @参数（排除 @@系统变量），按出现顺序去重（大小写不敏感，保留首次写法） */
+/** 系统变量：服务端按当前登录用户自动绑定（与 server/src/bi-queries.js SESSION_PARAMS 一致），不是参数 */
+export const SESSION_PARAMS = ['_loginUser', '_loginDisplayName'] as const
+const SESSION_PARAM_KEYS = new Set(SESSION_PARAMS.map((n) => n.toLowerCase()))
+export const isSessionParam = (name: string) => SESSION_PARAM_KEYS.has(name.replace(/^@/, '').toLowerCase())
+
+/** SQL 中引用的 @参数（排除 @@系统变量与 @_loginUser 等会话变量），按出现顺序去重（大小写不敏感，保留首次写法） */
 export function extractSqlParams(sql: string): string[] {
   const scanned = stripForScan(sql || '')
   const names = new Map<string, string>()
@@ -80,9 +85,19 @@ export function extractSqlParams(sql: string): string[] {
   let m: RegExpExecArray | null
   while ((m = re.exec(scanned))) {
     const k = m[2].toLowerCase()
-    if (!names.has(k)) names.set(k, m[2])
+    if (!names.has(k) && !SESSION_PARAM_KEYS.has(k)) names.set(k, m[2])
   }
   return [...names.values()]
+}
+
+/** SQL 用到了哪些会话变量（规范写法，如 ['_loginUser']；注释、字符串里的不算） */
+export function sessionParamsUsed(sql: string): string[] {
+  const scanned = stripForScan(sql || '')
+  const used = new Set<string>()
+  const re = /(^|[^@\w])@([A-Za-z_][A-Za-z0-9_]*)/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(scanned))) used.add(m[2].toLowerCase())
+  return SESSION_PARAMS.filter((n) => used.has(n.toLowerCase()))
 }
 
 /** 按参数名猜类型：日期类名 → date；数量类 → number；其余 string（期间 YYYY-MM 也是 string） */

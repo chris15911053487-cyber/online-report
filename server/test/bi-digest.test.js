@@ -72,3 +72,14 @@ test('groupUsersByRoles：角色集合相同的人合并（顺序无关）', () 
   const g = groupUsersByRoles([{ userCode: 'a', roles: ['x', 'y'] }, { userCode: 'b', roles: ['y', 'x', 'x'] }, { userCode: 'c', roles: [] }]);
   assert.deepEqual([...g.values()].map((v) => [v.roles, v.users.map((u) => u.userCode)]), [[['x', 'y'], ['a', 'b']], [[], ['c']]]);
 });
+
+test('dashboardUsesSession：只看卡片用到的查询是否用了 @_loginUser', () => {
+  const { dashboardUsesSession } = require('../src/bi-digest');
+  const queries = [
+    { queryKey: 'mine', sqlText: 'SELECT 1 WHERE U_Owner = @_loginUser' },
+    { queryKey: 'all', sqlText: 'SELECT 1' },
+  ];
+  assert.equal(dashboardUsesSession({ dashboard: { cards: [{ queryKey: 'all' }] }, queries }), false);
+  assert.equal(dashboardUsesSession({ dashboard: { cards: [{ queryKey: 'all' }, { queryKey: 'mine' }] }, queries }), true);
+  assert.equal(dashboardUsesSession(null), false);
+});

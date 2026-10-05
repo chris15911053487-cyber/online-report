@@ -12,7 +12,7 @@ const { getAgent, canUseAgent } = require('./agents');
 const { loadExpandedDashboard } = require('./bi-dashboards');
 const { runNamedQuery } = require('./bi-exec');
 const { aiService } = require('./ai');
-const { collectDashboardData, writeDigest, digestMessage, groupUsersByRoles } = require('./bi-digest');
+const { collectDashboardData, writeDigest, digestMessage, groupUsersByRoles, dashboardUsesSession } = require('./bi-digest');
 const crypto = require('crypto');
 
 const activeTasks = new Map(); // id -> cron.ScheduledTask
@@ -206,10 +206,10 @@ const digestLlm = async (messages) => {
  * 生成看板要点（不推送）：按角色过滤看板 → 取数（bi-exec 缓存，key 含角色）→ AI 写要点 → 拼消息。
  * 供定时执行与管理页「预览」共用。
  */
-async function buildDigest(pool, { agent, roles, title, focus }) {
-  const loaded = await loadExpandedDashboard(pool, agent.dashboardKey);
+async function buildDigest(pool, { agent, roles, title, focus, session, loaded: preloaded }) {
+  const loaded = preloaded || (await loadExpandedDashboard(pool, agent.dashboardKey));
   if (!loaded || !loaded.dashboard.enabled) throw new Error(`Agent「${agent.label}」关联的看板不存在或已停用`);
-  const run = async (query, params) => runNamedQuery({ pool, query, params, roles });
+  const run = async (query, params) => runNamedQuery({ pool, query, params, roles, session });
   const data = await collectDashboardData({ loaded, roles, run });
   const points = await writeDigest(digestLlm, data, focus);
   return { text: digestMessage({ title, points, agentKey: agent.agentKey, agentLabel: agent.label }), cardCount: data.cards.length };
@@ -218,26 +218,34 @@ async function buildDigest(pool, { agent, roles, title, focus }) {
 async function executeDigestReport(pool, report, targetUsers, log) {
   const agent = await getAgent(pool, report.agent_key);
   if (!agent || !agent.enabled || !agent.dashboardKey) throw new Error(`Agent「${report.agent_key}」不存在、未启用或未关联看板`);
+  const loaded = await loadExpandedDashboard(pool, agent.dashboardKey);
+  if (!loaded || !loaded.dashboard.enabled) throw new Error(`Agent「${agent.label}」关联的看板不存在或已停用`);
   const channels = safeJsonParse(report.channels_json) || ['dingtalk'];
   const users = [];
   for (const u of targetUsers) users.push({ ...u, roles: await resolveUserRoles(pool, u.userCode) });
+  // 卡片按登录用户取数（@_loginUser）时每人数据不同：逐人生成，不能按角色共用一份要点
+  const perUser = dashboardUsesSession(loaded);
+  const groups = perUser
+    ? users.map((u) => ({ roles: [...new Set(u.roles || [])].sort(), users: [u] }))
+    : [...groupUsersByRoles(users).values()];
   let sentCount = 0;
   const contents = [];
   const noAccess = [];
   const noCards = [];
-  for (const { roles, users: group } of groupUsersByRoles(users).values()) {
+  for (const { roles, users: group } of groups) {
     // 看不了这个 Agent 的人不推（看板经 Agent 门禁进入）
     if (!canUseAgent(roles, agent.roles)) {
       noAccess.push(...group.map((u) => u.userCode));
       continue;
     }
-    const { text, cardCount } = await buildDigest(pool, { agent, roles, title: report.name, focus: report.prompt_template });
+    const session = perUser ? { userCode: group[0].userCode } : null;
+    const { text, cardCount } = await buildDigest(pool, { agent, roles, title: report.name, focus: report.prompt_template, session, loaded });
     // 这些角色在看板上一张卡片都看不到：不推「没有要点」打扰人
     if (cardCount === 0) {
       noCards.push(...group.map((u) => u.userCode));
       continue;
     }
-    contents.push(`【角色 ${roles.join(',') || '无'}】\n${text}`);
+    contents.push(`【${perUser ? `用户 ${group[0].userCode}` : `角色 ${roles.join(',') || '无'}`}】\n${text}`);
     for (const u of group) if (await pushToUser(pool, u, channels, text, log)) sentCount++;
   }
   return {

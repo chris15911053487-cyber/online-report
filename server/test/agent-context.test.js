@@ -32,6 +32,7 @@ stub('bi-dashboards.js', {
 stub('bi-queries.js', {
   listAllQueries: async (...a) => queriesImpl(...a),
   canUseQuery: (u, q) => u.includes('admin') || q.some((r) => u.includes(r)),
+  sessionParamsUsed: (s) => (/@_loginUser\b/i.test(String(s || '')) ? ['_loginUser'] : []),
 });
 const { resolveAgentContext, formatQueryCatalog } = require('../src/agent-context');
 
@@ -133,6 +134,13 @@ test('formatQueryCatalog：空列表为空串；超长截断', () => {
   const s = formatQueryCatalog(many);
   assert.ok(s.length < 6600);
   assert.match(s, /其余查询未列出/);
+});
+
+test('formatQueryCatalog：SQL 用了 @_loginUser 的查询标注「只返回当前登录用户的数据」，不暴露 SQL', () => {
+  const s = formatQueryCatalog([Q('mine', [], { sqlText: 'SELECT 1 FROM ORDR WHERE U_Owner = @_loginUser' }), Q('all', [])]);
+  assert.match(s, /`mine`[^\n]*只返回当前登录用户的数据/);
+  assert.doesNotMatch(s, /`all`[^\n]*当前登录用户/);
+  assert.equal(s.includes('U_Owner'), false);
 });
 
 // ---- 语义层 ----

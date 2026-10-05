@@ -122,7 +122,7 @@ async function biRoutes(fastify) {
     const roles = await rolesOf(pool, request);
     if (!canUseQuery(roles, query.roles)) return reply.code(403).send({ error: '无权访问该数据', code: 'BI_FORBIDDEN' });
     try {
-      const r = await runNamedQuery({ pool, query, params: body.params, roles, refresh: body.refresh === true });
+      const r = await runNamedQuery({ pool, query, params: body.params, roles, session: request.user, refresh: body.refresh === true });
       return {
         queryKey: query.queryKey,
         columns: r.columns,
@@ -170,7 +170,7 @@ async function biRoutes(fastify) {
     if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
     const pool = await getPool();
     try {
-      return await testRunQuery(pool, parsed.value, body.params, 50);
+      return await testRunQuery(pool, parsed.value, body.params, 50, request.user);
     } catch (err) {
       return sendQueryError(request, reply, err, ['admin']);
     }
@@ -242,14 +242,15 @@ async function biRoutes(fastify) {
       return reply.code(500).send({ error: `AI 处理失败：${err.message}`, code: 'BI_DRAFT_FAILED' });
     }
   };
-  const testRun = (pool) => (q, params) => testRunQuery(pool, q, params, 50);
+  // AI 起草的试运行以当前管理员身份执行（SQL 用了 @_loginUser 时按本人取数）
+  const testRun = (pool, user) => (q, params) => testRunQuery(pool, q, params, 50, user);
 
   fastify.post(
     '/admin/bi/ai/draft',
     { preHandler: [fastify.requireAdmin] },
     aiRoute(async (request, pool) => {
       const [existingQueries, existingCharts] = await Promise.all([listAllQueries(pool), listAllCharts(pool)]);
-      const draft = await draftQueryAndChart({ pool, llm, existingQueries, existingCharts, testRun: testRun(pool) }, (request.body || {}).requirement);
+      const draft = await draftQueryAndChart({ pool, llm, existingQueries, existingCharts, testRun: testRun(pool, request.user) }, (request.body || {}).requirement);
       return { draft };
     }),
   );
@@ -260,7 +261,7 @@ async function biRoutes(fastify) {
     aiRoute(async (request, pool) => {
       const body = request.body || {};
       const [existingQueries, existingCharts] = await Promise.all([listAllQueries(pool), listAllCharts(pool)]);
-      const draft = await draftFromSql({ pool, llm, existingQueries, existingCharts, testRun: testRun(pool) }, { sql: body.sql, question: body.question });
+      const draft = await draftFromSql({ pool, llm, existingQueries, existingCharts, testRun: testRun(pool, request.user), userCode: request.user?.username }, { sql: body.sql, question: body.question });
       return { draft };
     }),
   );
@@ -270,7 +271,7 @@ async function biRoutes(fastify) {
     { preHandler: [fastify.requireAdmin] },
     aiRoute(async (request, pool) => {
       const body = request.body || {};
-      return { revision: await reviseQuery({ pool, llm, testRun: testRun(pool) }, body.query, body.instruction) };
+      return { revision: await reviseQuery({ pool, llm, testRun: testRun(pool, request.user) }, body.query, body.instruction) };
     }),
   );
 
@@ -279,7 +280,7 @@ async function biRoutes(fastify) {
     { preHandler: [fastify.requireAdmin] },
     aiRoute(async (request, pool) => {
       const body = request.body || {};
-      return { semantics: await enrichQuery({ llm, testRun: testRun(pool) }, body.query, body.params) };
+      return { semantics: await enrichQuery({ llm, testRun: testRun(pool, request.user) }, body.query, body.params) };
     }),
   );
 

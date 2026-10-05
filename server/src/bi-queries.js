@@ -125,8 +125,24 @@ function stripSqlForScan(text) {
   return out;
 }
 
-/** 扫描 SQL 里引用的 @参数（排除 @@系统变量），返回去重后的原始大小写名称 */
-function extractSqlParams(scanned) {
+/**
+ * 会话变量（与报表 SQL 约定一致）：SQL 里直接写，执行时服务端按当前登录用户绑定，
+ * 不需要也不允许声明成参数，客户端传同名参数无效。
+ *   @_loginUser         登录用户编码（OUSR.USER_CODE）
+ *   @_loginDisplayName  显示名（无则同编码）
+ */
+const SESSION_PARAMS = [
+  { name: '_loginUser', maxLen: 128 },
+  { name: '_loginDisplayName', maxLen: 256 },
+];
+const SESSION_PARAM_KEYS = new Set(SESSION_PARAMS.map((p) => p.name.toLowerCase()));
+
+function isSessionParam(name) {
+  return SESSION_PARAM_KEYS.has(String(name || '').replace(/^@/, '').toLowerCase());
+}
+
+/** 扫描 SQL 里引用的 @名称（排除 @@系统变量），返回去重后的原始大小写名称（含会话变量） */
+function scanSqlParamNames(scanned) {
   const names = new Map();
   const re = /(^|[^@\w])@([A-Za-z_][A-Za-z0-9_]*)/g;
   let m;
@@ -135,6 +151,29 @@ function extractSqlParams(scanned) {
     if (!names.has(k)) names.set(k, m[2]);
   }
   return [...names.values()];
+}
+
+/** SQL 里引用的 @参数（排除 @@系统变量与会话变量） */
+function extractSqlParams(scanned) {
+  return scanSqlParamNames(scanned).filter((n) => !isSessionParam(n));
+}
+
+const sessionUseCache = new Map(); // sqlText -> 规范名数组
+
+/**
+ * SQL 用到了哪些会话变量（规范名，如 ['_loginUser']）。去掉注释 / 字符串后再扫，注释里提到不算。
+ * 结果按 SQL 文本缓存（定义很少变，看板每张卡片都要判断）。
+ */
+function sessionParamsUsed(sqlText) {
+  const text = String(sqlText || '');
+  const hit = sessionUseCache.get(text);
+  if (hit) return hit;
+  const scanned = stripSqlForScan(text);
+  const used = new Set(scanSqlParamNames(scanned == null ? text : scanned).map((n) => n.toLowerCase()));
+  const out = SESSION_PARAMS.filter((p) => used.has(p.name.toLowerCase())).map((p) => p.name);
+  if (sessionUseCache.size > 1000) sessionUseCache.clear();
+  sessionUseCache.set(text, out);
+  return out;
 }
 
 /**
@@ -172,6 +211,9 @@ function normalizeParamDefs(input) {
     if (!raw || typeof raw !== 'object') return { ok: false, error: '参数定义须为对象数组' };
     const name = String(raw.name || '').trim().replace(/^@/, '');
     if (!PARAM_NAME_RE.test(name)) return { ok: false, error: `参数名非法：「${name}」` };
+    if (isSessionParam(name)) {
+      return { ok: false, error: `@${name} 是系统变量（按当前登录用户自动注入），不用声明为参数` };
+    }
     const k = name.toLowerCase();
     if (seen.has(k)) return { ok: false, error: `参数重复：「${name}」` };
     seen.add(k);
@@ -462,12 +504,17 @@ function toPublicQuery(q) {
     dimensions: q.dimensions,
     caliberNote: q.caliberNote,
     cacheSecs: q.cacheSecs,
+    // SQL 用了 @_loginUser 等会话变量：结果因人而异（只给标记，不暴露 SQL）
+    ...(sessionParamsUsed(q.sqlText).length > 0 ? { perUser: true } : {}),
   };
 }
 
 module.exports = {
   QUERY_KEY_RE,
   PARAM_TYPES,
+  SESSION_PARAMS,
+  isSessionParam,
+  sessionParamsUsed,
   stripSqlForScan,
   extractSqlParams,
   validateReadonlySql,

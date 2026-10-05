@@ -196,3 +196,67 @@ test('executeQuery：按类型绑定参数、设置超时、流式限行并标�
   assert.notEqual(inputs[2].type, 'BigInt');
   assert.ok(request.timeout >= 1000);
 });
+
+// ---------- 会话变量 @_loginUser / @_loginDisplayName ----------
+
+const userQuery = {
+  ...query,
+  queryKey: 'my_orders',
+  sqlText: 'SELECT * FROM ORDR WHERE U_Owner = @_loginUser AND DocDate >= @period',
+};
+
+test('会话变量：按用户分缓存，不同用户不共享；同一用户命中缓存', async () => {
+  const sessions = [];
+  const { exec, calls } = setup({
+    execute: async (_pool, q, params, opts) => {
+      calls.push(params);
+      sessions.push(opts?.session);
+      return { columns: ['v'], rows: [{ v: calls.length }], rowCount: 1, truncated: false };
+    },
+  });
+  const a1 = await run(exec, { query: userQuery, session: { username: 'U001', displayName: '张三' } });
+  const b1 = await run(exec, { query: userQuery, session: { userCode: 'U002' } });
+  const a2 = await run(exec, { query: userQuery, session: { username: 'U001' } });
+  assert.equal(calls.length, 2);
+  assert.equal(a1.rows[0].v, 1);
+  assert.equal(b1.rows[0].v, 2);
+  assert.equal(a2.cached, true);
+  assert.equal(a2.rows[0].v, 1);
+  assert.equal(sessions[0].username, 'U001');
+});
+
+test('会话变量：没用到的查询仍按角色共享缓存（不因用户不同而重复查）', async () => {
+  const { exec, calls } = setup();
+  await run(exec, { session: { username: 'U001' } });
+  await run(exec, { session: { username: 'U002' } });
+  assert.equal(calls.length, 1);
+});
+
+test('会话变量：用到了却没有登录用户 → 拒绝（不查缓存、不执行）', async () => {
+  const { exec, calls } = setup();
+  await assert.rejects(run(exec, { query: userQuery }), BiParamError);
+  await assert.rejects(run(exec, { query: userQuery, session: { username: '  ' } }), /登录用户/);
+  assert.equal(calls.length, 0);
+});
+
+test('executeQuery：绑定 SQL 用到的会话变量，客户端同名参数无效', async () => {
+  const inputs = [];
+  const handlers = {};
+  const request = {
+    input: (name, _type, value) => { inputs.push([name, value]); return request; },
+    on: (ev, fn) => { handlers[ev] = fn; return request; },
+    cancel: () => {},
+    query: () => setImmediate(() => { handlers.recordset({ v: {} }); handlers.done(); }),
+  };
+  const pool = { request: () => request };
+  const q = { ...userQuery, sqlText: 'SELECT @_loginDisplayName AS n WHERE @_LOGINUSER = 1', params: [] };
+  await executeQuery(pool, q, { _loginUser: 'HACK' }, { session: { username: 'U001', displayName: '张三' } });
+  assert.deepEqual(inputs, [['_loginUser', 'U001'], ['_loginDisplayName', '张三']]);
+
+  inputs.length = 0;
+  // 只出现在注释 / 字符串里不绑定
+  await executeQuery(pool, { ...q, sqlText: "SELECT '@_loginUser' AS s -- @_loginDisplayName" }, {}, {});
+  assert.deepEqual(inputs, []);
+
+  await assert.rejects(executeQuery(pool, q, {}, {}), BiParamError);
+});

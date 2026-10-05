@@ -2,6 +2,8 @@
  * BI 命名查询执行器：参数化执行 + 结果缓存。
  *
  * - 参数：按查询定义的类型转换并 .input() 绑定，未声明的入参忽略，缺必填报错；
+ * - 会话变量：SQL 里的 @_loginUser / @_loginDisplayName 按调用方传入的当前用户绑定（客户端不可改），
+ *   用到时缓存 key 额外含用户；
  * - 限行：流式读取，最多 BI_MAX_ROWS 行（默认 2000），超过只标记 truncated；
  * - 缓存 key = 查询 + 规范化参数 + 排序后的角色集合：不同角色组合绝不共享结果
  *   （同一条查询将来可能按角色返回不同列/行，例如成本字段，宁可多查也不串数据）；
@@ -12,7 +14,7 @@
  */
 const { sql } = require('./db');
 const { runSqlLimited } = require('./agent-sql');
-const { onQueryChanged } = require('./bi-queries');
+const { onQueryChanged, SESSION_PARAMS, sessionParamsUsed } = require('./bi-queries');
 
 class BiParamError extends Error {
   constructor(message) {
@@ -91,6 +93,34 @@ function resolveParams(defs, input) {
   return out;
 }
 
+/**
+ * 会话（当前登录用户）规范化：接受 { userCode, displayName } 或 JWT 用户 { username, displayName }。
+ * 返回 null 表示没有用户。
+ */
+function normalizeSession(session) {
+  if (!session || typeof session !== 'object') return null;
+  const userCode = String(session.userCode ?? session.username ?? '').trim();
+  if (!userCode) return null;
+  const displayName = String(session.displayName ?? '').trim() || userCode;
+  return { userCode, displayName };
+}
+
+/**
+ * 绑定 SQL 用到的会话变量（@_loginUser / @_loginDisplayName）。
+ * 用到了却没有登录用户 → 报参数错误，绝不绑空值把别人的数据查出来或静默返回空。
+ */
+function bindSession(request, query, session) {
+  const used = sessionParamsUsed(query.sqlText);
+  if (used.length === 0) return;
+  const s = normalizeSession(session);
+  if (!s) throw new BiParamError('该查询按当前登录用户取数，但没有登录用户信息');
+  for (const def of SESSION_PARAMS) {
+    if (!used.includes(def.name)) continue;
+    const v = def.name === '_loginUser' ? s.userCode : s.displayName;
+    request.input(def.name, sql.NVarChar(def.maxLen), v.slice(0, def.maxLen));
+  }
+}
+
 /** 整数值绑 BigInt（TOP (@n)、OFFSET/FETCH 等只接受整数）；其余数字绑 Decimal，避免浮点误差 */
 function sqlTypeFor(def, value) {
   switch (def.type) {
@@ -105,7 +135,7 @@ function sqlTypeFor(def, value) {
   }
 }
 
-/** 真正执行：绑定参数 + 流式限行 */
+/** 真正执行：绑定参数 + 会话变量 + 流式限行 */
 async function executeQuery(pool, query, params, opts = {}) {
   const maxRows = opts.maxRows > 0 ? opts.maxRows : envInt('BI_MAX_ROWS', 2000, 1);
   const request = pool.request();
@@ -115,6 +145,7 @@ async function executeQuery(pool, query, params, opts = {}) {
     const isInt = def.type === 'number' && v != null && Number.isSafeInteger(Number(v));
     request.input(def.name, sqlTypeFor(def, v), def.type === 'number' && v != null ? (isInt ? Number(v) : String(v)) : v);
   }
+  bindSession(request, query, opts.session);
   // hardCap = maxRows + 1：只需知道「是否超出」，不为统计总数扫完大结果集
   const r = await runSqlLimited(request, query.sqlText, { limit: maxRows, hardCap: maxRows + 1 });
   return {
@@ -126,9 +157,16 @@ async function executeQuery(pool, query, params, opts = {}) {
   };
 }
 
-function cacheKey(query, params, roles) {
+/**
+ * 缓存 key：查询 + 参数 + 角色集合；SQL 用了会话变量时再加上用户（按人取数的结果绝不跨用户共享）。
+ * 没用会话变量的查询不含用户，同角色的人仍共享缓存。
+ */
+function cacheKey(query, params, roles, session) {
   const r = [...new Set((roles || []).map((x) => String(x).toLowerCase()))].sort().join(',');
-  return `${query.queryKey}|${query.updatedAt || ''}|${JSON.stringify(params)}|${r}`;
+  const used = sessionParamsUsed(query.sqlText);
+  const s = used.length > 0 ? normalizeSession(session) : null;
+  const u = s ? `|u=${JSON.stringify(used.map((n) => (n === '_loginUser' ? s.userCode : s.displayName)))}` : '';
+  return `${query.queryKey}|${query.updatedAt || ''}|${JSON.stringify(params)}|${r}${u}`;
 }
 
 /**
@@ -152,11 +190,11 @@ function createBiExecutor(deps = {}) {
     while (cache.size > maxEntries) cache.delete(cache.keys().next().value);
   }
 
-  function fetchFresh(key, pool, query, params, ttlSecs) {
+  function fetchFresh(key, pool, query, params, ttlSecs, session) {
     const existing = inflight.get(key);
     if (existing) return existing;
     const p = Promise.resolve()
-      .then(() => execute(pool, query, params))
+      .then(() => execute(pool, query, params, { session }))
       .then((data) => {
         const result = { ...data, asOf: new Date(now()).toISOString() };
         if (ttlSecs > 0) store(key, query.queryKey, result);
@@ -168,13 +206,18 @@ function createBiExecutor(deps = {}) {
   }
 
   /**
-   * @param {{ pool, query, params?, roles?, refresh?: boolean }} args
+   * @param {{ pool, query, params?, roles?, session?: { userCode, displayName } | object, refresh?: boolean }} args
+   *   session：当前登录用户（JWT 用户对象也可），SQL 用了 @_loginUser 等会话变量时必填
    * @returns {Promise<{columns, rows, rowCount, truncated, asOf, cached, stale, params}>}
    */
-  async function run({ pool, query, params, roles, refresh = false }) {
+  async function run({ pool, query, params, roles, session, refresh = false }) {
     const resolved = resolveParams(query.params, params);
+    // 按人取数却没有用户：在查缓存之前就拒绝（否则 key 不含用户，可能拿到别人的结果）
+    if (sessionParamsUsed(query.sqlText).length > 0 && !normalizeSession(session)) {
+      throw new BiParamError('该查询按当前登录用户取数，但没有登录用户信息');
+    }
     const ttlSecs = Math.max(0, Number(query.cacheSecs) || 0);
-    const key = cacheKey(query, resolved, roles);
+    const key = cacheKey(query, resolved, roles, session);
     const decorate = (result, cached, stale) => ({ ...result, cached, stale, params: resolved });
 
     if (ttlSecs > 0 && !refresh) {
@@ -184,14 +227,14 @@ function createBiExecutor(deps = {}) {
         if (age < ttlSecs) return decorate(hit.result, true, false);
         if (age < ttlSecs + staleSecs) {
           // 先返回旧数据，后台刷新（失败保留旧数据，下次再试）
-          fetchFresh(key, pool, query, resolved, ttlSecs).catch((err) => {
+          fetchFresh(key, pool, query, resolved, ttlSecs, session).catch((err) => {
             log.warn?.(`[bi] 后台刷新失败 ${query.queryKey}: ${err.message}`);
           });
           return decorate(hit.result, true, true);
         }
       }
     }
-    const result = await fetchFresh(key, pool, query, resolved, ttlSecs);
+    const result = await fetchFresh(key, pool, query, resolved, ttlSecs, session);
     return decorate(result, false, false);
   }
 
@@ -211,11 +254,11 @@ function createBiExecutor(deps = {}) {
 const defaultExecutor = createBiExecutor();
 onQueryChanged((queryKey) => defaultExecutor.invalidate(queryKey));
 
-/** 不走缓存的试运行（管理侧） */
-async function testRunQuery(pool, query, params, maxRows = 50) {
+/** 不走缓存的试运行（管理侧）；session = 试运行的管理员本人 */
+async function testRunQuery(pool, query, params, maxRows = 50, session = null) {
   const resolved = resolveParams(query.params, params);
   const started = Date.now();
-  const data = await executeQuery(pool, query, resolved, { maxRows });
+  const data = await executeQuery(pool, query, resolved, { maxRows, session });
   return { ...data, params: resolved, durationMs: Date.now() - started };
 }
 
@@ -223,6 +266,7 @@ module.exports = {
   BiParamError,
   coerceParam,
   resolveParams,
+  normalizeSession,
   executeQuery,
   createBiExecutor,
   runNamedQuery: (args) => defaultExecutor.run(args),

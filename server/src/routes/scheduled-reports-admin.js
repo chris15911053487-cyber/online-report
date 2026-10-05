@@ -131,7 +131,8 @@ async function scheduledReportsAdminRoutes(fastify) {
     if (c.error) return reply.code(400).send({ error: c.error });
     const role = String(b.role || '').trim();
     try {
-      const r = await buildDigest(pool, { agent: c.agent, roles: role ? [role] : ['admin'], title: b.name || '看板要点', focus: b.prompt_template });
+      // 卡片 SQL 用了 @_loginUser 时，预览按当前管理员本人取数
+      const r = await buildDigest(pool, { agent: c.agent, roles: role ? [role] : ['admin'], title: b.name || '看板要点', focus: b.prompt_template, session: request.user });
       return { text: r.text, cardCount: r.cardCount, agentRoles: c.agent.roles };
     } catch (err) {
       request.log.warn({ err: err.message }, 'digest preview failed');

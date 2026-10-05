@@ -159,6 +159,7 @@ const PICK_SYSTEM = `你是 SAP Business One（SQL Server）数据专家。根�
 const SQL_RULES = `## SQL 规则（必须遵守）
 - 只能是一条 SELECT 或 WITH ... SELECT；禁止 DECLARE / SET / INSERT / UPDATE / DELETE / EXEC / INTO / 临时表 / 多语句 / GO
 - 只用给出的表与列；参数一律写 @name（如 @period），不要拼接常量；不要用 @@ 系统变量
+- 需要按「当前登录用户」过滤时（我的订单、本人负责的客户等）直接写 @_loginUser（OUSR.USER_CODE）/ @_loginDisplayName，由系统按看的人自动代入；它们不是参数，不要写进 params
 - 期间参数用字符串 'YYYY-MM'，例如 CONVERT(char(7), T0.DocDate, 120) = @period；日期参数类型 date
 - 排除已取消单据（CANCELED = 'N'）；金额按本币（DocTotal / LineTotal 等），说明里写清口径
 - 输出列别名用英文字母开头、无空格（如 CardName、Amount、Qty），中文名写在 columns 的 label 里
@@ -341,6 +342,7 @@ const FROM_SQL_SYSTEM = `${GEN_SYSTEM}
 用户在 AI 对话里问了一个问题，AI 当场写了下面这条 SQL 并得到了答案。把它整理成一条**可复用**的命名查询（以后每月 / 每天都能看）：
 - 保持原 SQL 的取数逻辑与口径不变，只做必要改写（DECLARE / 变量 / 多语句改成单条 SELECT）
 - 把写死的、会随时间或对象变化的常量改成参数：月份 / 年份 → @period（'YYYY-MM'）/ @year（'YYYY'），日期区间 → @dateFrom / @dateTo（date），GETDATE() 推算的当月 / 上月 → @period，具体客户 / 物料编码 → 对应参数；原值写进 sampleParams
+- 原 SQL 里写死的用户编码就是提问人自己（见下面「提问人用户编码」）时，改成 @_loginUser，这样每个人看到的是自己的数据
 - 固定的业务口径（如排除取消单、只看某类单据）保留为常量
 - TOP 10 这类改成 TOP (@top) 并给默认值
 - sampleQuestions 第一条用用户原来的问法（去掉具体月份等会过时的字眼）`;
@@ -363,11 +365,13 @@ async function draftFromSql(deps, input) {
   const schema = tables.length > 0 ? await describeTables(pool, tables) : [];
   const schemaText = schema.map((t) => `### ${t.table}\n${t.columns.join(', ')}`).join('\n\n') || '（未识别到表）';
   const existing = existingQueries.slice(0, 50).map((q) => `${q.queryKey}（${q.label}）`).join('、') || '（无）';
+  // 收藏的是本人对话里的 SQL：告诉 AI 提问人编码，写死的本人编码改成 @_loginUser
+  const asker = String(deps.userCode || '').trim().slice(0, 64);
   const messages = [
     { role: 'system', content: FROM_SQL_SYSTEM },
     {
       role: 'user',
-      content: `用户的问题：${question || '（未提供）'}\n\n对话里的 SQL：\n\`\`\`sql\n${sqlText}\n\`\`\`\n\n已有命名查询（不要重复 queryKey）：${existing}\n\n相关表结构（列:类型(自定义字段说明)）：\n${schemaText}`,
+      content: `用户的问题：${question || '（未提供）'}\n提问人用户编码：${asker || '（未知）'}\n\n对话里的 SQL：\n\`\`\`sql\n${sqlText}\n\`\`\`\n\n已有命名查询（不要重复 queryKey）：${existing}\n\n相关表结构（列:类型(自定义字段说明)）：\n${schemaText}`,
     },
   ];
   return generateDraft(deps, messages, schema.map((t) => t.table));
