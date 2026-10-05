@@ -211,9 +211,8 @@ function normalizeParamDefs(input) {
     if (!raw || typeof raw !== 'object') return { ok: false, error: '参数定义须为对象数组' };
     const name = String(raw.name || '').trim().replace(/^@/, '');
     if (!PARAM_NAME_RE.test(name)) return { ok: false, error: `参数名非法：「${name}」` };
-    if (isSessionParam(name)) {
-      return { ok: false, error: `@${name} 是系统变量（按当前登录用户自动注入），不用声明为参数` };
-    }
+    // @_loginUser 等系统变量由服务端按登录用户注入，不是参数：旧数据 / AI 草稿里声明了也直接忽略
+    if (isSessionParam(name)) continue;
     const k = name.toLowerCase();
     if (seen.has(k)) return { ok: false, error: `参数重复：「${name}」` };
     seen.add(k);

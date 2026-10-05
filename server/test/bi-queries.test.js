@@ -157,15 +157,15 @@ test('表不存在（208）时返回空列表', async () => {
   invalidateQueryDefs();
 });
 
-test('会话变量 @_loginUser：不算参数、不许声明为参数、toPublicQuery 标记 perUser', () => {
+test('会话变量 @_loginUser：不算参数、声明了也忽略、toPublicQuery 标记 perUser', () => {
   const { sessionParamsUsed, toPublicQuery: pub } = require('../src/bi-queries');
   const sqlText = 'SELECT DocNum FROM ORDR WHERE U_Owner = @_LoginUser AND CONVERT(char(7), DocDate, 120) = @period';
   assert.deepEqual(validateReadonlySql(sqlText).params, ['period']);
   const base = { queryKey: 'my_orders', label: '我的订单', sqlText, params: [{ name: 'period', type: 'string' }] };
   assert.equal(validateQueryInput(base).ok, true);
-  const bad = validateQueryInput({ ...base, params: [...base.params, { name: '_loginUser', type: 'string' }] });
-  assert.equal(bad.ok, false);
-  assert.match(bad.error, /系统变量/);
+  const withSession = validateQueryInput({ ...base, params: [...base.params, { name: '_loginUser', type: 'string' }] });
+  assert.equal(withSession.ok, true);
+  assert.deepEqual(withSession.value.params.map((p) => p.name), ['period']);
   assert.deepEqual(sessionParamsUsed(sqlText), ['_loginUser']);
   assert.deepEqual(sessionParamsUsed("SELECT '@_loginUser' -- @_loginDisplayName"), []);
   assert.equal(pub({ ...base, sqlText }).perUser, true);

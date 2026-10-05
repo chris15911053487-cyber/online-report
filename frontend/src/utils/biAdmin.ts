@@ -113,6 +113,8 @@ export function guessParamType(name: string): BiParamDef['type'] {
  */
 export function syncParamsWithSql(defs: BiParamDef[], sql: string): { params: BiParamDef[]; unused: string[] } {
   const names = extractSqlParams(sql)
+  // @_loginUser 等系统变量不是参数：旧数据 / AI 结果里声明了也直接去掉
+  defs = defs.filter((d) => !isSessionParam(d.name))
   const byLower = new Map(defs.map((d) => [d.name.toLowerCase(), d]))
   const inSql = new Set(names.map((n) => n.toLowerCase()))
   const params: BiParamDef[] = []

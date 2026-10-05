@@ -35,6 +35,10 @@ describe('SQL 参数', () => {
     expect(sessionParamsUsed(sql)).toEqual(['_loginUser', '_loginDisplayName'])
     expect(sessionParamsUsed(`SELECT '@_loginUser'`)).toEqual([])
     expect(syncParamsWithSql([], sql).params.map((p) => p.name)).toEqual(['period'])
+    // 旧数据里误声明的系统变量参数直接去掉（不显示「SQL 未使用」，也不用手动删）
+    const legacy = syncParamsWithSql([{ name: '_loginUser', type: 'string' }, { name: 'period', type: 'string' }], sql)
+    expect(legacy.params.map((p) => p.name)).toEqual(['period'])
+    expect(legacy.unused).toEqual([])
   })
 
   it('同步参数：保留已有定义、补新参数、标出未使用的', () => {

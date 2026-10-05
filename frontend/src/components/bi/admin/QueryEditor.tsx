@@ -62,7 +62,8 @@ export default function QueryEditor({
   onDone: (changed: boolean, savedKey?: string) => void
 }) {
   const showToast = useStore((s) => s.showToast)
-  const [d, setD] = useState<BiQueryAdmin>(initial)
+  // 打开时即清掉误声明的系统变量参数（@_loginUser 等，旧数据或 AI 草稿里可能有）
+  const [d, setD] = useState<BiQueryAdmin>(() => ({ ...initial, params: syncParamsWithSql(initial.params, initial.sqlText).params }))
   const [samplesText, setSamplesText] = useState(initial.sampleQuestions.join('\n'))
   const [created, setCreated] = useState(!isNew)
   const [savedOnce, setSavedOnce] = useState(false)
@@ -140,7 +141,7 @@ export default function QueryEditor({
       }
       const v = r.revision
       const undo = snapshot()
-      setD((cur) => ({ ...cur, sqlText: v.query.sqlText, params: v.query.params, columns: v.query.columns, caliberNote: v.query.caliberNote, description: v.query.description || cur.description }))
+      setD((cur) => ({ ...cur, sqlText: v.query.sqlText, params: syncParamsWithSql(v.query.params, v.query.sqlText).params, columns: v.query.columns, caliberNote: v.query.caliberNote, description: v.query.description || cur.description }))
       setSamplesText(v.query.sampleQuestions.join('\n'))
       setTestValues((cur) => ({ ...cur, ...Object.fromEntries(Object.entries(v.sampleParams).map(([k, x]) => [k, x == null ? '' : String(x)])) }))
       setTestResult({ ...v.sample, truncated: false, durationMs: 0 })
