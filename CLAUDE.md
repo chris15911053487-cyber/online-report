@@ -27,7 +27,7 @@ npm run build
 npm run init-db
 
 # 测试
-cd server && npm test                                         # 后端（node --test test/）
+cd server && npm test                                         # 后端（node --test test/*.test.js）
 cd frontend && npx vitest run                                 # 前端单测
 cd frontend && npx tsc -b                                     # 前端类型检查
 cd frontend && npm run lint:colors                            # 检查是否写死颜色（必须通过）
