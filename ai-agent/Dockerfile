@@ -13,7 +13,12 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+# 镜像源偶尔同步不全（如列出了 .whl.metadata 却 404），pip 不会自动换源：
+# 主源失败依次改用腾讯云、官方源
+RUN pip install --no-cache-dir -r requirements.txt \
+ || pip install --no-cache-dir -r requirements.txt \
+      --index-url https://mirrors.cloud.tencent.com/pypi/simple/ --trusted-host mirrors.cloud.tencent.com \
+ || pip install --no-cache-dir -r requirements.txt --index-url https://pypi.org/simple/
 
 COPY app ./app
 
