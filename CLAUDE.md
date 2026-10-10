@@ -109,7 +109,8 @@ cd frontend && npm run lint
 ### IM 与消息
 
 - 钉钉（Stream 模式 + 免登）、企微、飞书机器人：`routes/bot-*.js`，用户绑定 `bot_user_bindings`，日志 `bot_message_logs`
-- 消息提醒/预警推送：`message-alerts.js`、`alert-*.js`；警报规则可引用 BI 命名查询 + 条件（`alert_rules.bi_check_json`，`alert-bi.js`：阈值 / 较上期变化，定时或事件触发（参数 `$event.字段`，事件清单 `KNOWN_EVENTS`），运行时不调 AI；「一句话设预警」AI 只出草稿 + 试算）；动态值 `$thisMonth` 等服务端解析在 `bi-tokens.js`
+- 主动推送统一出口 `notify.js` 的 `notify()`：先写收件箱（`notifications` + `notification_recipients`，前端「消息 → 通知」、`/messages/:id`），再发钉钉 / 企微 / 飞书；警报（`alert-engine.js`）与定时报告（`scheduled-reports.js`）都走它，新增推送来源也只调它，不要再各写 IM 发送。「消息 → 待办」是 `message-alerts.js` 的按 SQL 现查提醒
+- 预警推送：`alert-*.js`；警报规则可引用 BI 命名查询 + 条件（`alert_rules.bi_check_json`，`alert-bi.js`：阈值 / 较上期变化，定时或事件触发（参数 `$event.字段`，事件清单 `KNOWN_EVENTS`），运行时不调 AI；「一句话设预警」AI 只出草稿 + 试算）；动态值 `$thisMonth` 等服务端解析在 `bi-tokens.js`
 
 ### 前端 (React + Vite)
 

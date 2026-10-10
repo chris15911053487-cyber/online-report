@@ -84,10 +84,33 @@ export interface MessageAlertRuleSummary {
 }
 
 export interface MessageSummary {
+  /** 通知 + 待办 */
   totalUnread: number
+  /** 通知（收件箱）未读 */
+  inboxUnread: number
+  /** 待办（按 SQL 现查的提醒）未读 */
+  todoUnread: number
   refreshSeconds: number
   rules: MessageAlertRuleSummary[]
   refreshedAt: string | null
+}
+
+/** 通知（警报 / 定时报告推送到收件箱的一条） */
+export interface InboxItem {
+  id: number
+  sourceType: 'alert' | 'report'
+  sourceName: string
+  title: string
+  preview: string
+  /** 中国墙钟时间（库里 DATETIME2 原样返回） */
+  createdAt: string
+  read: boolean
+}
+
+export interface InboxDetail extends Omit<InboxItem, 'preview'> {
+  body: string
+  linkTitle: string
+  linkUrl: string
 }
 
 export interface MessageAlertItem {
@@ -118,6 +141,7 @@ export type ViewName =
   | 'agents-admin'
   | 'bi-admin'
   | 'messages'
+  | 'message-detail'
   | 'settings'
   | 'help'
   | 'help-doc'

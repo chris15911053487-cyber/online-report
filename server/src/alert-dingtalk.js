@@ -2,8 +2,8 @@
  * 钉钉警报消息发送核心模块
  *
  * 支持两种推送方式：
- * 1. 个人消息（通过企业内部应用 oToMessages/batchSend API，卡片消息）
- * 2. 群 Webhook（自定义机器人 Webhook，actionCard 卡片消息）
+ * 1. 个人消息（通过企业内部应用 oToMessages/batchSend API，卡片消息）——由 notify.js 统一调用（同时写消息收件箱）
+ * 2. 群 Webhook（自定义机器人 Webhook，actionCard 卡片消息）——警报规则的附加目标
  *
  * 消息格式统一为 actionCard 卡片（带标题、正文、按钮链接）。
  */
@@ -49,15 +49,15 @@ async function getDingAccessToken() {
  * @param {string} card.markdown - 卡片正文（markdown 格式）
  * @param {string} [card.btnTitle] - 按钮文字
  * @param {string} [card.btnUrl] - 按钮链接
- * @returns {Promise<{success: boolean, error?: string}>}
+ * @returns {Promise<{success: boolean, error?: string, failedUserIds: string[]}>} failedUserIds：发送失败那几批里的用户
  */
 async function sendCardToUsers(userIds, card) {
-  if (!userIds || userIds.length === 0) return { success: true };
+  if (!userIds || userIds.length === 0) return { success: true, failedUserIds: [] };
   const token = await getDingAccessToken();
-  if (!token) return { success: false, error: 'token 获取失败' };
+  if (!token) return { success: false, error: 'token 获取失败', failedUserIds: [...userIds] };
 
   const robotCode = process.env.DINGTALK_APP_KEY;
-  if (!robotCode) return { success: false, error: 'DINGTALK_APP_KEY 未配置' };
+  if (!robotCode) return { success: false, error: 'DINGTALK_APP_KEY 未配置', failedUserIds: [...userIds] };
 
   // 构建 actionCard 消息参数
   // 钉钉 oToMessages/batchSend 支持的 msgKey：
@@ -86,6 +86,7 @@ async function sendCardToUsers(userIds, card) {
   // 钉钉限制每次最多 20 个用户
   const batchSize = 20;
   const errors = [];
+  const failedUserIds = [];
 
   for (let i = 0; i < userIds.length; i += batchSize) {
     const batch = userIds.slice(i, i + batchSize);
@@ -102,16 +103,18 @@ async function sendCardToUsers(userIds, card) {
         const errText = await res.text();
         log.warn({ status: res.status, err: errText, batch }, '钉钉个人消息发送失败');
         errors.push(errText);
+        failedUserIds.push(...batch);
       }
     } catch (err) {
       log.error({ err: err.message, batch }, '钉钉个人消息发送异常');
       errors.push(err.message);
+      failedUserIds.push(...batch);
     }
   }
 
   return errors.length > 0
-    ? { success: false, error: errors.join('; ') }
-    : { success: true };
+    ? { success: false, error: errors.join('; '), failedUserIds }
+    : { success: true, failedUserIds };
 }
 
 // ==================== 群 Webhook 推送（ActionCard 卡片） ====================
@@ -185,54 +188,7 @@ async function sendCardToWebhook(webhookUrl, secret, card) {
   }
 }
 
-// ==================== 解析推送目标（用户 + Webhook） ====================
-
-/**
- * 根据规则配置解析所有钉钉 userId
- * @param {object} rule - 警报规则
- * @returns {Promise<string[]>} 钉钉 userId 列表
- */
-async function resolveTargetDingUserIds(rule) {
-  const pool = await getPool();
-  const userIds = new Set();
-
-  // 1. 按指定用户
-  const targetUsers = safeJsonParse(rule.target_users_json) || [];
-  if (targetUsers.length > 0) {
-    // 通过 OUSR.U_DDUserId 获取钉钉 userId
-    const placeholders = targetUsers.map((_, i) => `@u${i}`).join(', ');
-    const req = pool.request();
-    targetUsers.forEach((u, i) => req.input(`u${i}`, sql.NVarChar(64), u));
-    const rs = await req.query(
-      `SELECT [U_DDUserId] FROM dbo.OUSR WHERE [USER_CODE] IN (${placeholders}) AND [U_DDUserId] IS NOT NULL AND [U_DDUserId] <> ''`
-    );
-    for (const row of rs.recordset || []) {
-      if (row.U_DDUserId) userIds.add(row.U_DDUserId);
-    }
-  }
-
-  // 2. 按角色（仅当未指定用户时使用）
-  if (targetUsers.length === 0) {
-    const targetRoles = safeJsonParse(rule.target_roles_json) || [];
-    if (targetRoles.length > 0) {
-      const placeholders = targetRoles.map((_, i) => `@r${i}`).join(', ');
-      const req = pool.request();
-      targetRoles.forEach((r, i) => req.input(`r${i}`, sql.NVarChar(32), r));
-      const rs = await req.query(
-        `SELECT DISTINCT u.[U_DDUserId]
-         FROM dbo.user_roles ur
-         JOIN dbo.OUSR u ON u.[USER_CODE] = ur.user_code
-         WHERE ur.role_key IN (${placeholders})
-           AND u.[U_DDUserId] IS NOT NULL AND u.[U_DDUserId] <> ''`
-      );
-      for (const row of rs.recordset || []) {
-        if (row.U_DDUserId) userIds.add(row.U_DDUserId);
-      }
-    }
-  }
-
-  return [...userIds];
-}
+// ==================== 群 Webhook 目标 ====================
 
 /**
  * 获取规则配置的 Webhook 列表
@@ -253,44 +209,6 @@ async function resolveTargetWebhooks(rule) {
      WHERE id IN (${placeholders}) AND enabled = 1`
   );
   return rs.recordset || [];
-}
-
-// ==================== 统一发送入口 ====================
-
-/**
- * 发送警报卡片消息
- * @param {object} rule - 警报规则配置
- * @param {object} card - 渲染好的卡片内容 { title, markdown, btnTitle, btnUrl }
- * @returns {Promise<{usersSent: number, webhooksSent: number, errors: string[]}>}
- */
-async function sendAlertCard(rule, card) {
-  const errors = [];
-  let usersSent = 0;
-  let webhooksSent = 0;
-
-  // 1. 推送个人
-  const dingUserIds = await resolveTargetDingUserIds(rule);
-  if (dingUserIds.length > 0) {
-    const result = await sendCardToUsers(dingUserIds, card);
-    if (result.success) {
-      usersSent = dingUserIds.length;
-    } else {
-      errors.push(`个人推送失败: ${result.error}`);
-    }
-  }
-
-  // 2. 推送群 Webhook
-  const webhooks = await resolveTargetWebhooks(rule);
-  for (const wh of webhooks) {
-    const result = await sendCardToWebhook(wh.webhook_url, wh.secret, card);
-    if (result.success) {
-      webhooksSent++;
-    } else {
-      errors.push(`Webhook[${wh.name}]失败: ${result.error}`);
-    }
-  }
-
-  return { usersSent, webhooksSent, errors };
 }
 
 // ==================== 模板渲染 ====================
@@ -368,9 +286,7 @@ module.exports = {
   getDingAccessToken,
   sendCardToUsers,
   sendCardToWebhook,
-  resolveTargetDingUserIds,
   resolveTargetWebhooks,
-  sendAlertCard,
   renderTemplate,
   buildCardFromRule,
 };

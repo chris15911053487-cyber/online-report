@@ -4,7 +4,7 @@
  * 职责：
  * 1. 执行规则 SQL，判断是否触发
  * 2. 去重（cooldown + sent_keys）
- * 3. 渲染卡片并调用 alert-dingtalk 发送
+ * 3. 渲染卡片，经 notify 推送给推送对象（写入「消息」收件箱 + 钉钉个人消息），并发群 Webhook
  * 4. 写入推送日志
  *
  * 支持两种触发方式：
@@ -12,7 +12,8 @@
  * - event: 外部调用 triggerEvent()，传入事件数据
  */
 const { getPool, sql } = require('./db');
-const { sendAlertCard, buildCardFromRule } = require('./alert-dingtalk');
+const { buildCardFromRule, resolveTargetWebhooks, sendCardToWebhook } = require('./alert-dingtalk');
+const { notify, resolveRecipientCodes } = require('./notify');
 
 const pino = require('pino');
 const log = pino({ name: 'alert-engine' });
@@ -188,6 +189,49 @@ async function updateAlertLog(logId, status, targetCount, sentCount, webhookCoun
     );
 }
 
+// ==================== 推送 ====================
+
+function safeJsonParse(s) {
+  if (!s) return null;
+  try { return JSON.parse(s); } catch { return null; }
+}
+
+/**
+ * 推送一张警报卡片：推送对象（用户优先，否则角色）→ 收件箱 + 钉钉个人消息；再发群 Webhook。
+ * @returns {Promise<{recipients: number, usersSent: number, webhooksSent: number, errors: string[]}>}
+ *   recipients：进了收件箱的人数；usersSent：其中钉钉发送成功的人数
+ */
+async function deliverAlert(rule, card) {
+  const errors = [];
+  const pool = await getPool();
+  const recipients = await resolveRecipientCodes(pool, safeJsonParse(rule.target_users_json), safeJsonParse(rule.target_roles_json));
+  const r = await notify({
+    sourceType: 'alert',
+    sourceId: rule.id,
+    sourceName: rule.name,
+    title: card.title,
+    body: card.markdown,
+    linkTitle: card.btnTitle,
+    linkUrl: card.btnUrl,
+    recipients,
+    channels: ['dingtalk'],
+  });
+  if (r.errors.length > 0) errors.push(`个人推送失败: ${r.errors.join('; ')}`);
+
+  let webhooksSent = 0;
+  for (const wh of await resolveTargetWebhooks(rule)) {
+    const result = await sendCardToWebhook(wh.webhook_url, wh.secret, card);
+    if (result.success) webhooksSent++;
+    else errors.push(`Webhook[${wh.name}]失败: ${result.error}`);
+  }
+  return { recipients: r.recipients, usersSent: r.imSent, webhooksSent, errors };
+}
+
+/** 推送结果 → 日志状态：有人收到（收件箱、钉钉或群）即 sent，错误另记 */
+function deliveryStatus(result) {
+  return result.recipients > 0 || result.usersSent > 0 || result.webhooksSent > 0 ? 'sent' : 'failed';
+}
+
 // ==================== 核心执行：评估 + 发送 ====================
 
 /**
@@ -217,27 +261,29 @@ async function executeRule(rule) {
     const card = buildCardFromRule(rule, filteredRows);
 
     // 4. 发送
-    const result = await sendAlertCard(rule, card);
+    const result = await deliverAlert(rule, card);
 
     // 5. 记录已发送键
     await recordSentKeys(rule.id, filteredRows, rule.key_column);
 
     // 6. 更新日志
     const dataSnapshot = JSON.stringify(filteredRows.slice(0, 5)).slice(0, 4000);
-    const status = result.errors.length > 0 ? (result.usersSent > 0 || result.webhooksSent > 0 ? 'sent' : 'failed') : 'sent';
-    const errorMsg = result.errors.length > 0 ? result.errors.join('; ').slice(0, 1000) : null;
+    const status = deliveryStatus(result);
+    const errorMsg = result.errors.length > 0
+      ? result.errors.join('; ').slice(0, 1000)
+      : (status === 'failed' ? '没有推送对象（用户 / 角色下无人，且无群 Webhook）' : null);
 
     await updateAlertLog(
-      logId, status, result.usersSent, result.usersSent, result.webhooksSent,
+      logId, status, result.recipients, result.usersSent, result.webhooksSent,
       card.title, card.markdown?.slice(0, 4000), dataSnapshot, errorMsg
     );
 
     log.info({
-      ruleId: rule.id, name: rule.name,
-      rows: filteredRows.length, usersSent: result.usersSent, webhooksSent: result.webhooksSent,
+      ruleId: rule.id, name: rule.name, rows: filteredRows.length,
+      recipients: result.recipients, usersSent: result.usersSent, webhooksSent: result.webhooksSent,
     }, '警报已触发并发送');
 
-    return { triggered: true, sentCount: result.usersSent + result.webhooksSent };
+    return { triggered: true, sentCount: result.recipients + result.webhooksSent };
   } catch (err) {
     await updateAlertLog(logId, 'failed', 0, 0, 0, null, null, null, String(err.message).slice(0, 1000));
     log.error({ err: err.message, ruleId: rule.id }, '警报执行失败');
@@ -305,7 +351,7 @@ async function triggerEvent(eventName, eventData) {
 
       // 构建卡片并发送
       const card = buildCardFromRule(rule, filteredRows);
-      const result = await sendAlertCard(rule, card);
+      const result = await deliverAlert(rule, card);
 
       // 记录去重键
       if (rule.key_column) {
@@ -313,17 +359,19 @@ async function triggerEvent(eventName, eventData) {
       }
 
       const dataSnapshot = JSON.stringify(filteredRows.slice(0, 5)).slice(0, 4000);
-      const status = result.errors.length > 0 ? (result.usersSent > 0 || result.webhooksSent > 0 ? 'sent' : 'failed') : 'sent';
-      const errorMsg = result.errors.length > 0 ? result.errors.join('; ').slice(0, 1000) : null;
+      const status = deliveryStatus(result);
+      const errorMsg = result.errors.length > 0
+        ? result.errors.join('; ').slice(0, 1000)
+        : (status === 'failed' ? '没有推送对象（用户 / 角色下无人，且无群 Webhook）' : null);
 
       await updateAlertLog(
-        logId, status, result.usersSent, result.usersSent, result.webhooksSent,
+        logId, status, result.recipients, result.usersSent, result.webhooksSent,
         card.title, card.markdown?.slice(0, 4000), dataSnapshot, errorMsg
       );
 
       if (status === 'sent') {
         rulesTriggered++;
-        totalSent += result.usersSent + result.webhooksSent;
+        totalSent += result.recipients + result.webhooksSent;
       }
     } catch (err) {
       await updateAlertLog(logId, 'failed', 0, 0, 0, null, null, null, String(err.message).slice(0, 1000));

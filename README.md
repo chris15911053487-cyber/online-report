@@ -46,6 +46,7 @@ frontend/src/
 - 菜单管理后台（CRUD、AI Prompt 生成器、**角色定义与用户角色分配**）
 - 行详情、批次报工登记
 - 底部导航（工作台 / AI 助手 / Agent / 消息 / 设置）+ 语音控制（`voice.js`）
+- 消息：「通知」收件箱（警报、定时报告主动推送的内容，同时发钉钉）+「待办」（按 SQL 现查的提醒），见下文「消息：通知与待办」
 
 ## 常用命令
 
@@ -107,6 +108,7 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 | `/report/<routeKey>/order/<单号>` | 生产订单详情 |
 | `/agents`、`/agents/<agentKey>` | Agent 列表、某个 Agent |
 | `/ai`、`/messages`、`/settings` | AI 助手、消息、设置 |
+| `/messages/<id>` | 一条通知的全文（钉钉消息「在系统中查看」链接到这里） |
 | `/admin`、`/admin/bi`、`/admin/agents`、`/admin/menus` … | 管理后台及各管理页 |
 
 - 浏览器后退、安卓返回键与页面左上角返回一致；合并报工确认、行详情这类依赖当前选择的页面，刷新后回到所在报表。
@@ -371,17 +373,42 @@ module.exports = {
 
 **降级**：ai-agent 不可达时自动降级为本地知识问答（仅操作说明，不执行 SQL、不编造数据）。
 
+## 消息：通知与待办
+
+主动推送（警报、定时报告、看板每日要点）统一走 `server/src/notify.js` 的 `notify()`：**先写收件箱，再发 IM**。没绑定 IM 的人也能在系统「消息 → 通知」看到。
+
+```
+警报规则（cron / 事件，alert-engine） ─┐
+定时报告 / 看板每日要点（scheduled-reports） ─┴→ notify() ─┬→ notifications + notification_recipients（「消息 → 通知」）
+                                                             └→ 钉钉个人消息 / 企微 / 飞书（结果记 im_status_json）
+警报的群 Webhook 不是「人」，不进收件箱，由 alert-engine 另发
+```
+
+- **数据表**（`server/sql/migrate-notifications.sql`，启动自动执行）：`notifications`（来源 `alert` / `report` + 来源 id/名称、标题、Markdown 正文、按钮）一次推送一行；`notification_recipients`（`notification_id` + `user_code` 主键、`read_at`、`im_status_json` 如 `{"dingtalk":"sent"}`，取值 `sent` / `failed` / `unbound`）每个接收人一行。
+- **接收人**：`resolveRecipientCodes()`——指定用户优先，否则按 `user_roles` 展开角色（警报与定时报告同一规则）。
+- **IM 账号**：钉钉先查 `bot_user_bindings`（platform=`dingtalk`），再回退 `OUSR.U_DDUserId`；企微 / 飞书查 `bot_user_bindings`。钉钉用机器人单聊 `oToMessages/batchSend`（每批 20 人，失败只标那一批）。警报只发钉钉；定时报告按 `channels_json`。
+- **钉钉按钮**：调用方给了按钮（警报的 `card_btn_title` / `card_btn_url`）就用它；否则配置了 `PUBLIC_BASE_URL` 时显示「在系统中查看」→ `{PUBLIC_BASE_URL}/messages/{id}`。
+- **日志口径**：警报日志 `target_count` = 进收件箱人数、`sent_count` = 其中钉钉成功人数、`webhook_count` = 群数；有人收到（收件箱或群）即 `sent`。定时报告日志 `target_count` = 进收件箱人数、`sent_count` = IM 成功人数，IM 失败原因写 `error_message`。
+- **待办**：原「消息提醒」规则（`message_alert_rules`，管理后台 →「消息提醒」）保留为「消息 → 待办」页签，打开时按 SQL 现查、逐条已读，与通知并列。
+- **前端**：`views/MessagesView.tsx`（页签：通知 `components/messages/InboxList.tsx` / 待办）、`views/MessageDetailView.tsx`（`/messages/:id`，store `openMessage`）。时间按墙钟字符串显示（`utils/messages.ts` 的 `fmtWallClock`）。入口红点 = 通知未读 + 待办未读。
+
+| 接口 | 说明 |
+|------|------|
+| `GET /messages/summary` | 未读摘要：`totalUnread`（合计）、`inboxUnread`、`todoUnread`、待办规则列表 |
+| `GET /messages/inbox?limit=&before=&unread=1` | 我的通知（按 id 倒序，`before` 为上一页最后一条 id） |
+| `GET /messages/inbox/:id` | 通知全文；只有接收人能看（否则 404），打开即已读 |
+| `POST /messages/inbox/read` | 标为已读：`{ ids: [1,2] }` 或 `{ all: true }` |
+
 ## 定时 AI 报告推送
 
-支持通过 cron 定时触发 AI Agent 生成报告，并通过 IM 机器人主动推送给指定用户。
+支持通过 cron 定时触发 AI Agent 生成报告，推送给指定用户：进「消息 → 通知」，并按渠道发 IM（见上文「消息：通知与待办」）。
 
 ### 架构
 
 ```
 node-cron 定时触发 → 加载 scheduled_reports 配置
   → agentChatCore() 生成报告（复用完整 Agent 能力）
-  → 通过 bot_user_bindings 查找用户 IM 绑定
-  → 钉钉 / 企微 / 飞书主动发消息
+  → notify()：写收件箱 + 按 bot_user_bindings（钉钉回退 OUSR.U_DDUserId）发钉钉 / 企微 / 飞书
 ```
 
 ### 数据表
@@ -423,7 +450,7 @@ node-cron 定时触发 → 加载 scheduled_reports 配置
 | 变量 | 说明 |
 |------|------|
 | `SCHEDULED_REPORT_USER` | Agent 执行报告时使用的系统账号（默认 `SYSTEM`） |
-| `PUBLIC_BASE_URL` | 系统对外访问地址（如 `https://report.example.com`）。看板要点消息末尾附 `{PUBLIC_BASE_URL}/agents/{agentKey}` 链接；未配置时改为提示「在系统 Agent → xx 查看看板」 |
+| `PUBLIC_BASE_URL` | 系统对外访问地址（如 `https://report.example.com`）。看板要点消息末尾附 `{PUBLIC_BASE_URL}/agents/{agentKey}` 链接；未配置时改为提示「在系统 Agent → xx 查看看板」。钉钉消息的「在系统中查看」按钮也靠它，未配置则不带按钮 |
 
 ### 看板每日要点
 
@@ -432,7 +459,7 @@ node-cron 定时触发 → 加载 scheduled_reports 配置
 1. 推送对象逐个解析角色，按角色集合分组；无权使用该 Agent 的不推
 2. 每组按角色过滤看板（无权的卡片不取、不写），筛选取默认值（`$thisMonth` 等按中国日期解析），卡片经 `runNamedQuery` 取数（与看板同一缓存，key 含角色）
 3. 各卡片数据整理成紧凑表格（只取图表用到的列，KPI 1 行、其它 ≤15 行，带列中文名 / 单位 / 口径）交给 AI（`AI_PROVIDER` 主模型）写 3~5 条带数字的要点；AI 不再查数，数据里没有的数字不许写
-4. 推送「标题 + 要点 + 看板链接」；看板上一张卡片都看不到的组不推，日志里注明
+4. 推送「标题 + 要点 + 看板链接」（每组一条通知）；看板上一张卡片都看不到的组不推，日志里注明
 
 表单里可「预览要点（不推送）」，按管理员或某个角色视角生成；接口 `POST /admin/scheduled-reports/digest-preview`（`{ agent_key, name?, prompt_template?, role? }`）。
 

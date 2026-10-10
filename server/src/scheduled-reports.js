@@ -2,7 +2,7 @@
  * 定时 AI 报告推送调度模块。
  * - node-cron 定时触发
  * - agentChatCore 生成报告
- * - 通过 IM 平台推送给目标用户
+ * - 经 notify 推送给目标用户：写入「消息」收件箱 + 按 channels_json 发 IM（钉钉 / 企微 / 飞书）
  */
 const cron = require('node-cron');
 const { getPool, sql } = require('./db');
@@ -13,113 +13,9 @@ const { loadExpandedDashboard } = require('./bi-dashboards');
 const { runNamedQuery } = require('./bi-exec');
 const { aiService } = require('./ai');
 const { collectDashboardData, writeDigest, digestMessage, groupUsersByRoles, dashboardUsesSession } = require('./bi-digest');
-const crypto = require('crypto');
+const { notify, resolveRecipientCodes } = require('./notify');
 
 const activeTasks = new Map(); // id -> cron.ScheduledTask
-
-// ==================== IM 发送函数 ====================
-
-// --- 钉钉 ---
-let _dingToken = { token: '', expiresAt: 0 };
-async function getDingAccessToken() {
-  if (_dingToken.token && Date.now() < _dingToken.expiresAt) return _dingToken.token;
-  const appKey = process.env.DINGTALK_APP_KEY || '';
-  const appSecret = process.env.DINGTALK_APP_SECRET || '';
-  if (!appKey || !appSecret) return null;
-  const res = await fetch('https://api.dingtalk.com/v1.0/oauth2/accessToken', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ appKey, appSecret }),
-  });
-  const data = await res.json();
-  if (!data.accessToken) return null;
-  _dingToken = { token: data.accessToken, expiresAt: Date.now() + (data.expireIn || 7200) * 1000 - 60000 };
-  return _dingToken.token;
-}
-
-async function sendDingtalk(platformUid, text, log) {
-  const token = await getDingAccessToken();
-  if (!token) return;
-  const res = await fetch('https://api.dingtalk.com/v1.0/robot/oToMessages/batchSend', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-acs-dingtalk-access-token': token },
-    body: JSON.stringify({
-      robotCode: process.env.DINGTALK_APP_KEY,
-      userIds: [platformUid],
-      msgKey: 'sampleMarkdown',
-      msgParam: JSON.stringify({ title: '📊 定时报告', text: truncate(text, 18000) }),
-    }),
-  });
-  if (!res.ok) log?.warn?.('dingtalk scheduled send failed: ' + (await res.text()));
-}
-
-// --- 企业微信 ---
-let _wecomToken = { token: '', expiresAt: 0 };
-async function getWecomAccessToken() {
-  if (_wecomToken.token && Date.now() < _wecomToken.expiresAt) return _wecomToken.token;
-  const corpId = process.env.WECOM_CORP_ID || '';
-  const secret = process.env.WECOM_SECRET || '';
-  if (!corpId || !secret) return null;
-  const res = await fetch(`https://qyapi.weixin.qq.com/cgi-bin/gettoken?corpid=${corpId}&corpsecret=${secret}`);
-  const data = await res.json();
-  if (!data.access_token) return null;
-  _wecomToken = { token: data.access_token, expiresAt: Date.now() + (data.expires_in || 7200) * 1000 - 60000 };
-  return _wecomToken.token;
-}
-
-async function sendWecom(platformUid, text, log) {
-  const token = await getWecomAccessToken();
-  if (!token) return;
-  const res = await fetch(`https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${token}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      touser: platformUid,
-      msgtype: 'markdown',
-      agentid: Number(process.env.WECOM_AGENT_ID || 0),
-      markdown: { content: truncate(text, 4000) },
-    }),
-  });
-  const data = await res.json();
-  if (data.errcode) log?.warn?.('wecom scheduled send failed: ' + JSON.stringify(data));
-}
-
-// --- 飞书 ---
-let _feishuToken = { token: '', expiresAt: 0 };
-async function getFeishuAccessToken() {
-  if (_feishuToken.token && Date.now() < _feishuToken.expiresAt) return _feishuToken.token;
-  const appId = process.env.FEISHU_APP_ID || '';
-  const appSecret = process.env.FEISHU_APP_SECRET || '';
-  if (!appId || !appSecret) return null;
-  const res = await fetch('https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ app_id: appId, app_secret: appSecret }),
-  });
-  const data = await res.json();
-  if (data.code !== 0) return null;
-  _feishuToken = { token: data.tenant_access_token, expiresAt: Date.now() + (data.expire || 7200) * 1000 - 60000 };
-  return _feishuToken.token;
-}
-
-async function sendFeishu(platformUid, text, log) {
-  const token = await getFeishuAccessToken();
-  if (!token) return;
-  const res = await fetch('https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ receive_id: platformUid, msg_type: 'text', content: JSON.stringify({ text: truncate(text, 4000) }) }),
-  });
-  const data = await res.json();
-  if (data.code !== 0) log?.warn?.('feishu scheduled send failed: ' + JSON.stringify(data));
-}
-
-function truncate(text, max) {
-  if (!text) return '（无内容）';
-  return text.length > max ? text.slice(0, max) + '\n\n…（内容过长已截断）' : text;
-}
-
-const SENDERS = { dingtalk: sendDingtalk, wecom: sendWecom, feishu: sendFeishu };
 
 // ==================== 核心执行逻辑 ====================
 
@@ -144,7 +40,8 @@ async function executeReport(report, log) {
     // 关联了看板 Agent：看板每日要点（按推送对象角色分组取数、写要点）
     if (report.agent_key) {
       const r = await executeDigestReport(pool, report, targetUsers, log);
-      await updateLog(pool, logId, 'done', targetUsers.length, r.sentCount, r.skipped || null, r.content);
+      // target_count 记实际进收件箱的人数（无权 / 无卡片的人未推送，名单在 error_message）
+      await updateLog(pool, logId, 'done', r.inboxCount, r.sentCount, r.skipped || null, r.content);
       log?.info?.({ reportId: report.id, name: report.name, targets: targetUsers.length, sent: r.sentCount }, 'dashboard digest done');
       return;
     }
@@ -162,38 +59,25 @@ async function executeReport(report, log) {
 
     const content = result.message || result.error || '报告生成失败';
 
-    // 3. 推送给各用户
-    const channels = safeJsonParse(report.channels_json) || ['dingtalk'];
-    let sentCount = 0;
+    // 3. 推送：全部目标用户进收件箱，绑定了 IM 的同时发 IM
+    const r = await notify({
+      sourceType: 'report',
+      sourceId: report.id,
+      sourceName: report.name,
+      title: report.name,
+      body: content,
+      recipients: targetUsers.map((u) => u.userCode),
+      channels: safeJsonParse(report.channels_json) || ['dingtalk'],
+    });
+    const sentCount = r.imSent;
+    const imError = r.errors.length > 0 ? `IM 推送失败：${r.errors.join('; ')}`.slice(0, 1000) : null;
 
-    for (const user of targetUsers) {
-      if (await pushToUser(pool, user, channels, `**${report.name}**\n\n${content}`, log)) sentCount++;
-    }
-
-    await updateLog(pool, logId, 'done', targetUsers.length, sentCount, null, content);
+    await updateLog(pool, logId, 'done', targetUsers.length, sentCount, imError, content);
     log?.info?.({ reportId: report.id, name: report.name, targets: targetUsers.length, sent: sentCount }, 'scheduled report done');
   } catch (err) {
     await updateLog(pool, logId, 'error', 0, 0, String(err.message).slice(0, 1000));
     log?.error?.({ err, reportId: report.id }, 'scheduled report execution error');
   }
-}
-
-/** 推送一条消息给用户的各渠道绑定，返回是否至少发出一条 */
-async function pushToUser(pool, user, channels, text, log) {
-  const bindings = await getUserBindings(pool, user.userCode);
-  let sent = false;
-  for (const ch of channels) {
-    const sender = SENDERS[ch];
-    const binding = bindings.find((b) => b.platform === ch);
-    if (!sender || !binding) continue;
-    try {
-      await sender(binding.platform_uid, text, log);
-      sent = true;
-    } catch (err) {
-      log?.warn?.({ err: err.message, ch, user: user.userCode }, 'scheduled push failed');
-    }
-  }
-  return sent;
 }
 
 const digestLlm = async (messages) => {
@@ -232,6 +116,8 @@ async function executeDigestReport(pool, report, targetUsers, log) {
   const contents = [];
   const noAccess = [];
   const noCards = [];
+  const imErrors = [];
+  let inboxCount = 0;
   for (const { roles, users: group } of groups) {
     // 看不了这个 Agent 的人不推（看板经 Agent 门禁进入）
     if (!canUseAgent(roles, agent.roles)) {
@@ -246,44 +132,40 @@ async function executeDigestReport(pool, report, targetUsers, log) {
       continue;
     }
     contents.push(`【${perUser ? `用户 ${group[0].userCode}` : `角色 ${roles.join(',') || '无'}`}】\n${text}`);
-    for (const u of group) if (await pushToUser(pool, u, channels, text, log)) sentCount++;
+    const r = await notify({
+      sourceType: 'report',
+      sourceId: report.id,
+      sourceName: report.name,
+      title: report.name,
+      // 要点正文首行是加粗标题，标题已单独显示，去掉免得重复
+      body: text.replace(/^\*\*[^\n]*\*\*\n+/, ''),
+      recipients: group.map((u) => u.userCode),
+      channels,
+    });
+    sentCount += r.imSent;
+    inboxCount += r.recipients;
+    imErrors.push(...r.errors);
   }
   return {
     sentCount,
+    inboxCount,
     content: contents.join('\n\n'),
     skipped:
-      [noAccess.length ? `无权使用该 Agent，未推送：${noAccess.join('、')}` : '', noCards.length ? `看板上没有可看的卡片，未推送：${noCards.join('、')}` : '']
+      [
+        noAccess.length ? `无权使用该 Agent，未推送：${noAccess.join('、')}` : '',
+        noCards.length ? `看板上没有可看的卡片，未推送：${noCards.join('、')}` : '',
+        imErrors.length ? `IM 推送失败：${[...new Set(imErrors)].join('; ')}` : '',
+      ]
         .filter(Boolean)
         .join('；')
         .slice(0, 1000) || null,
   };
 }
 
+/** 推送对象：指定用户优先，否则按角色展开 */
 async function resolveTargetUsers(pool, report) {
-  const targetUserCodes = safeJsonParse(report.target_users_json) || [];
-  const targetRoles = safeJsonParse(report.target_roles_json) || [];
-
-  if (targetUserCodes.length > 0) {
-    return targetUserCodes.map((c) => ({ userCode: c }));
-  }
-
-  if (targetRoles.length === 0) return [];
-
-  // 从 user_roles 表查出拥有目标角色的用户
-  const placeholders = targetRoles.map((_, i) => `@r${i}`).join(', ');
-  const req = pool.request();
-  targetRoles.forEach((r, i) => req.input(`r${i}`, sql.NVarChar(32), r));
-  const rs = await req.query(
-    `SELECT DISTINCT user_code FROM dbo.user_roles WHERE role_key IN (${placeholders})`
-  );
-  return (rs.recordset || []).map((r) => ({ userCode: r.user_code }));
-}
-
-async function getUserBindings(pool, userCode) {
-  const rs = await pool.request()
-    .input('uc', sql.NVarChar(64), userCode)
-    .query('SELECT platform, platform_uid FROM dbo.bot_user_bindings WHERE user_code = @uc');
-  return rs.recordset || [];
+  const codes = await resolveRecipientCodes(pool, safeJsonParse(report.target_users_json), safeJsonParse(report.target_roles_json));
+  return codes.map((c) => ({ userCode: c }));
 }
 
 async function updateLog(pool, logId, status, targetCount, sentCount, errorMsg, aiResponse) {

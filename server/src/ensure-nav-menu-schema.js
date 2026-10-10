@@ -85,6 +85,7 @@ const SQL_ALERT_PUSH_PATH = path.join(
   'sql',
   'migrate-alert-push.sql'
 );
+const SQL_NOTIFICATIONS_PATH = path.join(__dirname, '..', 'sql', 'migrate-notifications.sql');
 const SQL_BOT_MESSAGE_LOGS_PATH = path.join(
   __dirname,
   '..',
@@ -135,6 +136,7 @@ async function ensureNavMenuSchema(getPool, log) {
     SQL_BOT_USER_BINDINGS_PATH,
     SQL_SCHEDULED_REPORTS_PATH,
     SQL_ALERT_PUSH_PATH,
+    SQL_NOTIFICATIONS_PATH, // 消息收件箱：警报 / 定时报告推送的内容与已读
     SQL_BOT_MESSAGE_LOGS_PATH,
     SQL_AGENTS_PATH, // 可配置 Agent 中心：agents 表
     SQL_BI_PATH, // BI 看板：查询库、看板表、agents.dashboard_key（须在 agents 表之后）

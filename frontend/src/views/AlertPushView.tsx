@@ -714,7 +714,7 @@ function LogsTab() {
             <th className={thClass}>规则</th>
             <th className={thClass}>触发</th>
             <th className={thClass}>状态</th>
-            <th className={thClass}>个人 / 群</th>
+            <th className={thClass} title="进消息收件箱的人数 / 其中钉钉发送成功的人数 / 群 Webhook 数">消息 / 钉钉 / 群</th>
             <th className={thClass}>卡片标题 / 错误</th>
           </tr>
         </thead>
@@ -727,7 +727,7 @@ function LogsTab() {
                 <TriggerLabel type={l.trigger_type} event={l.event_name} />
               </td>
               <td className={tdClass}><StatusBadge status={l.status} /></td>
-              <td className={tdClass + ' num'}>{l.sent_count} / {l.webhook_count}</td>
+              <td className={tdClass + ' num'}>{l.target_count} / {l.sent_count} / {l.webhook_count}</td>
               <td className={tdClass + ' text-xs max-w-[28rem]'}>
                 {l.card_title && <div className="truncate">{l.card_title}</div>}
                 {l.error_message && <div className="text-danger truncate" title={l.error_message}>{l.error_message}</div>}

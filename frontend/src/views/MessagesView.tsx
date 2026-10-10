@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
 import { useStore } from '../store'
 import { apiFetch } from '../utils/api'
+import { Tabs } from '../ui'
+import InboxList from '../components/messages/InboxList'
 import type { MessageAlertItem } from '../types'
 
 interface RuleItemsState {
@@ -18,17 +20,85 @@ function formatTime(iso: string | null | undefined) {
   return d.toLocaleString('zh-CN', { hour12: false })
 }
 
+type MessageTab = 'inbox' | 'todo'
+const TAB_KEY = 'online_report_messages_tab'
+
+function readTab(): MessageTab | null {
+  try {
+    const v = sessionStorage.getItem(TAB_KEY)
+    return v === 'inbox' || v === 'todo' ? v : null
+  } catch {
+    return null
+  }
+}
+
+/** 「消息」：通知（警报、定时报告推送的内容）+ 待办（打开时按 SQL 现查的提醒） */
 export default function MessagesView() {
   const { messageSummary, fetchMessageSummary, showToast } = useStore()
+  const [tab, setTab] = useState<MessageTab>(() => readTab() ?? 'inbox')
   const [refreshing, setRefreshing] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
+
+  const changeTab = (t: MessageTab) => {
+    setTab(t)
+    try {
+      sessionStorage.setItem(TAB_KEY, t)
+    } catch {
+      /* 不可写时只是不记住页签 */
+    }
+  }
+
+  const refresh = async () => {
+    setRefreshing(true)
+    try {
+      await fetchMessageSummary()
+      setReloadKey((k) => k + 1)
+    } catch (e: unknown) {
+      showToast(e instanceof Error ? e.message : '刷新失败')
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  const inboxUnread = messageSummary?.inboxUnread || 0
+  const todoUnread = messageSummary?.todoUnread || 0
+  const count = (n: number) => (n > 0 ? <span className="ml-1 text-danger num">{n > 99 ? '99+' : n}</span> : null)
+
+  return (
+    <div className="p-4 space-y-3 max-w-3xl">
+      <div className="flex items-center justify-between gap-3">
+        <Tabs
+          value={tab}
+          onChange={changeTab}
+          className="flex-1"
+          options={[
+            { value: 'inbox', label: <>通知{count(inboxUnread)}</> },
+            { value: 'todo', label: <>待办{count(todoUnread)}</> },
+          ]}
+        />
+        <button
+          onClick={() => void refresh()}
+          disabled={refreshing}
+          className="flex items-center gap-1 text-sm text-primary px-2 py-1 rounded hover:bg-primary-soft disabled:opacity-50"
+        >
+          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+          刷新
+        </button>
+      </div>
+      {tab === 'inbox' ? <InboxList reloadKey={reloadKey} /> : <TodoRules reloadKey={reloadKey} />}
+    </div>
+  )
+}
+
+/** 待办：打开时按 SQL 现查的提醒规则（管理后台 →「消息提醒」配置），逐条标已读 */
+function TodoRules({ reloadKey }: { reloadKey: number }) {
+  const { messageSummary, fetchMessageSummary, showToast } = useStore()
   const [expandedRuleId, setExpandedRuleId] = useState<number | null>(null)
   const [ruleItems, setRuleItems] = useState<Record<number, RuleItemsState>>({})
   const [expandedItemKeys, setExpandedItemKeys] = useState<Set<string>>(new Set())
 
-  const refresh = useCallback(async () => {
-    setRefreshing(true)
+  const reloadExpanded = useCallback(async () => {
     try {
-      await fetchMessageSummary()
       if (expandedRuleId != null) {
         setRuleItems((prev) => ({
           ...prev,
@@ -47,14 +117,14 @@ export default function MessagesView() {
       }
     } catch (e: unknown) {
       showToast(e instanceof Error ? e.message : '刷新失败')
-    } finally {
-      setRefreshing(false)
     }
-  }, [expandedRuleId, fetchMessageSummary, showToast])
+  }, [expandedRuleId, showToast])
 
+  // 顶部「刷新」：摘要由外层刷新，这里重新拉展开着的那条规则
   useEffect(() => {
-    void fetchMessageSummary()
-  }, [fetchMessageSummary])
+    if (reloadKey > 0) void reloadExpanded()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reloadKey])
 
   const loadRuleItems = async (ruleId: number) => {
     setRuleItems((prev) => ({
@@ -120,34 +190,24 @@ export default function MessagesView() {
   }
 
   const rules = messageSummary?.rules || []
-  const totalUnread = messageSummary?.totalUnread || 0
+  const todoUnread = messageSummary?.todoUnread || 0
 
   return (
-    <div className="p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="text-sm text-muted">
-          {totalUnread > 0 ? (
-            <span className="text-danger font-medium">{totalUnread} 条未读</span>
-          ) : (
-            <span>暂无未读提醒</span>
-          )}
-          {messageSummary?.refreshedAt && (
-            <span className="ml-2 text-xs">更新于 {formatTime(messageSummary.refreshedAt)}</span>
-          )}
-        </div>
-        <button
-          onClick={() => void refresh()}
-          disabled={refreshing}
-          className="flex items-center gap-1 text-sm text-primary px-2 py-1 rounded hover:bg-primary-soft disabled:opacity-50"
-        >
-          <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-          刷新
-        </button>
+    <div className="space-y-3">
+      <div className="text-sm text-muted">
+        {todoUnread > 0 ? (
+          <span className="text-danger font-medium">{todoUnread} 条未读</span>
+        ) : (
+          <span>暂无未读提醒</span>
+        )}
+        {messageSummary?.refreshedAt && (
+          <span className="ml-2 text-xs">更新于 {formatTime(messageSummary.refreshedAt)}</span>
+        )}
       </div>
 
       {rules.length === 0 && (
         <div className="rounded-xl bg-surface border border-line p-8 text-center text-subtle text-sm">
-          暂无数据提醒
+          暂无待办提醒
         </div>
       )}
 

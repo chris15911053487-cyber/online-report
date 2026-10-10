@@ -19,6 +19,7 @@ import AgentsAdminView from '../views/AgentsAdminView'
 import BiAdminView from '../views/BiAdminView'
 import AgentRunView from '../views/AgentRunView'
 import MessagesView from '../views/MessagesView'
+import MessageDetailView from '../views/MessageDetailView'
 import MessageAlertSettingsView from '../views/MessageAlertSettingsView'
 import ScheduledReportsView from '../views/ScheduledReportsView'
 import AlertPushView from '../views/AlertPushView'
@@ -40,6 +41,7 @@ const viewComponents: Record<string, React.ComponentType> = {
   'agents-admin': AgentsAdminView,
   'bi-admin': BiAdminView,
   messages: MessagesView,
+  'message-detail': MessageDetailView,
   settings: SettingsView,
   'dynamic-report': DynamicReportView,
   'menu-settings': MenuSettingsView,
@@ -71,6 +73,7 @@ function getPageTitle(
     'agents-admin': 'Agent 配置',
     'bi-admin': 'BI 看板管理',
     messages: '消息',
+    'message-detail': '通知',
     settings: '设置',
     help: '使用说明',
     'help-doc': '使用说明',
@@ -184,6 +187,8 @@ export default function MainLayout() {
         ? { label: 'Agent', view: 'agent-hub' }
         : currentView === 'help-doc'
           ? { label: '使用说明', view: 'help' }
+          : currentView === 'message-detail'
+          ? { label: '消息', view: 'messages' }
           : !isRootTab && currentView !== 'help' && currentView !== 'ai'
           ? { label: '工作台', view: 'catalog' }
           : null

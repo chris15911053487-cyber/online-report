@@ -46,7 +46,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
     { key: 'catalog', label: '工作台', icon: Home, active: currentView === 'catalog', onClick: () => openEntry('catalog'), href: '/', dataTab: 'catalog' },
     { key: 'agent', label: 'Agent', icon: Bot, active: currentView === 'agent-hub' || currentView === 'agent-run', onClick: () => openEntry('agent-hub'), href: '/agents', dataTab: 'agent-hub' },
     { key: 'ai', label: 'AI 助手', icon: BrainCircuit, active: currentView === 'ai', onClick: () => setView('ai'), href: '/ai', dataTab: 'ai' },
-    { key: 'messages', label: '消息', icon: MessageCircle, active: currentView === 'messages', onClick: () => setView('messages'), href: '/messages', badge: unread, dataTab: 'messages' },
+    { key: 'messages', label: '消息', icon: MessageCircle, active: currentView === 'messages' || currentView === 'message-detail', onClick: () => openEntry('messages'), href: '/messages', badge: unread, dataTab: 'messages' },
   ]
   const recentItems: NavItem[] = recent.map((m) => ({
     key: `menu-${m.routeKey}`,

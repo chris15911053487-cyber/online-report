@@ -307,7 +307,9 @@ export default function ScheduledReportsView() {
                       <LogStatus status={l.status} />
                     </td>
                     <td className={tdClass + ' num'}>
-                      {l.sent_count}/{l.target_count} 人
+                      <span title="进消息收件箱的人数 · 其中 IM（钉钉等）发送成功的人数">
+                        消息 {l.target_count} 人 · IM {l.sent_count}
+                      </span>
                     </td>
                     <td className={tdClass + ' text-xs text-danger'}>{l.error_message}</td>
                   </tr>

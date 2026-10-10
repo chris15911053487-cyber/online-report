@@ -71,6 +71,8 @@ interface AppState {
   helpDocSlug: string | null
   /** 当前说明书标题（阅读页加载后写入，用于顶栏标题） */
   helpDocTitle: string | null
+  /** 正在看的通知（message-detail 页使用，notifications.id） */
+  messageId: number | null
 
   // Actions
   initialize: () => Promise<void>
@@ -106,6 +108,8 @@ interface AppState {
   consumePendingChatSkill: () => void
   /** 打开一篇使用说明书（/help/:slug） */
   openHelpDoc: (slug: string) => void
+  /** 打开一条通知（「消息」→ 通知列表、钉钉消息里的链接 /messages/:id） */
+  openMessage: (id: number) => void
   setHelpDocTitle: (title: string | null) => void
   /** 进入某个 Agent 的运行页 */
   openAgent: (agentKey: string) => void
@@ -148,6 +152,7 @@ export const useStore = create<AppState>((set, get) => ({
   currentAgentLabel: null,
   helpDocSlug: null,
   helpDocTitle: null,
+  messageId: null,
 
   clearProSignListRefreshFlag: () => set({ shouldRefreshProSignListAfterReceive: false }),
 
@@ -169,6 +174,14 @@ export const useStore = create<AppState>((set, get) => ({
       helpDocTitle: null,
       currentView: 'help-doc',
       viewHistory: s.currentView === 'help-doc' ? s.viewHistory : [...s.viewHistory, s.currentView],
+    }))
+  },
+
+  openMessage: (id: number) => {
+    set((s) => ({
+      messageId: id,
+      currentView: 'message-detail',
+      viewHistory: s.currentView === 'message-detail' ? s.viewHistory : [...s.viewHistory, s.currentView],
     }))
   },
 
@@ -303,6 +316,7 @@ export const useStore = create<AppState>((set, get) => ({
       prefilledAutoQuery: false,
       messageSummary: null,
       currentAgentKey: null,
+      messageId: null,
     })
     try {
       ;(window as any).__voiceMenus = []
@@ -340,6 +354,8 @@ export const useStore = create<AppState>((set, get) => ({
       if (currentView === 'agent-run') set({ currentView: 'agent-hub', currentAgentKey: null })
       else if (currentAgentKey && currentView !== 'agent-hub') set({ currentView: 'agent-run' })
       else get().setView('agent-hub')
+    } else if (view === 'messages' && currentView === 'message-detail') {
+      set({ currentView: 'messages', messageId: null })
     } else if (view === 'help') {
       if (currentView === 'help-doc') set({ currentView: 'help', helpDocSlug: null })
       else if (helpDocSlug && currentView !== 'help') set({ currentView: 'help-doc' })
@@ -404,6 +420,15 @@ export const useStore = create<AppState>((set, get) => ({
       return
     }
 
+    if (currentView === 'message-detail') {
+      set((s) => ({
+        currentView: s.viewHistory.length > 0 ? s.viewHistory[s.viewHistory.length - 1] : 'messages',
+        viewHistory: s.viewHistory.slice(0, -1),
+        messageId: null,
+      }))
+      return
+    }
+
     if (currentView === 'agent-run') {
       set((s) => ({
         currentView: s.viewHistory.length > 0 ? s.viewHistory[s.viewHistory.length - 1] : 'agent-hub',
@@ -447,6 +472,8 @@ export const useStore = create<AppState>((set, get) => ({
       set({
         messageSummary: {
           totalUnread: Number(data?.totalUnread) || 0,
+          inboxUnread: Number(data?.inboxUnread) || 0,
+          todoUnread: Number(data?.todoUnread) || 0,
           refreshSeconds: Number(data?.refreshSeconds) || 60,
           rules: Array.isArray(data?.rules) ? data.rules : [],
           refreshedAt: data?.refreshedAt || null,
