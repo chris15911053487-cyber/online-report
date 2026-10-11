@@ -110,3 +110,11 @@ test('看板保存：必填参数既无同名筛选也无覆盖 → 报错；加
   assert.match(validateDashboardInput({ ...dash, filters: [{ name: 'period', type: 'month', default: '$nextYear' }] }, ctx).error, /默认值记号不支持：\$nextYear/);
   assert.equal(validateDashboardInput({ ...dash, filters: [], cards: [{ chartKey: 'sales_top_cust', params: { period: '2026-09' } }] }, ctx).ok, true, '也可在看板里写固定值');
 });
+
+test('图表校验：encoding.labels 只接受 show / hide，auto 视为不写', () => {
+  const enc = (labels) => validateChartInput({ ...chartInput, encoding: { ...chartInput.encoding, labels } }, queries);
+  assert.equal(enc('show').value.encoding.labels, 'show');
+  assert.equal(enc('hide').value.encoding.labels, 'hide');
+  assert.equal(enc('auto').value.encoding.labels, undefined);
+  assert.equal(enc('always').ok, false);
+});

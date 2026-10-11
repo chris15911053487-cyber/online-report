@@ -328,13 +328,14 @@ export function cleanEncoding(type: BiCardType, enc: BiEncoding): BiEncoding {
       ? ['value', 'compare', 'label', 'format', 'unit', 'scale']
       : type === 'table'
         ? ['columns', 'dimension']
-        : ['dimension', 'value', 'values', 'series', 'format', 'unit', 'scale', 'topN', 'horizontal', 'columns']
+        : ['dimension', 'value', 'values', 'series', 'format', 'unit', 'scale', 'topN', 'horizontal', 'labels', 'columns']
   for (const k of keep) {
     const v = enc[k]
     if (v === undefined || v === '' || (Array.isArray(v) && v.length === 0)) continue
     ;(out as Record<string, unknown>)[k] = v
   }
   if (type !== 'bar') delete out.horizontal
+  if (type === 'pie' || out.labels === 'auto') delete out.labels
   return out
 }
 

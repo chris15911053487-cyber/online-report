@@ -26,7 +26,11 @@ export interface BiEncoding {
   scale?: number
   topN?: number
   horizontal?: boolean
+  /** 柱/线上是否标数值：auto（默认，按规则）/ show / hide */
+  labels?: BiLabelMode
 }
+
+export type BiLabelMode = 'auto' | 'show' | 'hide'
 
 export interface BiDrillLevel {
   queryKey: string

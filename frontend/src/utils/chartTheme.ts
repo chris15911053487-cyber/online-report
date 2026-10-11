@@ -50,9 +50,16 @@ export function themedChartOption(option: Obj): Obj {
   for (const key of ['xAxis', 'yAxis', 'radiusAxis', 'angleAxis']) {
     if (out[key] !== undefined) out = { ...out, [key]: mapAxes(out[key], axisDefaults) }
   }
-  // 饼图标签、标线文字等默认用正文色
+  // 饼图标签、柱/线上的数值标签默认用正文色（折线只标最后一点时，标签挂在数据项上）
   if (Array.isArray(out.series)) {
-    out.series = out.series.map((s) => (isObj(s) && s.type === 'pie' ? fill(s, { label: { color: p.strongText } }) : s))
+    const labelColor = (o: Obj, color: string) => (isObj(o.label) ? fill(o, { label: { color } }) : o)
+    out.series = out.series.map((s) => {
+      if (!isObj(s)) return s
+      if (s.type === 'pie') return fill(s, { label: { color: p.strongText } })
+      if (s.type !== 'bar' && s.type !== 'line') return s
+      const t = labelColor(s, p.text)
+      return Array.isArray(t.data) ? { ...t, data: t.data.map((d) => (isObj(d) ? labelColor(d, p.text) : d)) } : t
+    })
   }
   return out
 }

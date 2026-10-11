@@ -119,6 +119,10 @@ function normalizeEncoding(input, type, where) {
     out.topN = n;
   }
   if (e.horizontal != null) out.horizontal = !!e.horizontal;
+  if (e.labels != null && e.labels !== '' && e.labels !== 'auto') {
+    if (!['show', 'hide'].includes(e.labels)) return fail(`${where} encoding.labels 须为 auto / show / hide`);
+    out.labels = e.labels;
+  }
   // 必需字段
   if (type === 'kpi' && !out.value) return fail(`${where} KPI 须设置 encoding.value`);
   if (['bar', 'line', 'pie'].includes(type)) {

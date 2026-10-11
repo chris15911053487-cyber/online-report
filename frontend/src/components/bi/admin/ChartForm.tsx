@@ -4,7 +4,7 @@
  * 格式 / 单位 / 缩放不填时继承查询列语义（占位符里显示继承值）。
  */
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
-import { defaultChartSize, type BiCardType, type BiChartDef, type BiColumnRole, type BiColumnSemantic, type BiDrillLevel, type BiEncoding, type BiFormat, type BiScalar } from '../../../utils/bi'
+import { defaultChartSize, type BiCardType, type BiChartDef, type BiColumnRole, type BiColumnSemantic, type BiDrillLevel, type BiEncoding, type BiFormat, type BiLabelMode, type BiScalar } from '../../../utils/bi'
 import {
   COLUMN_ROLE_LABEL,
   FORMAT_LABEL,
@@ -25,6 +25,11 @@ const CARD_TYPES: { value: BiCardType; label: string }[] = [
   { value: 'line', label: '折线' },
   { value: 'pie', label: '饼图' },
   { value: 'table', label: '表格' },
+]
+const LABEL_MODES: { value: BiLabelMode; label: string }[] = [
+  { value: 'auto', label: '自动' },
+  { value: 'show', label: '显示' },
+  { value: 'hide', label: '不显示' },
 ]
 const DRILL_TYPES = CARD_TYPES.filter((t) => t.value !== 'kpi') as { value: Exclude<BiCardType, 'kpi'>; label: string }[]
 
@@ -313,6 +318,11 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
           )}
         </div>
       </Row>
+      {type !== 'pie' && (
+        <Row label="显示数值" hint={type === 'line' ? '自动：单条折线只标最新值' : '自动：单系列且柱子不多时标在柱上'}>
+          <Segmented size="sm" options={LABEL_MODES} value={enc.labels || 'auto'} onChange={(v) => set({ labels: v === 'auto' ? undefined : v })} />
+        </Row>
+      )}
       {formatRows}
     </div>
   )

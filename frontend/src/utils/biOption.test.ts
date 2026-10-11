@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildChartModel, columnLabel, valueColumns } from './biOption'
+import { buildChartModel, columnLabel, labelPlan, valueColumns } from './biOption'
 import { canDrillFrom, levelView, nextDrillLabel, popDrillTo, pushDrill, rootStack, rowCaption } from './biDrill'
 import type { BiCard } from './bi'
 
@@ -135,5 +135,42 @@ describe('下钻栈', () => {
     expect(rowCaption({ CardName: '甲' }, { dimension: 'CardName' })).toBe('甲')
     expect(rowCaption({ CardCode: 'C1', X: 1 }, {}, { cardCode: 'CardCode' })).toBe('C1')
     expect(rowCaption({ A: null, B: 5 }, {})).toBe('5')
+  })
+})
+
+describe('柱/线数值标签', () => {
+  type LSeries = { label?: { show: boolean; position: string; formatter: (p: { value: unknown }) => string }; data: unknown[] }
+  const many = Array.from({ length: 15 }, (_, i) => ({ D: `d${i}`, V: i * 1000 }))
+
+  it('自动：单系列柱子不多时标；多系列、柱子多时不标；横向条形上限更高', () => {
+    expect(labelPlan('bar', {}, 1, 12)).toBe('all')
+    expect(labelPlan('bar', {}, 1, 13)).toBe('none')
+    expect(labelPlan('bar', { horizontal: true }, 1, 20)).toBe('all')
+    expect(labelPlan('bar', {}, 2, 3)).toBe('none')
+    expect(labelPlan('line', {}, 1, 30)).toBe('last')
+    expect(labelPlan('line', {}, 2, 30)).toBe('none')
+  })
+
+  it('显示 / 不显示 覆盖自动规则', () => {
+    expect(labelPlan('bar', { labels: 'show' }, 3, 50)).toBe('all')
+    expect(labelPlan('bar', { labels: 'hide' }, 1, 3)).toBe('none')
+    expect(labelPlan('line', { labels: 'show' }, 1, 5)).toBe('all')
+  })
+
+  it('柱上标签用紧凑格式（按缩放、不带单位）；横向标在右侧', () => {
+    const o = buildChartModel('bar', { dimension: 'CardName', value: 'Balance', scale: 10000, unit: '万', horizontal: true }, rows).option as { series: LSeries[] }
+    expect(o.series[0].label?.position).toBe('right')
+    expect(o.series[0].label?.formatter({ value: 1200000 })).toBe('120')
+    const many15 = buildChartModel('bar', { dimension: 'D', value: 'V' }, many).option as { series: LSeries[] }
+    expect(many15.series[0].label).toBeUndefined()
+  })
+
+  it('折线自动只标最后一个点，rowAt 不受影响', () => {
+    const m = buildChartModel('line', { dimension: 'CardName', value: 'Balance' }, rows)
+    const s = (m.option as { series: LSeries[] }).series[0]
+    expect(s.label).toBeUndefined()
+    expect(s.data.slice(0, 2)).toEqual([1200000, 800000])
+    expect(s.data[2]).toMatchObject({ value: 50000, label: { show: true } })
+    expect(m.rowAt(2)?.CardCode).toBe('C3')
   })
 })

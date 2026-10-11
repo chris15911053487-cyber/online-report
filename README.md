@@ -311,6 +311,8 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 
 上例 `period` 没写在图表和卡片里，由看板同名筛选自动提供（下钻查询的 `period` 同理）。
 
+柱 / 线上的数值标签：`encoding.labels` = `show` / `hide`，不写为自动（单系列柱形图 ≤12 根、横向条形 ≤20 根时标；多系列不标；单条折线只标最后一个点），规则在 `utils/biOption.ts` 的 `labelPlan()`。
+
 `encoding` 还支持 `values`（多系列）、`series`（长表透视）、`compare`（KPI 对比列，显示环比）、`columns`（表格列与格式）、`format`（`number` / `money` / `percent` / `integer`）。筛选类型 `month`（月份）/ `year`（年份，近 10 年下拉，值如 `2026`）/ `date` / `select` / `string`；默认值可用 `$today` `$yesterday` `$thisMonth` `$lastMonth` `$monthStart` `$yearStart` `$thisYear` `$lastYear`（前端 `resolveDefaultToken` 与服务端 `bi-tokens.js` 同一清单）。查询参数名为 `year` 时「一键建成筛选」生成年份筛选，默认今年。
 
 **安全与缓存**：
