@@ -274,7 +274,7 @@ export default function QueryEditor({
                 <Textarea rows={2} value={d.description} onChange={(e) => patch({ description: e.target.value })} placeholder="各客户在指定期间末的应收余额，用于看谁欠款多、欠多久" />
               </Field>
               <Field label="口径说明" className="sm:col-span-2">
-                <Input value={d.caliberNote} onChange={(e) => patch({ caliberNote: e.target.value })} placeholder="按过账日期，含未清贷项，本币" />
+                <Textarea rows={3} maxLength={1024} value={d.caliberNote} onChange={(e) => patch({ caliberNote: e.target.value })} placeholder="按过账日期，含未清贷项，本币" />
               </Field>
             </div>
           </Section>
