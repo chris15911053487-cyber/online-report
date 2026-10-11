@@ -190,11 +190,6 @@ export default function BiCardView({ card, filters, queries, onPick }: Props) {
       {card.type === 'kpi' && data?.asOf && (
         <p className="text-[10.5px] text-subtle mt-1.5" title={data.cached ? '来自缓存' : '刚刚查询'}>数据截至 {hhmm(data.asOf)}</p>
       )}
-      {clickable && data && rows.length > 0 && (
-        <p className="text-[10.5px] text-subtle mt-1.5">
-          点击{view.type === 'kpi' ? '数字' : view.type === 'table' ? '行' : '图形'}可{drillLabel ? `下钻到「${drillLabel}」或` : ''}让 AI 解读
-        </p>
-      )}
     </section>
   )
 }
