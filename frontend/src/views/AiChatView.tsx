@@ -632,7 +632,7 @@ export default function AiChatView() {
                 (m.role === 'user' ? 'max-w-[88%] ' : 'max-w-full w-full ') +
                 'rounded-2xl break-words ' +
                 (m.role === 'user'
-                  ? 'px-3 py-2.5 text-sm bg-primary text-white rounded-br-md whitespace-pre-wrap'
+                  ? 'px-3 py-2.5 text-sm bg-primary text-primary-fg rounded-br-md whitespace-pre-wrap'
                   : 'px-3.5 py-3 text-sm bg-surface border border-line text-fg shadow-sm rounded-bl-md')
               }
             >

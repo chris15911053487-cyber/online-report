@@ -1004,7 +1004,7 @@ export default function AgentRunView() {
     if (item.role === 'user') {
       return (
         <div key={item.id} className="flex gap-2.5 flex-row-reverse max-w-full">
-          <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: tv('inverse'), color: tv('inverse-fg'), fontSize: 11, fontWeight: 600 }}>我</div>
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: tv('primary'), color: tv('primary-fg'), fontSize: 11, fontWeight: 600 }}>我</div>
           <div style={{ maxWidth: 300 }} className="flex flex-col items-end">
             {item.contextCaption && (
               <span className="mb-1 inline-flex items-center gap-1 max-w-full px-2 py-0.5 rounded-full text-[11px]" style={{ background: tv('primary-soft'), color: tv('primary') }} title="带有看板上下文">
@@ -1012,7 +1012,7 @@ export default function AgentRunView() {
                 <span className="truncate">{item.contextCaption}</span>
               </span>
             )}
-            <div className="px-3.5 py-2.5 rounded-xl text-[13.5px] leading-relaxed" style={{ background: tv('inverse'), color: tv('inverse-fg'), borderTopRightRadius: 4, wordBreak: 'break-word' }}>
+            <div className="px-3.5 py-2.5 rounded-xl text-[13.5px] leading-relaxed" style={{ background: tv('primary'), color: tv('primary-fg'), borderTopRightRadius: 4, wordBreak: 'break-word' }}>
               {item.content}
             </div>
           </div>

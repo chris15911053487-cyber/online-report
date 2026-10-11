@@ -12,7 +12,8 @@ _EXPLAIN_GUIDE = (
     "1. 这个数是多少、与对比期相比如何；\n"
     "2. 主要构成或变化原因（需要时查询，优先使用 run_named_query 复用上面的查询与参数，保证与看板口径一致）；\n"
     "3. 值得关注的点或建议的下一步。\n"
-    "不要重复罗列上下文原文。"
+    "不要重复罗列上下文原文；查询参数（如 top、period）只用于调用工具，回答里不要出现参数名、"
+    "查询编号等英文技术字段，用业务说法（如「前 10 名客户」）。"
 )
 
 
@@ -38,7 +39,7 @@ def format_bi_context(ctx: dict | None) -> str:
     path = ctx.get("path")
     if isinstance(path, list) and len(path) > 1:
         lines.append("- 下钻路径：" + " > ".join(str(p) for p in path))
-    for label, key in (("点中的数据", "point"), ("当前筛选", "filters"), ("查询参数", "params")):
+    for label, key in (("点中的数据", "point"), ("当前筛选", "filters"), ("查询参数（仅供调用工具，回答中不要提及）", "params")):
         line = _kv_line(label, ctx.get(key))
         if line:
             lines.append(line)
