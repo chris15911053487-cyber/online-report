@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { BookOpen, Check, ChevronRight, KeyRound, LogOut, Monitor, Shield } from 'lucide-react'
 import AgentStatusBadge from '../components/AgentStatusBadge'
 import { useStore } from '../store'
@@ -78,6 +78,17 @@ export default function SettingsView() {
 
   const name = user?.displayName || user?.username || '-'
   const roles = user?.roles && user.roles.length > 0 ? user.roles : [user?.role === 'admin' ? 'admin' : 'operator']
+  // 角色中文名（/auth/me 的 roleLabels）；取不到时显示编码
+  const [roleLabels, setRoleLabels] = useState<Record<string, string>>({})
+  useEffect(() => {
+    let alive = true
+    apiFetch('/auth/me')
+      .then((me) => alive && me?.roleLabels && setRoleLabels(me.roleLabels))
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
 
   return (
     <div className="p-4 lg:p-6 max-w-3xl mx-auto flex flex-col gap-4">
@@ -90,7 +101,7 @@ export default function SettingsView() {
           <div className="flex flex-wrap gap-1 mt-1">
             {roles.map((r) => (
               <Badge key={r} tone={r === 'admin' ? 'accent' : 'primary'}>
-                {r === 'admin' ? '管理员' : r}
+                {roleLabels[r] || (r === 'admin' ? '管理员' : r)}
               </Badge>
             ))}
           </div>

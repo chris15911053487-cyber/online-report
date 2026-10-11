@@ -12,6 +12,7 @@ import { BookOpen, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react'
 import { useStore } from '../store'
 import { apiFetch } from '../utils/api'
 import { AdminPage, Badge, Button, Card, Code, EmptyState, IconButton, Notice, RecordRow, Skeleton, Tabs } from '../ui'
+import { useRoleLabels } from '../hooks/useAppRoles'
 import { confirmDelete } from '../ui/confirm'
 import QueryEditor from '../components/bi/admin/QueryEditor'
 import ChartEditor from '../components/bi/admin/ChartEditor'
@@ -32,6 +33,7 @@ function usedBy(charts: BiChartAdmin[], queryKey: string): string[] {
 }
 
 export default function BiAdminView() {
+  const { formatRoles } = useRoleLabels()
   const { showToast } = useStore()
   const [tab, setTab] = useState<Tab>('queries')
   const [queries, setQueries] = useState<BiQueryAdmin[]>([])
@@ -248,7 +250,7 @@ export default function BiAdminView() {
                 meta={
                   <>
                     {q.description && <span className="truncate max-w-[32rem]">{q.description}</span>}
-                    <span>可见角色：{q.roles.length ? q.roles.join('、') : '仅管理员'}</span>
+                    <span>可见角色：{formatRoles(q.roles, '仅管理员')}</span>
                     <span>{used.length ? `被图表使用：${used.join('、')}` : '未被图表使用'}</span>
                   </>
                 }

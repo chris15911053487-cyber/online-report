@@ -3,6 +3,7 @@ import { Plus } from 'lucide-react'
 import { apiFetch } from '../utils/api'
 import type { AgentQuickPrompt } from '../types'
 import { Button, Code, Notice, Select, Skeleton } from '../ui'
+import { useRoleLabels } from '../hooks/useAppRoles'
 
 interface RoleView {
   role: string
@@ -31,6 +32,7 @@ export default function AgentCatalogPreview({
   quickPrompts: AgentQuickPrompt[]
   onAddQuickPrompts: (items: AgentQuickPrompt[]) => void
 }) {
+  const { roleLabel, formatRoles } = useRoleLabels()
   const [data, setData] = useState<Preview | null>(null)
   const [error, setError] = useState('')
   const [role, setRole] = useState('')
@@ -87,7 +89,7 @@ export default function AgentCatalogPreview({
         <Notice tone="warning">
           {[...blocked.values()].map((g) => (
             <div key={g.roles.join(',')} className="mb-1">
-              角色 <b>{g.roles.join('、')}</b> 看不到 {g.hidden.length} 处：
+              角色 <b>{formatRoles(g.roles)}</b> 看不到 {g.hidden.length} 处：
               {g.hidden.map((h) => `${h.title}（${h.queryKey}，${h.reason}）`).join('；')}
             </div>
           ))}
@@ -99,7 +101,7 @@ export default function AgentCatalogPreview({
         <Select className="w-56" value={view?.role || ''} onChange={(e) => setRole(e.target.value)}>
           {data.views.map((v) => (
             <option key={v.role} value={v.role}>
-              以角色 {v.role} 预览（{v.queryKeys.length} 个查询）
+              以角色 {roleLabel(v.role)} 预览（{v.queryKeys.length} 个查询）
             </option>
           ))}
         </Select>
@@ -107,7 +109,7 @@ export default function AgentCatalogPreview({
       {view && (
         <div>
           <div className="text-xs text-muted mb-1.5">
-            {view.role === 'admin' ? '仅管理员可见时' : `角色 ${view.role} 的用户`}，AI 会看到 {view.queryKeys.length} 个查询：
+            {view.role === 'admin' ? '仅管理员可见时' : `角色 ${roleLabel(view.role)} 的用户`}，AI 会看到 {view.queryKeys.length} 个查询：
           </div>
           {view.catalog ? (
             <pre className="text-xs leading-relaxed whitespace-pre-wrap bg-surface-2 border border-line rounded-lg p-3 max-h-72 overflow-auto">{view.catalog}</pre>

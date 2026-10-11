@@ -14,6 +14,7 @@ import { COLUMN_ROLE_LABEL, FORMAT_LABEL, bareTableRefs, extractSqlParams, merge
 import { AdminPage, Badge, Button, Checkbox, ChipSelect, Code, EditorActions, Field, IconButton, Input, Notice, ResultTable, Section, Textarea } from '../../../ui'
 import { compactInputClass, tableClass, tdClass, thClass } from '../../../ui/classes'
 import { errMsg, type BiQueryAdmin, type TestResult } from './types'
+import { useRoleLabels } from '../../../hooks/useAppRoles'
 
 const SCALE_OPTIONS = [
   { value: '', label: '原值' },
@@ -62,6 +63,7 @@ export default function QueryEditor({
   onDone: (changed: boolean, savedKey?: string) => void
 }) {
   const showToast = useStore((s) => s.showToast)
+  const { roleOptions } = useRoleLabels()
   // 打开时即清掉误声明的系统变量参数（@_loginUser 等，旧数据或 AI 草稿里可能有）
   const [d, setD] = useState<BiQueryAdmin>(() => ({ ...initial, params: syncParamsWithSql(initial.params, initial.sqlText).params }))
   const [samplesText, setSamplesText] = useState(initial.sampleQuestions.join('\n'))
@@ -541,7 +543,7 @@ export default function QueryEditor({
               <Input type="number" className="max-w-[12rem]" value={d.cacheSecs} onChange={(e) => patch({ cacheSecs: Number(e.target.value) })} />
             </Field>
             <Field label="可见角色（未勾选 = 仅管理员）">
-              <ChipSelect options={availableRoles.map((r) => ({ value: r, label: r }))} selected={d.roles} onChange={(roles) => patch({ roles })} empty="暂无自定义角色" />
+              <ChipSelect options={roleOptions(availableRoles)} selected={d.roles} onChange={(roles) => patch({ roles })} empty="暂无自定义角色" />
             </Field>
             <Checkbox label="启用" checked={d.enabled} onChange={(e) => patch({ enabled: e.target.checked })} />
           </div>

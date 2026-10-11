@@ -278,7 +278,7 @@ export default function MessageAlertSettingsView() {
               badges={!rule.enabled && <Badge>已停用</Badge>}
               meta={
                 <span>
-                  角色：{rule.roles.join('、') || '-'} · 刷新 {rule.refreshSeconds}s
+                  角色：{rule.roles.map((k) => roles.find((r) => r.roleKey === k)?.label || k).join('、') || '-'} · 刷新 {rule.refreshSeconds}s
                 </span>
               }
               actions={

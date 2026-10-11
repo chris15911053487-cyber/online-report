@@ -6,6 +6,7 @@ import { apiFetch } from '../utils/api'
 import { AGENT_ICON_NAMES } from './AgentHubView'
 import type { AgentAdmin, AgentQuickPrompt, AgentSkillOption } from '../types'
 import { AdminPage, Badge, Button, Card, Checkbox, ChipSelect, Code, EditorActions, EmptyState, Field, IconButton, Input, Notice, RecordRow, Section, Select, Skeleton, Textarea } from '../ui'
+import { useRoleLabels } from '../hooks/useAppRoles'
 import { confirmDelete } from '../ui/confirm'
 import AgentCatalogPreview from '../components/AgentCatalogPreview'
 
@@ -31,6 +32,7 @@ const EMPTY_AGENT: AgentAdmin = {
 }
 
 export default function AgentsAdminView() {
+  const { formatRoles, roleOptions } = useRoleLabels()
   const { showToast } = useStore()
   const [items, setItems] = useState<AgentAdmin[]>([])
   const [availableSkills, setAvailableSkills] = useState<AgentSkillOption[]>([])
@@ -173,7 +175,7 @@ export default function AgentsAdminView() {
                         <span className="text-warning">未关联（该 Agent 暂无数据查询能力）</span>
                       )}
                       <span className="mx-2 text-subtle">·</span>
-                      可见角色：{agent.roles.length > 0 ? agent.roles.join('、') : '仅管理员'}
+                      可见角色：{formatRoles(agent.roles, '仅管理员')}
                     </span>
                   </>
                 }
@@ -447,7 +449,7 @@ export default function AgentsAdminView() {
               </Field>
               <Field label="可见角色" hint="不勾选 = 仅管理员可见；管理员始终可见全部 Agent">
                 <ChipSelect
-                  options={availableRoles.map((r) => ({ value: r, label: r }))}
+                  options={roleOptions(availableRoles)}
                   selected={editing.roles}
                   onChange={(roles) => patch({ roles })}
                   empty="暂无自定义角色"

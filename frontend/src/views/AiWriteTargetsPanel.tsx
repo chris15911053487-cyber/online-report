@@ -343,7 +343,7 @@ export default function AiWriteTargetsPanel({ roles }: { roles: AppRole[] }) {
                 <span>
                   {t.targetKind === 'action' ? `动作：${t.targetTable}` : `字段：${t.fields.map((f) => f.name).join('、') || '—'}`}
                   {' · 角色：'}
-                  {t.roles.join('、') || '仅管理员'}
+                  {t.roles.map((k) => roles.find((r) => r.roleKey === k)?.label || k).join('、') || '仅管理员'}
                 </span>
               }
               actions={

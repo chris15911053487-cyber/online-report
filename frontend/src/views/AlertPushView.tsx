@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { BarChart3, Clock, Pencil, Play, Plus, Sparkles, Trash2, Zap } from 'lucide-react'
 import { apiFetch } from '../utils/api'
-import { AdminPage, Badge, Button, Card, Checkbox, EditorActions, EmptyState, Field, IconButton, Input, JsonField, Notice, Pager, RecordRow, Section, Segmented, Skeleton, Tabs, Textarea, TableWrap } from '../ui'
+import { AdminPage, Badge, Button, Card, Checkbox, ChipSelect, EditorActions, EmptyState, Field, IconButton, Input, JsonField, Notice, Pager, RecordRow, Section, Segmented, Skeleton, Tabs, Textarea, TableWrap } from '../ui'
+import { rolePickKeys, splitRoles, useRoleLabels } from '../hooks/useAppRoles'
 import { tableClass, tdClass, thClass } from '../ui/classes'
 import { confirmDelete } from '../ui/confirm'
 import AlertAiModal from '../components/alert/AlertAiModal'
@@ -360,6 +361,7 @@ function RuleForm({ form, setForm, knownEvents, error, editId, saving, onSave, o
   onSave: () => void
   onCancel: () => void
 }) {
+  const { appRoles, roleOptions } = useRoleLabels()
   const set = (p: Partial<RuleFormData>) => setForm({ ...form, ...p })
   const isCron = form.trigger_type === 'cron'
   const ev = knownEvents[form.event_name]
@@ -435,13 +437,18 @@ function RuleForm({ form, setForm, knownEvents, error, editId, saving, onSave, o
         </div>
 
         <div className="flex flex-col gap-4">
-          <Section title="推送目标" hint="用户优先于角色；多个值用逗号分隔">
+          <Section title="推送目标" hint="用户优先于角色；目标用户多个值用逗号分隔">
             <div className="flex flex-col gap-3">
               <Field label="目标用户">
                 <Input value={form.target_users_json} onChange={(e) => set({ target_users_json: e.target.value })} placeholder="U001, U002" />
               </Field>
               <Field label="目标角色">
-                <Input value={form.target_roles_json} onChange={(e) => set({ target_roles_json: e.target.value })} placeholder="production, warehouse" />
+                <ChipSelect
+                  options={roleOptions(rolePickKeys(appRoles, form.target_roles_json))}
+                  selected={splitRoles(form.target_roles_json)}
+                  onChange={(next) => set({ target_roles_json: next.join(', ') })}
+                  empty="暂无角色定义"
+                />
               </Field>
               <Field label="群 Webhook ID" hint="见「群 Webhook」页签">
                 <Input value={form.target_webhooks_json} onChange={(e) => set({ target_webhooks_json: e.target.value })} placeholder="1, 2" />

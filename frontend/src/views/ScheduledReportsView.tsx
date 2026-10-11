@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Clock, Eye, History, Pencil, Play, Plus, Trash2 } from 'lucide-react'
 import { apiFetch } from '../utils/api'
-import { AdminPage, Badge, Button, Card, Checkbox, EditorActions, EmptyState, Field, IconButton, Input, Notice, RecordRow, Section, Segmented, Select, Skeleton, TableWrap, Textarea } from '../ui'
+import { AdminPage, Badge, Button, Card, Checkbox, ChipSelect, EditorActions, EmptyState, Field, IconButton, Input, Notice, RecordRow, Section, Segmented, Select, Skeleton, TableWrap, Textarea } from '../ui'
+import { rolePickKeys, splitRoles, useRoleLabels } from '../hooks/useAppRoles'
 import ChatMarkdown from '../components/ChatMarkdown'
 import { tableClass, tdClass, thClass } from '../ui/classes'
 import { confirmDelete } from '../ui/confirm'
@@ -57,6 +58,7 @@ const EMPTY_FORM = {
 }
 
 export default function ScheduledReportsView() {
+  const { appRoles, roleOptions } = useRoleLabels()
   const [mode, setMode] = useState<Mode>('list')
   const [items, setItems] = useState<ScheduledReport[]>([])
   const [loading, setLoading] = useState(false)
@@ -261,10 +263,15 @@ export default function ScheduledReportsView() {
               )}
             </div>
           </Section>
-          <Section title="推送" hint="多个值用逗号分隔">
+          <Section title="推送" hint="目标用户多个值用逗号分隔">
             <div className="flex flex-col gap-3">
               <Field label="目标角色">
-                <Input value={form.target_roles_json} onChange={(e) => setForm({ ...form, target_roles_json: e.target.value })} placeholder="production, warehouse" />
+                <ChipSelect
+                  options={roleOptions(rolePickKeys(appRoles, form.target_roles_json))}
+                  selected={splitRoles(form.target_roles_json)}
+                  onChange={(next) => setForm({ ...form, target_roles_json: next.join(', ') })}
+                  empty="暂无角色定义"
+                />
               </Field>
               <Field label="目标用户" hint="优先于角色">
                 <Input value={form.target_users_json} onChange={(e) => setForm({ ...form, target_users_json: e.target.value })} placeholder="U001, U002" />
@@ -387,6 +394,7 @@ export default function ScheduledReportsView() {
 
 /** 预览看板要点（不推送）：选一个角色视角，生成将要发出的正文 */
 function DigestPreview({ agentKey, name, focus, roles }: { agentKey: string; name: string; focus: string; roles: string[] }) {
+  const { roleLabel } = useRoleLabels()
   const [role, setRole] = useState('')
   const [text, setText] = useState('')
   const [err, setErr] = useState('')
@@ -414,7 +422,7 @@ function DigestPreview({ agentKey, name, focus, roles }: { agentKey: string; nam
           <option value="">按管理员视角</option>
           {roles.map((r) => (
             <option key={r} value={r}>
-              按角色 {r}
+              按角色 {roleLabel(r)}
             </option>
           ))}
         </Select>

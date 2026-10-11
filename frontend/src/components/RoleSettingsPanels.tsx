@@ -22,7 +22,7 @@ export function RoleCheckboxGroup({
 }) {
   return (
     <ChipSelect
-      options={appRoles.map((r) => ({ value: r.roleKey, label: r.label, hint: r.roleKey !== r.label ? r.roleKey : undefined }))}
+      options={appRoles.map((r) => ({ value: r.roleKey, label: r.label }))}
       selected={selected}
       onChange={onChange}
       empty="暂无角色定义"

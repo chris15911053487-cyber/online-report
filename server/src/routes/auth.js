@@ -2,6 +2,7 @@ const { getPool, sql } = require('../db');
 const { timingSafeEqualStr, userCodeToStableBigInt } = require('../ousr-auth');
 const {
   resolveUserRoles,
+  loadAppRoles,
   primaryRoleFromRoles,
   getUserRolesFromRequest,
 } = require('../roles');
@@ -188,7 +189,15 @@ async function authRoutes(fastify) {
       try {
         const pool = await getPool();
         const roles = await resolveUserRoles(pool, username);
-        return userPayloadFromJwt(u, roles);
+        const payload = userPayloadFromJwt(u, roles);
+        // 角色中文名（个人设置页显示用）；取不到不影响登录态
+        try {
+          const labels = new Map((await loadAppRoles(pool)).map((r) => [r.roleKey, r.label]));
+          payload.roleLabels = Object.fromEntries(roles.filter((r) => labels.has(r)).map((r) => [r, labels.get(r)]));
+        } catch (e) {
+          request.log.warn(e);
+        }
+        return payload;
       } catch (err) {
         request.log.error(err);
         return userPayloadFromJwt(u, getUserRolesFromRequest(u));

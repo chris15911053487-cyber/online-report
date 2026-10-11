@@ -422,7 +422,7 @@ export default function AiSkillsView() {
                   meta={
                     <>
                       <span className="line-clamp-2">{s.description}</span>
-                      <span className="text-subtle">角色：{s.roles.length > 0 ? s.roles.join('、') : '仅管理员'}</span>
+                      <span className="text-subtle">角色：{s.roles.length > 0 ? s.roles.map((k) => roles.find((r) => r.roleKey === k)?.label || k).join('、') : '仅管理员'}</span>
                     </>
                   }
                   actions={

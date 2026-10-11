@@ -539,7 +539,8 @@ node-cron 定时触发 → 加载 scheduled_reports 配置
 ### 实现要点
 
 - 共享模块：`server/src/roles.js`（`resolveUserRoles`、`canAccessMenu`、`parseMenuRolesJson`）
-- 登录与 `GET /auth/me`：JWT / 响应含 `roles: string[]`，兼容旧字段 `role`（`admin` | `operator`）
+- 登录与 `GET /auth/me`：JWT / 响应含 `roles: string[]`，兼容旧字段 `role`（`admin` | `operator`）；`GET /auth/me` 另含 `roleLabels`（角色编码 → 中文名，个人设置页显示用）
+- 界面上的角色一律显示中文名（`app_roles.label`）：管理页经 `hooks/useAppRoles.ts` 的 `useRoleLabels()` 取；推送目标角色改为多选（仍存编码）
 - 改用户角色后需重新登录（或等 JWT 过期）；刷新页面时 `/auth/me` 会重新读库更新设置页展示
 
 ## 合并报工
