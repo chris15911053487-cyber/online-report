@@ -591,6 +591,21 @@ function parseFilterSchemaJson(jsonStr) {
     if (optRes.optionsSql) {
       field.optionsSql = optRes.optionsSql;
     }
+    // 「全部」项改名（如工序为空 = 生产工序）；下拉与分段按钮都用
+    if (raw.allLabel != null && String(raw.allLabel).trim()) {
+      field.allLabel = String(raw.allLabel).trim().slice(0, 32);
+    }
+    // 手机上固定显示、不折叠进「更多筛选」（扫码字段默认就固定）
+    if (raw.pin === true) {
+      field.pin = true;
+    }
+    // 分段按钮：选项平铺成一排、点选即查询，手机上固定显示（其余条件折叠）
+    if (raw.segment === true) {
+      if (!field.options && !field.optionsSql) {
+        return { ok: false, error: `参数 ${name} 的 segment 需要配置 options 或 optionsSql` };
+      }
+      field.segment = true;
+    }
     fields.push(field);
   }
   return { ok: true, fields };

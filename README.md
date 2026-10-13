@@ -584,7 +584,7 @@ node-cron 定时触发 → 加载 scheduled_reports 配置
 |---|---|---|
 | `0` | 接单 | 确认接单 |
 | `1` | 完工 | 完工 + **暂停报工** |
-| `2` | 已完工 | 常规合并保存（查看/补录已完工单据） |
+| `2` | 只能查看：不显示勾选框和吸底按钮，点行 / 卡片进订单详情 | — |
 | `8` | 恢复报工 | 仅「恢复报工」（暂停后继续，勿用待完工重复暂停） |
 | 未选 / 其它 | 合并报工 | 常规合并保存 |
 
@@ -653,6 +653,27 @@ EXEC dbo.Z_ONLINE_XXX_ORDER_DETAIL @_loginUser, @OrderNo
 | 配置来源 | `detail_query_template` + 列表筛选参数 + `@detailKey` | 同上，主键值来自行内订单号列 |
 | 展示 | 单表卡片 / 定制页 | 多 recordset 表格 |
 
+## 报表手机卡片
+
+菜单配置 `mobile_card_json`（后台「菜单设置 → 手机卡片」）后，**手机上**用卡片代替表格，PC 仍是表格；不配则照旧显示表格。手机上页内大标题隐藏（顶栏已有菜单名）。
+
+每个位置写一组**候选列名**，按顺序取本次结果里第一个存在的列（不区分大小写），一个都没有就不显示该位置；所以同一张报表在不同筛选下返回不同的列也能正常显示（如生产报工各 Status 返回的列都不一样）：
+
+| 键 | 位置 | 规则 |
+|----|------|------|
+| `title` | 标题 | 值为空或 `0` 时跳过，取下一个候选（如 Z1 工序没有单号，用「工序」当标题） |
+| `badge` | 右上角标签 | 颜色可用 `badgeTones`（值 → `neutral/info/warning/success/danger`），未配置按关键字推断 |
+| `subtitle` / `subNote` | 副标题（最多两行）/ 其后小字 | |
+| `metric` | 右侧大号数字 | 优先取有值的候选，全为空时取第一个存在的列并显示「—」 |
+| `meta` | 一行小字 | 二维数组，每组取一个，用「·」连接 |
+| `progress` | 进度条 | `{ done, total }`，total > 0 时显示 done ÷ total |
+| `hidden` | 不显示 | 如合并报工内部用的 `StepCode`、`BaseO*` |
+| `maxRest` | 下半部分默认显示几个字段 | 默认 4，其余折叠 |
+
+没被上面用掉的列按返回顺序排在卡片下半部分（两列，空值不显示，数字去掉多余小数）。列名显示走 `column_labels_json`。合并报工模式下点卡片 = 勾选，卡片里「详情」进订单详情。
+
+实现：`frontend/src/utils/reportCard.ts`（解析与取列，有单测）、`components/ReportCardList.tsx`；后端清洗 `server/src/routes/menus.js` 的 `serializeMobileCard`（两边结构须一致）。
+
 ## 报表图片列
 
 列名以 `_img` / `_image` / `_pic` / `_photo` 结尾自动识别为图片列，渲染缩略图 + 灯箱。
@@ -663,6 +684,21 @@ EXEC dbo.Z_ONLINE_XXX_ORDER_DETAIL @_loginUser, @OrderNo
 ## 扫码功能
 
 `filter_schema` 中字段配置 `"scan": true` 显示扫码按钮。HTTPS 调摄像头，HTTP 回退相册。
+
+## 分段筛选与手机折叠
+
+`filter_schema` 字段可加：
+
+- `"segment": true`：选项平铺成一排分段按钮，点选即查询（须有 `options` 或 `optionsSql`）。
+- `"pin": true`：手机上固定显示，不折叠（`scan` 扫码字段默认就固定）。
+- `"allLabel": "生产工序"`：「全部」项（值为空）的显示名，下拉和分段按钮都用；`noAllOption` / `required` 时不显示该项。
+
+手机上只要有固定的分段（`segment` 字段，或生产报工的 Status 四段），其余条件（扫码 / `pin` 字段除外）就折叠到「筛选」按钮里；收起时已填的条件显示为可清除的标签（清除后重新查询）。此时手机为紧凑布局：分段不显示标题、按钮 32px，扫码 / `pin` 条件用占位文字代替标签并和「筛选」按钮同一行；生产报工（各项都自动查询）去掉主「查询」按钮（展开的筛选区里另有一个），「AI 分析」挪到结果条「共 N 条」右侧。PC 照旧全部展开。生产报工工序示例：
+
+```json
+{ "name": "SetupCode", "label": "工序", "type": "string", "maxLength": 50, "segment": true, "allLabel": "生产工序",
+  "options": [{ "name": "返工单", "code": "Z0" }, { "name": "无订单工序", "code": "Z1" }] }
+```
 
 ## 语音控制
 

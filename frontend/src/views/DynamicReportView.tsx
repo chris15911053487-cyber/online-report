@@ -15,6 +15,10 @@ import type { FilterField, FilterOption, ReportResult } from '../types'
 import ImageLightbox from '../components/ImageLightbox'
 import TextOverlay from '../components/TextOverlay'
 import { openBarcodeScan } from '../utils/barcodeScan'
+import ReportCardList from '../components/ReportCardList'
+import { cn } from '../ui/classes'
+import { normalizeCardConfig } from '../utils/reportCard'
+import { useIsPc } from '../hooks/useMediaQuery'
 
 const PAGE_SIZE_OPTIONS = [50, 100, 200]
 
@@ -259,6 +263,14 @@ function resolveProSignMergeButtonLabel(
   return '合并报工'
 }
 
+/** 折叠筛选标签上显示的值：有选项时显示选项名 */
+function filterValueText(f: FilterField, v: unknown, sqlOpts?: FilterOption[]): string {
+  const s = v == null ? '' : String(v)
+  const opts = f.optionsSql || f.optionsFromSql ? sqlOpts : f.options
+  const hit = opts?.find((o) => o.code != null && String(o.code) === s)
+  return hit?.name != null ? String(hit.name) : s
+}
+
 function normalizePageSize(size: number): number {
   const n = Math.trunc(Number(size))
   if (!Number.isFinite(n) || n < 1) return 50
@@ -321,6 +333,12 @@ export default function DynamicReportView() {
   const schema = activeMenu?.filterSchema ?? []
   const routeKey = activeMenu?.routeKey ?? ''
   const columnLabels = activeMenu?.columnLabels ?? {}
+  const isPc = useIsPc()
+  /** 手机上折叠的「更多筛选」是否展开 */
+  const [moreFiltersOpen, setMoreFiltersOpen] = useState(false)
+  const cardConfig = useMemo(() => normalizeCardConfig(activeMenu?.mobileCard), [activeMenu?.mobileCard])
+  /** 菜单配了手机卡片布局：手机上用卡片代替表格，PC 仍是表格 */
+  const useCards = !isPc && !!cardConfig
 
   // Filter form state
   const [formValues, setFormValues] = useState<Record<string, any>>({})
@@ -630,6 +648,11 @@ export default function DynamicReportView() {
   ])
 
   const proSignStatusField = proSignMode ? findProSignStatusField(schema) : undefined
+  /** 生产报工「已完工」(Status=2) 只能查看：不显示勾选和底部按钮 */
+  const proSignReadOnly =
+    !!proSignStatusField &&
+    parseProSignStatusCode(getFormFieldValue(formValues, proSignStatusField.name)) === 2
+  const proSignSelectable = proSignMode && !proSignReadOnly
 
   const stickyMergeButtonLabel = useMemo(() => {
     if (!proSignMode || !proSignStatusField) return '合并报工'
@@ -693,6 +716,24 @@ export default function DynamicReportView() {
     },
     [proSignMode, formValues, runQuery, pageSize],
   )
+
+  /** 分段按钮（segment）：点选即查询 */
+  const handleSegmentPick = (name: string, code: string) => {
+    const nextValues = { ...formValues, [name]: code }
+    setFormValues(nextValues)
+    hasQueried.current = true
+    setPage(1)
+    void runQuery(1, pageSize, nextValues)
+  }
+
+  /** 折叠区里清掉一个条件并重新查询 */
+  const clearFilterAndQuery = (name: string) => {
+    const nextValues = { ...formValues, [name]: '' }
+    setFormValues(nextValues)
+    if (!hasQueried.current) return
+    setPage(1)
+    void runQuery(1, pageSize, nextValues)
+  }
 
   const handleSubmit = () => {
     hasQueried.current = true
@@ -1004,16 +1045,73 @@ export default function DynamicReportView() {
       sqlOptionsLoading[proSignStatusField.name]
     : false
 
+  const segmentFields = schema.filter(
+    (f) => f.segment && !(proSignMode && isProSignStatusFieldName(f.name)),
+  )
+  const otherFields = schema.filter(
+    (f) => !f.segment && !(proSignMode && isProSignStatusFieldName(f.name)),
+  )
+  /** 手机上有固定的分段筛选时，其余条件默认折叠 */
+  const collapseOtherFilters = !isPc && (!!proSignStatusField || segmentFields.length > 0)
+  /** 手机紧凑筛选（与折叠同时生效） */
+  const compactFilters = collapseOtherFilters
+  /** 生产报工手机紧凑模式下各项都会自动查询，去掉「查询」按钮（展开的筛选区里另有一个），AI 分析挪到结果条 */
+  const hideMainActions = compactFilters && proSignMode
+  /** 折叠时仍固定显示的条件：扫码字段和 pin 字段 */
+  const pinnedFields = collapseOtherFilters ? otherFields.filter((f) => f.scan || f.pin) : []
+  const foldFields = collapseOtherFilters ? otherFields.filter((f) => !(f.scan || f.pin)) : otherFields
+  const activeOtherFields = foldFields.filter((f) => {
+    const v = formValues[f.name]
+    return v !== undefined && v !== null && v !== '' && v !== false
+  })
+
   // Form field value change handler
   const setFieldValue = (name: string, value: any) => {
     setFormValues((prev) => ({ ...prev, [name]: value }))
   }
 
+  const renderFilterInput = (f: FilterField, compact = false) => (
+    <FilterFieldInput
+      compact={compact}
+      key={f.name}
+      field={f}
+      value={formValues[f.name] ?? ''}
+      onChange={(v) => setFieldValue(f.name, v)}
+      proSignMode={proSignMode}
+      autoQueryOnComplete={proSignMode}
+      onFieldComplete={handleProSignFilterComplete}
+      sqlOptions={sqlOptions[f.name]}
+      sqlLoading={sqlOptionsLoading[f.name]}
+      sqlError={sqlOptionsError[f.name]}
+      showToast={showToast}
+    />
+  )
+
+  /** 订单详情的主键有值（Z1 等没有单号的行 DocEntry=0，不提供详情） */
+  const hasDetailKey = (row: Record<string, unknown>) => {
+    const v = getRowValue(row, activeMenu?.detailKeyColumn?.trim() || 'DocEntry')
+    return v != null && String(v).trim() !== '' && String(v).trim() !== '0'
+  }
+
+  const aiButton = activeMenu?.aiPrompt?.trim() ? (
+    <button
+      className={cn(
+        'rounded-lg bg-success font-medium text-white active:bg-success disabled:opacity-50',
+        hideMainActions ? 'px-3 py-1 text-xs' : 'px-5 py-2 text-sm',
+      )}
+      onClick={handleAI}
+      disabled={aiLoading}
+      data-voice-label="AI分析" data-voice-action="click"
+    >
+      {aiLoading ? '分析中…' : 'AI 分析'}
+    </button>
+  ) : null
+
   // --- Render ---
   return (
     <div className="flex flex-col h-full">
-      {/* Title */}
-      <div className="px-4 pt-3 pb-2">
+      {/* Title（手机顶栏已显示菜单名，页内标题只在 PC 显示） */}
+      <div className="hidden px-4 pt-3 pb-2 lg:block">
         <h1 className="font-display text-lg font-semibold text-fg">
           {activeMenu?.label ?? '报表'}
         </h1>
@@ -1021,60 +1119,124 @@ export default function DynamicReportView() {
 
       {/* Filter form */}
       {schema.length > 0 && (
-        <div className="px-4 pb-3">
-          {/* PC：状态分段独占一行（限宽），其余筛选项多列排布；手机单列 */}
-          <div className="grid gap-3 lg:grid-cols-3 xl:grid-cols-4 lg:items-end">
-            {proSignStatusField && (
-              <div className="lg:col-span-full lg:max-w-xl">
-              <ProSignStatusSegment
-                field={proSignStatusField}
-                value={getFormFieldValue(formValues, proSignStatusField.name) ?? ''}
-                items={proSignStatusSegmentItems}
-                loading={proSignStatusOptionsLoading}
-                queryLoading={loading}
-                onSelect={handleProSignStatusPick}
-              />
-              </div>
-            )}
-            {schema.map((f) => {
-              if (proSignMode && isProSignStatusFieldName(f.name)) return null
-              return (
-                <FilterFieldInput
+        <div className="px-4 pb-3 pt-3 lg:pt-0">
+          {/* 固定区：生产报工状态 + segment 字段（分段按钮，点选即查询）。PC 限宽各占一行；手机紧凑：无标题、矮按钮 */}
+          {(proSignStatusField || segmentFields.length > 0) && (
+            <div className={cn('grid lg:max-w-xl', compactFilters ? 'mb-2 gap-2' : 'mb-3 gap-3')}>
+              {proSignStatusField && (
+                <ProSignStatusSegment
+                  field={proSignStatusField}
+                  value={getFormFieldValue(formValues, proSignStatusField.name) ?? ''}
+                  items={proSignStatusSegmentItems}
+                  loading={proSignStatusOptionsLoading}
+                  queryLoading={loading}
+                  onSelect={handleProSignStatusPick}
+                  compact={compactFilters}
+                />
+              )}
+              {segmentFields.map((f) => (
+                <SegmentFilter
                   key={f.name}
                   field={f}
                   value={formValues[f.name] ?? ''}
-                  onChange={(v) => setFieldValue(f.name, v)}
-                  proSignMode={proSignMode}
-                  autoQueryOnComplete={proSignMode}
-                  onFieldComplete={handleProSignFilterComplete}
-                  sqlOptions={sqlOptions[f.name]}
-                  sqlLoading={sqlOptionsLoading[f.name]}
-                  sqlError={sqlOptionsError[f.name]}
-                  showToast={showToast}
+                  options={(f.optionsSql || f.optionsFromSql ? sqlOptions[f.name] : f.options) ?? []}
+                  showAll={shouldShowAllOption(f, proSignMode)}
+                  disabled={loading || (!!(f.optionsSql || f.optionsFromSql) && !!sqlOptionsLoading[f.name])}
+                  onSelect={(code) => handleSegmentPick(f.name, code)}
+                  compact={compactFilters}
                 />
-              )
-            })}
-          </div>
-          <div className="mt-3 flex gap-2">
-            <button
-              className="rounded-lg bg-primary px-5 py-2 text-sm font-medium text-primary-fg active:bg-primary-hover disabled:opacity-50"
-              onClick={handleSubmit}
-              disabled={loading}
-              data-voice-label="查询" data-voice-action="click"
+              ))}
+            </div>
+          )}
+
+          {/* 手机紧凑：扫码 / pin 条件与「筛选」按钮同一行，其余条件折叠；收起时已填的条件显示为可清除的标签 */}
+          {compactFilters && (pinnedFields.length > 0 || foldFields.length > 0) && (
+            <div className="flex items-start gap-2">
+              {pinnedFields.map((f) => (
+                <div key={f.name} className="min-w-0 flex-1">
+                  {renderFilterInput(f, true)}
+                </div>
+              ))}
+              {foldFields.length > 0 && (
+                <button
+                  type="button"
+                  className={cn(
+                    'inline-flex h-[38px] shrink-0 items-center gap-1 rounded-lg border bg-surface px-3 text-sm',
+                    moreFiltersOpen || activeOtherFields.length > 0 ? 'border-primary/60 text-primary' : 'border-line text-fg-2',
+                  )}
+                  aria-expanded={moreFiltersOpen}
+                  onClick={() => setMoreFiltersOpen((v) => !v)}
+                >
+                  筛选
+                  {activeOtherFields.length > 0 && (
+                    <span className="num rounded-full bg-primary-soft px-1.5 text-[11px] text-primary">
+                      {activeOtherFields.length}
+                    </span>
+                  )}
+                  <span aria-hidden className="text-xs">{moreFiltersOpen ? '▴' : '▾'}</span>
+                </button>
+              )}
+            </div>
+          )}
+          {compactFilters && !moreFiltersOpen && activeOtherFields.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {activeOtherFields.map((f) => (
+                <span
+                  key={f.name}
+                  className="inline-flex max-w-full items-center gap-1 rounded-full bg-surface-2 py-1 pl-2.5 pr-1 text-xs text-fg-2"
+                >
+                  <span className="truncate">
+                    {f.label || f.name}：{filterValueText(f, formValues[f.name], sqlOptions[f.name])}
+                  </span>
+                  <button
+                    type="button"
+                    className="rounded-full px-1 text-muted active:bg-surface-3"
+                    aria-label={`清除${f.label || f.name}`}
+                    onClick={() => clearFilterAndQuery(f.name)}
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          {(!compactFilters || moreFiltersOpen) && foldFields.length > 0 && (
+            <div
+              className={cn(
+                'grid gap-3 lg:grid-cols-3 xl:grid-cols-4 lg:items-end',
+                compactFilters && 'mt-2 rounded-lg border border-line bg-surface-2/50 p-3',
+              )}
             >
-              {loading ? '查询中…' : '查询'}
-            </button>
-            {activeMenu?.aiPrompt?.trim() && (
+              {foldFields.map((f) => renderFilterInput(f))}
+              {hideMainActions && (
+                <button
+                  className="rounded-lg bg-primary py-2 text-sm font-medium text-primary-fg active:bg-primary-hover disabled:opacity-50"
+                  onClick={() => {
+                    setMoreFiltersOpen(false)
+                    handleSubmit()
+                  }}
+                  disabled={loading}
+                >
+                  {loading ? '查询中…' : '查询'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {!hideMainActions && (
+            <div className="mt-3 flex gap-2">
               <button
-                className="rounded-lg bg-success px-5 py-2 text-sm font-medium text-white active:bg-success disabled:opacity-50"
-                onClick={handleAI}
-                disabled={aiLoading}
-                data-voice-label="AI分析" data-voice-action="click"
+                className="rounded-lg bg-primary px-5 py-2 text-sm font-medium text-primary-fg active:bg-primary-hover disabled:opacity-50"
+                onClick={handleSubmit}
+                disabled={loading}
+                data-voice-label="查询" data-voice-action="click"
               >
-                {aiLoading ? '分析中…' : 'AI 分析'}
+                {loading ? '查询中…' : '查询'}
               </button>
-            )}
-          </div>
+              {aiButton}
+            </div>
+          )}
         </div>
       )}
 
@@ -1100,13 +1262,53 @@ export default function DynamicReportView() {
         <div className="py-10 text-center text-sm text-subtle">当前页无数据</div>
       )}
 
+      {/* 手机结果条：条数 + AI 分析（紧凑筛选时从筛选区挪来）+ 卡片模式的全选 */}
+      {!loading && visibleRows.length > 0 && (useCards || hideMainActions) && (
+        <div className="flex items-center gap-3 px-4 pb-2 text-xs text-muted">
+          <span className="flex-1">
+            共 <b className="num font-semibold text-fg">{totalRowCount}</b> 条
+          </span>
+          {hideMainActions && aiButton}
+          {useCards && proSignSelectable && (
+            <label className="flex items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={toggleSelectAll}
+                className="h-4 w-4 accent-primary"
+              />
+              全选本页
+            </label>
+          )}
+        </div>
+      )}
+
+      {/* Mobile cards */}
+      {!loading && visibleRows.length > 0 && useCards && cardConfig && (
+        <>
+          <ReportCardList
+            rows={visibleRows}
+            config={cardConfig}
+            columnLabels={columnLabels}
+            selectable={proSignSelectable}
+            selected={selectedRows}
+            onToggle={toggleRow}
+            onOpen={
+              proSignOrderDetailOn ? handleProSignOrderDetailClick : rowDetailOn ? handleRowClick : undefined
+            }
+            canOpen={proSignOrderDetailOn ? hasDetailKey : undefined}
+            onImageClick={setLightboxSrc}
+          />
+        </>
+      )}
+
       {/* Table */}
-      {!loading && visibleRows.length > 0 && (
+      {!loading && visibleRows.length > 0 && !useCards && (
         <div className="flex-1 overflow-x-auto px-4">
           <table className="w-full min-w-[600px] border-collapse text-sm">
             <thead>
               <tr className="border-b border-line bg-surface-2">
-                {proSignMode && (
+                {proSignSelectable && (
                   <th className="w-10 px-2 py-2 text-center">
                     <input
                       type="checkbox"
@@ -1144,7 +1346,7 @@ export default function DynamicReportView() {
                     return undefined
                   }}
                 >
-                  {proSignMode && (
+                  {proSignSelectable && (
                     <td className="px-2 py-2 text-center">
                       <input
                         type="checkbox"
@@ -1171,8 +1373,8 @@ export default function DynamicReportView() {
         </div>
       )}
 
-      {/* Pager */}
-      {!loading && totalRowCount > 0 && (
+      {/* Pager（手机结果条已显示条数，只有一页时不再重复） */}
+      {!loading && totalRowCount > 0 && !((useCards || hideMainActions) && mp <= 1) && (
         <div className="border-t border-line px-4 py-3">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-fg-2">
             {mp > 1 && (
@@ -1265,8 +1467,8 @@ export default function DynamicReportView() {
         </div>
       )}
 
-      {/* ProSign sticky merge button — collapses while a keyboard field is focused */}
-      {proSignMode && (
+      {/* ProSign sticky merge button — collapses while a keyboard field is focused；已完工只能查看，不显示 */}
+      {proSignSelectable && (
         <div
           className={
             'sticky bottom-0 border-t border-line bg-surface px-4 shadow-[0_-2px_8px_rgba(0,0,0,0.06)] transition-[max-height,opacity,padding,box-shadow,border-color] duration-200 ease-out ' +
@@ -1364,6 +1566,8 @@ interface ProSignStatusSegmentProps {
   loading?: boolean
   queryLoading?: boolean
   onSelect: (code: string) => void
+  /** 手机紧凑布局：不显示标题、按钮矮一些 */
+  compact?: boolean
 }
 
 function ProSignStatusSegment({
@@ -1373,6 +1577,7 @@ function ProSignStatusSegment({
   loading,
   queryLoading,
   onSelect,
+  compact,
 }: ProSignStatusSegmentProps) {
   const active =
     value != null && typeof value !== 'object' ? String(value) : ''
@@ -1384,7 +1589,7 @@ function ProSignStatusSegment({
 
   return (
     <div className="block" role="group" aria-label={label}>
-      <span className="mb-1.5 block text-xs font-medium text-muted">{label}</span>
+      <span className={compact ? 'sr-only' : 'mb-1.5 block text-xs font-medium text-muted'}>{label}</span>
       <div className="flex w-full gap-1 rounded-lg border border-line bg-surface-2 p-1">
         {items.map((item) => {
           const selected = isSelected(item.code)
@@ -1396,7 +1601,8 @@ function ProSignStatusSegment({
               aria-pressed={selected}
               title={item.label}
               className={
-                'flex min-h-[36px] min-w-0 flex-1 items-center justify-center rounded-md px-0.5 py-1.5 text-center text-[11px] font-medium leading-tight transition-all duration-150 sm:min-h-[40px] sm:px-1 sm:text-xs ' +
+                'flex min-w-0 flex-1 items-center justify-center rounded-md px-0.5 text-center font-medium leading-tight transition-all duration-150 ' +
+                (compact ? 'min-h-[32px] py-1 text-xs ' : 'min-h-[36px] py-1.5 text-[11px] sm:min-h-[40px] sm:px-1 sm:text-xs ') +
                 (selected
                   ? 'bg-surface text-primary shadow-sm ring-1 ring-line/90'
                   : 'text-fg-2 active:bg-surface-2/90') +
@@ -1407,6 +1613,65 @@ function ProSignStatusSegment({
               <span className="max-w-full truncate">
                 {loading ? '…' : item.label}
               </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ── SegmentFilter（filter_schema segment:true：选项平铺成一排，点选即查询）──
+
+function SegmentFilter({
+  field,
+  value,
+  options,
+  showAll,
+  disabled,
+  onSelect,
+  compact,
+}: {
+  field: FilterField
+  value: unknown
+  options: FilterOption[]
+  showAll: boolean
+  disabled?: boolean
+  onSelect: (code: string) => void
+  compact?: boolean
+}) {
+  const active = value != null && typeof value !== 'object' ? String(value) : ''
+  const items = [
+    ...(showAll ? [{ code: '', label: field.allLabel || '全部' }] : []),
+    ...options.map((op) => ({
+      code: op.code != null && typeof op.code !== 'object' ? String(op.code) : '',
+      label: op.name != null ? String(op.name) : '',
+    })),
+  ]
+  const label = field.label || field.name
+  return (
+    <div className="block" role="group" aria-label={label}>
+      <span className={compact ? 'sr-only' : 'mb-1.5 block text-xs font-medium text-muted'}>{label}</span>
+      <div className="flex w-full gap-1 rounded-lg border border-line bg-surface-2 p-1">
+        {items.map((item) => {
+          const selected = active === item.code
+          return (
+            <button
+              key={item.code || '__all'}
+              type="button"
+              disabled={disabled}
+              aria-pressed={selected}
+              className={
+                'flex min-w-0 flex-1 items-center justify-center rounded-md px-1 text-center text-xs font-medium leading-tight transition-all duration-150 ' +
+                (compact ? 'min-h-[32px] py-1 ' : 'min-h-[36px] py-1.5 ') +
+                (selected ? 'bg-surface text-primary shadow-sm ring-1 ring-line/90' : 'text-fg-2 active:bg-surface-2/90') +
+                (disabled ? ' pointer-events-none opacity-60' : '')
+              }
+              onClick={() => onSelect(item.code)}
+              data-voice-label={item.label}
+              data-voice-action="click"
+            >
+              <span className="max-w-full truncate">{item.label}</span>
             </button>
           )
         })}
@@ -1429,6 +1694,8 @@ interface FilterFieldInputProps {
   sqlLoading?: boolean
   sqlError?: boolean
   showToast: (msg: string, durationMs?: number) => void
+  /** 手机紧凑布局：不显示上方标签，改用占位文字 */
+  compact?: boolean
 }
 
 function FilterFieldInput({
@@ -1442,6 +1709,7 @@ function FilterFieldInput({
   sqlLoading,
   sqlError,
   showToast,
+  compact,
 }: FilterFieldInputProps) {
   const f = field
   const t = (f.type || 'string').toLowerCase()
@@ -1450,7 +1718,7 @@ function FilterFieldInput({
     f.scan === true && (t === 'string' || t === 'int' || t === 'decimal')
 
   const labelEl = (
-    <span className="mb-1 block text-xs font-medium text-fg-2">
+    <span className={compact ? 'sr-only' : 'mb-1 block text-xs font-medium text-fg-2'}>
       {f.label || f.name}
       {f.required && <span className="ml-0.5 text-danger">*</span>}
     </span>
@@ -1505,7 +1773,7 @@ function FilterFieldInput({
           data-voice-action="select"
           data-voice-field={f.name}
         >
-          {showAll && <option value="">（全部）</option>}
+          {showAll && <option value="">{f.allLabel || '（全部）'}</option>}
           {items.map((op, i) => {
             const cv =
               op.code != null && typeof op.code !== 'object' ? String(op.code) : ''
@@ -1532,7 +1800,7 @@ function FilterFieldInput({
           data-voice-action="select"
           data-voice-field={f.name}
         >
-          {showAll && <option value="">（全部）</option>}
+          {showAll && <option value="">{f.allLabel || '（全部）'}</option>}
           {f.options.map((op, i) => {
             const cv =
               op.code != null && typeof op.code !== 'object' ? String(op.code) : ''
@@ -1598,6 +1866,7 @@ function FilterFieldInput({
             className={inputCls}
             value={value}
             onChange={(e) => onChange(e.target.value)}
+            placeholder={compact ? f.label || f.name : undefined}
             {...inputCompleteHandlers}
             data-voice-label={f.label || f.name}
             data-voice-action="fill"
@@ -1624,6 +1893,7 @@ function FilterFieldInput({
           className={inputCls}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          placeholder={compact ? f.label || f.name : undefined}
           {...inputCompleteHandlers}
           data-voice-label={f.label || f.name}
           data-voice-action="fill"

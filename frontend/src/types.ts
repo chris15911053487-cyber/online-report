@@ -32,6 +32,8 @@ export interface NavMenuItem {
   rowDetailEnabled?: boolean
   aiPrompt?: string
   voiceActions?: VoiceAction[]
+  /** 手机卡片布局（mobile_card_json）；不配则手机上照旧显示表格。结构见 utils/reportCard.ts */
+  mobileCard?: Record<string, unknown> | null
 }
 
 /** 语音动作模板（方案 B）：在菜单上配置的「说什么 → 填什么」规则 */
@@ -56,6 +58,12 @@ export interface FilterField {
   optionsFromSql?: string
   scan?: boolean
   noAllOption?: boolean
+  /** 「全部」项的显示名，如「生产工序」（值仍为空） */
+  allLabel?: string
+  /** 手机上固定显示，不折叠进「更多筛选」（scan 字段默认固定） */
+  pin?: boolean
+  /** 分段按钮：选项平铺、点选即查询；手机上固定显示，其余条件折叠到「更多筛选」 */
+  segment?: boolean
 }
 
 export interface FilterOption {

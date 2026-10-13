@@ -35,6 +35,7 @@ const SQL_VOICE_ACTIONS_PATH = path.join(
   'sql',
   'migrate-nav-menu-voice-actions.sql'
 );
+const SQL_MOBILE_CARD_PATH = path.join(__dirname, '..', 'sql', 'migrate-nav-menu-mobile-card.sql');
 const SQL_RETURNPRO_PICK_LOGS_PATH = path.join(
   __dirname,
   '..',
@@ -126,6 +127,7 @@ async function ensureNavMenuSchema(getPool, log) {
     SQL_X_ONLINE_SIGN_PATH,
     SQL_AI_PROMPT_PATH, // AI Prompt 字段 ai_prompt
     SQL_VOICE_ACTIONS_PATH, // 语音动作模板 voice_actions_json
+    SQL_MOBILE_CARD_PATH, // 手机卡片布局 mobile_card_json
     SQL_RETURNPRO_PICK_LOGS_PATH,
     SQL_PRO_SIGN_SQL_LOGS_PATH,
     SQL_USER_ROLES_PATH,

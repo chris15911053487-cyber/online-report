@@ -33,6 +33,7 @@ interface MenuItemData {
   detailKeyType: string
   aiPrompt: string
   voiceActions?: any[]
+  mobileCard?: Record<string, unknown> | null
 }
 
 const DETAIL_KEY_TYPES = ['string', 'int', 'decimal', 'date', 'datetime', 'bool']
@@ -61,6 +62,7 @@ interface MenuEditFormState {
   detailQueryTemplate: string
   aiPrompt: string
   voiceActions: string
+  mobileCard: string
   detailKeyColumn: string
   detailKeyParam: string
   detailKeyType: string
@@ -82,6 +84,7 @@ function itemToFormState(item: MenuItemData): MenuEditFormState {
     detailQueryTemplate: item.detailQueryTemplate || '',
     aiPrompt: item.aiPrompt || '',
     voiceActions: JSON.stringify(item.voiceActions || [], null, 2),
+    mobileCard: item.mobileCard ? JSON.stringify(item.mobileCard, null, 2) : '',
     detailKeyColumn: item.detailKeyColumn || '',
     detailKeyParam: item.detailKeyParam || 'detailKey',
     detailKeyType: item.detailKeyType || 'string',
@@ -103,6 +106,7 @@ const emptyFormState: MenuEditFormState = {
   detailQueryTemplate: '',
   aiPrompt: '',
   voiceActions: '[]',
+  mobileCard: '',
   detailKeyColumn: '',
   detailKeyParam: 'detailKey',
   detailKeyType: 'string',
@@ -112,6 +116,9 @@ const AI_PROMPT_EXAMPLE =
   '这个报表主要用于采购订单的到期情况，需要体现出正常和超期到货的情况，' +
   '用预计到货日期[DocDueDate]和今天的对比分析，总共查询了多少条目，超期有多少条目，' +
   '给出具体数据，并给出风险结论和建议。'
+
+const MOBILE_CARD_PLACEHOLDER =
+  '{\n  "title": ["DocEntry", "工序"],\n  "badge": ["动作", "类型"],\n  "subtitle": ["物料名称"],\n  "subNote": ["物料编码"],\n  "metric": ["接单数量", "计划数量"],\n  "meta": [["工序"], ["接单人员", "接单人"], ["接单时间"]],\n  "progress": { "done": ["完工数量"], "total": ["接单数量"] },\n  "hidden": ["StepCode", "BaseOType", "BaseOEntry", "BaseOLine"]\n}'
 
 const VOICE_ACTIONS_PLACEHOLDER =
   '[\n  {\n    "patterns": ["{n}号订单", "订单{n}", "单号{n}"],\n    "fill": { "DocEntry": "{n}" },\n    "autoQuery": true\n  }\n]'
@@ -136,6 +143,8 @@ function formToBody(form: MenuEditFormState): { ok: true; value: SaveBody } | { 
   }
   const va = parseJsonField<unknown[]>(form.voiceActions, '语音动作', 'array')
   if (!va.ok) return va
+  const mc = parseJsonField<Record<string, unknown>>(form.mobileCard, '手机卡片布局', 'object')
+  if (!mc.ok) return mc
 
   const isReport = mk === 'report'
   return {
@@ -154,6 +163,7 @@ function formToBody(form: MenuEditFormState): { ok: true; value: SaveBody } | { 
       columnNameMapping,
       aiPrompt: form.aiPrompt.trim(),
       voiceActions: va.value,
+      mobileCard: mk === 'report' && Object.keys(mc.value).length > 0 ? mc.value : null,
       detailQueryTemplate: isReport ? form.detailQueryTemplate.trim() : '',
       detailKeyColumn: isReport ? form.detailKeyColumn.trim() : '',
       detailKeyParam: isReport ? form.detailKeyParam.trim() || 'detailKey' : 'detailKey',
@@ -344,6 +354,20 @@ function MenuEditor({
                 />
               </div>
             </div>
+          </Section>
+
+          <Section
+            title="手机卡片（可选）"
+            hint="配了以后手机上用卡片代替表格（PC 仍是表格）。每个位置写一组候选列名，按顺序取本次结果里有的第一列；其余列自动排在卡片下半部分，hidden 里的不显示。留空 = 不用卡片。"
+          >
+            <JsonField
+              label="卡片布局（JSON 对象）"
+              expect="object"
+              rows={10}
+              value={form.mobileCard}
+              placeholder={MOBILE_CARD_PLACEHOLDER}
+              onChange={(v) => update({ mobileCard: v })}
+            />
           </Section>
 
           <Section title="行详情（可选）" hint="留空 SQL 表示不启用行点击查看详情；SQL 须含主键参数（默认 @detailKey）。">

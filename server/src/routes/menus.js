@@ -137,6 +137,91 @@ function serializeVoiceActions(input) {
   return JSON.stringify(cleaned);
 }
 
+const MOBILE_CARD_SLOTS = ['title', 'badge', 'subtitle', 'subNote', 'metric', 'hidden'];
+const MOBILE_CARD_TONES = ['neutral', 'info', 'warning', 'success', 'danger'];
+
+function cardColList(v) {
+  const arr = Array.isArray(v) ? v : typeof v === 'string' ? [v] : [];
+  return arr
+    .map((x) => (x == null ? '' : String(x).trim()))
+    .filter((x) => x.length > 0 && x.length <= 128)
+    .slice(0, 30);
+}
+
+/**
+ * 清洗 mobile_card_json（报表手机卡片布局）：只保留认识的位置；没有任何显示位置返回 null。
+ * 结构须与前端 utils/reportCard.ts 的 normalizeCardConfig 保持一致。
+ */
+function normalizeMobileCard(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out = {};
+  for (const k of MOBILE_CARD_SLOTS) {
+    const list = cardColList(raw[k]);
+    if (list.length) out[k] = list;
+  }
+  if (Array.isArray(raw.meta)) {
+    const meta = raw.meta.map(cardColList).filter((g) => g.length > 0).slice(0, 6);
+    if (meta.length) out.meta = meta;
+  }
+  if (raw.progress && typeof raw.progress === 'object') {
+    const done = cardColList(raw.progress.done);
+    const total = cardColList(raw.progress.total);
+    if (done.length && total.length) out.progress = { done, total };
+  }
+  if (raw.badgeTones && typeof raw.badgeTones === 'object' && !Array.isArray(raw.badgeTones)) {
+    const tones = {};
+    for (const [k, v] of Object.entries(raw.badgeTones)) {
+      if (String(k).length <= 64 && MOBILE_CARD_TONES.includes(v)) tones[k] = v;
+    }
+    if (Object.keys(tones).length) out.badgeTones = tones;
+  }
+  const mr = Number(raw.maxRest);
+  if (raw.maxRest != null && Number.isFinite(mr) && mr >= 0) out.maxRest = Math.min(50, Math.trunc(mr));
+  const hasSlot = ['title', 'badge', 'subtitle', 'metric', 'meta'].some((k) => out[k]);
+  return hasSlot ? out : null;
+}
+
+function mobileCardFromRow(mobileCardJson) {
+  if (mobileCardJson == null) return null;
+  const text = String(mobileCardJson).trim();
+  if (!text) return null;
+  try {
+    return normalizeMobileCard(JSON.parse(text));
+  } catch {
+    return null;
+  }
+}
+
+/** 客户端传入的卡片布局 → 校验后的 JSON 文本（或 null，表示不用卡片） */
+function serializeMobileCard(input) {
+  if (input == null || input === '') return null;
+  let obj = input;
+  if (typeof input === 'string') {
+    const text = input.trim();
+    if (!text) return null;
+    try {
+      obj = JSON.parse(text);
+    } catch {
+      const err = new Error('手机卡片布局 JSON 格式错误');
+      err.code = 'MOBILE_CARD_BAD_JSON';
+      throw err;
+    }
+  }
+  if (typeof obj !== 'object' || Array.isArray(obj)) {
+    const err = new Error('手机卡片布局必须是 JSON 对象');
+    err.code = 'MOBILE_CARD_BAD_JSON';
+    throw err;
+  }
+  if (Object.keys(obj).length === 0) return null;
+  const cleaned = normalizeMobileCard(obj);
+  if (!cleaned) {
+    const err = new Error('手机卡片布局至少要配置 title / subtitle / metric / badge / meta 中的一项');
+    err.code = 'MOBILE_CARD_BAD_JSON';
+    throw err;
+  }
+  return JSON.stringify(cleaned);
+}
+
 function rowToPublicItem(row) {
   const mk = row.menu_kind ? String(row.menu_kind) : 'builtin';
   const dq =
@@ -165,6 +250,7 @@ function rowToPublicItem(row) {
     detailKeyParam: hasDetailTpl ? dp || 'detailKey' : undefined,
     aiPrompt: row.ai_prompt ? String(row.ai_prompt).trim() : '',
     voiceActions: voiceActionsFromRow(row.voice_actions_json),
+    mobileCard: mk === 'report' ? mobileCardFromRow(row.mobile_card_json) : null,
   };
 }
 
@@ -225,7 +311,7 @@ const MENU_SELECT_FIELDS = `id, label, route_key, icon, sort_order, enabled, rol
   COALESCE(column_labels_json, N'{}') AS column_labels_json,
   COALESCE(column_name_mapping_json, N'{}') AS column_name_mapping_json,
   detail_query_template, detail_key_column, detail_key_param, COALESCE(detail_key_type, N'string') AS detail_key_type,
-  ai_prompt, voice_actions_json`;
+  ai_prompt, voice_actions_json, mobile_card_json`;
 
 async function menusRoutes(fastify) {
   fastify.get(
@@ -318,6 +404,12 @@ async function menusRoutes(fastify) {
       } catch (e) {
         return reply.code(400).send({ error: e.message || '语音动作 JSON 错误' });
       }
+      let mobileCardJson;
+      try {
+        mobileCardJson = String(body.menuKind || '').toLowerCase() === 'report' ? serializeMobileCard(body.mobileCard) : null;
+      } catch (e) {
+        return reply.code(400).send({ error: e.message || '手机卡片布局 JSON 错误' });
+      }
 
       if (!label) {
         return reply.code(400).send({ error: '请填写菜单名称' });
@@ -394,10 +486,11 @@ async function menusRoutes(fastify) {
           .input('detailKeyType', sql.NVarChar(32), detailCols.detailKeyType)
           .input('aiPrompt', sql.NVarChar(1073741823), body.aiPrompt || null)
           .input('voiceActionsJson', sql.NVarChar(1073741823), voiceActionsJson)
+          .input('mobileCardJson', sql.NVarChar(1073741823), mobileCardJson)
           .query(
-            `INSERT INTO dbo.nav_menu_items (label, route_key, icon, sort_order, enabled, roles_json, menu_kind, query_template, filter_schema_json, column_labels_json, column_name_mapping_json, detail_query_template, detail_key_column, detail_key_param, detail_key_type, ai_prompt, voice_actions_json)
+            `INSERT INTO dbo.nav_menu_items (label, route_key, icon, sort_order, enabled, roles_json, menu_kind, query_template, filter_schema_json, column_labels_json, column_name_mapping_json, detail_query_template, detail_key_column, detail_key_param, detail_key_type, ai_prompt, voice_actions_json, mobile_card_json)
              OUTPUT INSERTED.id AS id
-             VALUES (@label, @routeKey, @icon, @sortOrder, @enabled, @rolesJson, @menuKind, @queryTemplate, @filterSchemaJson, @columnLabelsJson, @columnNameMappingJson, @detailQueryTemplate, @detailKeyColumn, @detailKeyParam, @detailKeyType, @aiPrompt, @voiceActionsJson)`
+             VALUES (@label, @routeKey, @icon, @sortOrder, @enabled, @rolesJson, @menuKind, @queryTemplate, @filterSchemaJson, @columnLabelsJson, @columnNameMappingJson, @detailQueryTemplate, @detailKeyColumn, @detailKeyParam, @detailKeyType, @aiPrompt, @voiceActionsJson, @mobileCardJson)`
           );
         const newId = Number(ins.recordset[0].id);
         return reply.code(201).send({
@@ -423,6 +516,7 @@ async function menusRoutes(fastify) {
             detailKeyType: detailCols.detailKeyType || 'string',
             aiPrompt: body.aiPrompt || '',
             voiceActions: voiceActionsJson ? JSON.parse(voiceActionsJson) : [],
+            mobileCard: mobileCardJson ? JSON.parse(mobileCardJson) : null,
           },
         });
       } catch (e) {
@@ -478,6 +572,12 @@ async function menusRoutes(fastify) {
         voiceActionsJson = serializeVoiceActions(body.voiceActions);
       } catch (e) {
         return reply.code(400).send({ error: e.message || '语音动作 JSON 错误' });
+      }
+      let mobileCardJson;
+      try {
+        mobileCardJson = String(body.menuKind || '').toLowerCase() === 'report' ? serializeMobileCard(body.mobileCard) : null;
+      } catch (e) {
+        return reply.code(400).send({ error: e.message || '手机卡片布局 JSON 错误' });
       }
 
       if (!label) {
@@ -556,6 +656,7 @@ async function menusRoutes(fastify) {
           .input('detailKeyType', sql.NVarChar(32), detailCols.detailKeyType)
           .input('aiPrompt', sql.NVarChar(1073741823), body.aiPrompt || null)
           .input('voiceActionsJson', sql.NVarChar(1073741823), voiceActionsJson)
+          .input('mobileCardJson', sql.NVarChar(1073741823), mobileCardJson)
           .query(
             `UPDATE dbo.nav_menu_items
              SET label = @label, route_key = @routeKey, icon = @icon, sort_order = @sortOrder,
@@ -567,6 +668,7 @@ async function menusRoutes(fastify) {
                  detail_key_param = @detailKeyParam, detail_key_type = @detailKeyType,
                  ai_prompt = @aiPrompt,
                  voice_actions_json = @voiceActionsJson,
+                 mobile_card_json = @mobileCardJson,
                  updated_at = SYSUTCDATETIME()
              WHERE id = @id`
           );
@@ -596,6 +698,7 @@ async function menusRoutes(fastify) {
             detailKeyType: detailCols.detailKeyType || 'string',
             aiPrompt: body.aiPrompt || '',
             voiceActions: voiceActionsJson ? JSON.parse(voiceActionsJson) : [],
+            mobileCard: mobileCardJson ? JSON.parse(mobileCardJson) : null,
           },
         };
       } catch (e) {
@@ -645,3 +748,4 @@ async function menusRoutes(fastify) {
 }
 
 module.exports = menusRoutes;
+module.exports.serializeMobileCard = serializeMobileCard;
