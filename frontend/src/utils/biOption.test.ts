@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildChartModel, columnLabel, labelPlan, valueColumns } from './biOption'
+import { buildChartModel, columnLabel, labelPlan, rightAxisColumns, valueColumns } from './biOption'
 import { canDrillFrom, levelView, nextDrillLabel, popDrillTo, pushDrill, rootStack, rowCaption } from './biDrill'
 import type { BiCard } from './bi'
 
@@ -172,5 +172,48 @@ describe('柱/线数值标签', () => {
     expect(s.data.slice(0, 2)).toEqual([1200000, 800000])
     expect(s.data[2]).toMatchObject({ value: 50000, label: { show: true } })
     expect(m.rowAt(2)?.CardCode).toBe('C3')
+  })
+})
+
+describe('柱线组合（右轴）', () => {
+  const yoy = [
+    { 月份: '2026-01', 本期: 120, 对比期: 100, 增长率: 0.2 },
+    { 月份: '2026-02', 本期: 90, 对比期: 100, 增长率: -0.1 },
+  ]
+  const enc = {
+    dimension: '月份',
+    values: ['本期', '对比期', '增长率'],
+    rightAxis: ['增长率'],
+    columns: [{ column: '对比期', label: '去年同期' }, { column: '增长率', label: '增长率', format: 'percent' as const }],
+  }
+  type S = Series & { yAxisIndex?: number; label?: unknown; tooltip?: { valueFormatter: (v: unknown) => string } }
+
+  it('右轴列画成折线走第二根轴，按自己的格式显示；其余仍是柱', () => {
+    const o = buildChartModel('bar', enc, yoy).option as { yAxis: Axis[]; series: S[] }
+    expect(Array.isArray(o.yAxis)).toBe(true)
+    expect(o.yAxis[1].axisLabel?.formatter?.(0.2)).toBe('20%')
+    expect(o.series.map((s) => [s.name, s.type, s.yAxisIndex])).toEqual([
+      ['本期', 'bar', undefined],
+      ['去年同期', 'bar', undefined],
+      ['增长率', 'line', 1],
+    ])
+    expect(o.series[2].tooltip?.valueFormatter(-0.1)).toBe('-10%')
+  })
+
+  it('自动标数值：两组柱不标，右轴折线只标最新值', () => {
+    const o = buildChartModel('bar', enc, yoy).option as { series: S[] }
+    expect(o.series[0].label).toBeUndefined()
+    expect(o.series[2].data[0]).toBe(0.2)
+    expect(o.series[2].data[1]).toMatchObject({ value: -0.1 })
+  })
+
+  it('不合法的右轴配置退回单轴：全部放右轴 / 按系列拆分 / 横向 / 饼图', () => {
+    expect(rightAxisColumns('bar', { ...enc, rightAxis: ['本期', '对比期', '增长率'] })).toEqual([])
+    expect(rightAxisColumns('bar', { ...enc, series: '月份' })).toEqual([])
+    expect(rightAxisColumns('bar', { ...enc, horizontal: true })).toEqual([])
+    expect(rightAxisColumns('pie', enc)).toEqual([])
+    expect(rightAxisColumns('line', { ...enc, rightAxis: ['增长率', '不存在'] })).toEqual(['增长率'])
+    const o = buildChartModel('bar', { ...enc, rightAxis: ['本期', '对比期', '增长率'] }, yoy).option as { yAxis: Axis }
+    expect(Array.isArray(o.yAxis)).toBe(false)
   })
 })

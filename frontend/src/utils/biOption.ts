@@ -55,9 +55,20 @@ export function labelPlan(type: 'bar' | 'line', enc: BiEncoding, seriesCount: nu
 }
 
 /** 坐标轴用紧凑格式（不带单位，单位放在轴名上；金额不显示小数位） */
-function axisFormatter(enc: BiEncoding) {
+function axisFormatter(enc: Pick<BiEncoding, 'format' | 'scale'>) {
   const format = enc.format === 'money' ? 'number' : enc.format
   return (v: number) => formatValue(v, { format, scale: enc.scale }, { withUnit: false })
+}
+
+/**
+ * 实际生效的右轴列：只在柱 / 线、未按系列拆分、非横向时生效，且至少留一列在左轴
+ * （与后端 bi-charts.js 的 rightAxisProblem 一致；配置不合法时退回单轴）。
+ */
+export function rightAxisColumns(type: BiChartType, enc: BiEncoding): string[] {
+  if (type === 'pie' || enc.series || enc.horizontal || !enc.rightAxis?.length) return []
+  const cols = valueColumns(enc)
+  const right = enc.rightAxis.filter((c) => cols.includes(c))
+  return right.length < cols.length ? right : []
 }
 
 export function buildChartModel(
@@ -130,10 +141,17 @@ export function buildChartModel(
     rowAt = (i) => rows[i] ?? null
   }
 
-  const plan = labelPlan(type, enc, series.length, categories.length)
+  // 右轴：增长率等画成折线，有自己的格式（列语义里的 format，通常是百分比）
+  const right = enc.series ? [] : rightAxisColumns(type, enc)
+  const rightFormat = enc.columns?.find((c) => c.column === right[0])?.format
+  const isRight = (i: number) => right.includes(cols[i])
+  const leftCount = series.length - right.length
+
+  const plan = labelPlan(type, enc, leftCount, categories.length)
+  // 右轴折线：自动时只标最新值（如本月增长率）
+  const rightPlan = enc.labels === 'show' ? 'all' : enc.labels === 'hide' || categories.length === 0 ? 'none' : 'last'
   // 标签与坐标轴同样用紧凑格式（单位在轴名上）
-  const fmt = axisFormatter(enc)
-  const label = {
+  const makeLabel = (fmt: (v: number) => string) => ({
     show: true,
     position: horizontal ? 'right' : 'top',
     fontSize: 11,
@@ -141,19 +159,36 @@ export function buildChartModel(
       const n = toNumber(Array.isArray(p.value) ? p.value[p.value.length - 1] : p.value)
       return n == null ? '' : fmt(n)
     },
-  }
+  })
+  const label = makeLabel(axisFormatter(enc))
+  const rightLabel = makeLabel(axisFormatter({ format: rightFormat }))
 
-  for (const s of series) {
+  series.forEach((s, i) => {
+    const onRight = isRight(i)
+    const p = onRight ? rightPlan : plan
+    const l = onRight ? rightLabel : label
     s.cursor = cursor
-    if (type === 'line') Object.assign(s, { smooth: true, symbolSize: 6 })
-    if (type === 'bar') Object.assign(s, { barMaxWidth: 28 })
-    if (plan === 'all') s.label = label
-    if (plan === 'last') {
+    if (onRight) {
+      Object.assign(s, {
+        type: 'line',
+        yAxisIndex: 1,
+        // 增长率逐月跳动，平滑曲线会在两点之间画出不存在的起伏，用折线
+        smooth: false,
+        symbolSize: 6,
+        z: 3,
+        tooltip: { valueFormatter: (v: unknown) => formatValue(v, { format: rightFormat }) },
+      })
+    } else {
+      if (type === 'line') Object.assign(s, { smooth: true, symbolSize: 6 })
+      if (type === 'bar') Object.assign(s, { barMaxWidth: 28 })
+    }
+    if (p === 'all') s.label = l
+    if (p === 'last') {
       const data = s.data as (number | null)[]
       const last = data.length - 1
-      s.data = data.map((v, i) => (i === last && v != null ? { value: v, label } : v))
+      s.data = data.map((v, j) => (j === last && v != null ? { value: v, label: l } : v))
     }
-  }
+  })
 
   const categoryAxis = {
     type: 'category',
@@ -169,6 +204,12 @@ export function buildChartModel(
     axisLabel: { fontSize: 11, formatter: axisFormatter(enc) },
     splitLine: { show: true },
   }
+  const rightAxis = {
+    type: 'value',
+    position: 'right',
+    axisLabel: { fontSize: 11, formatter: axisFormatter({ format: rightFormat }) },
+    splitLine: { show: false },
+  }
 
   return {
     plotted: rows.length,
@@ -178,7 +219,7 @@ export function buildChartModel(
       tooltip: { trigger: 'axis', axisPointer: { type: type === 'bar' ? 'shadow' : 'line' }, valueFormatter: tooltipValue },
       legend: series.length > 1 ? { top: 0, type: 'scroll', textStyle: { fontSize: 11 } } : undefined,
       xAxis: horizontal ? valueAxis : categoryAxis,
-      yAxis: horizontal ? categoryAxis : valueAxis,
+      yAxis: horizontal ? categoryAxis : right.length ? [valueAxis, rightAxis] : valueAxis,
       series,
     },
   }

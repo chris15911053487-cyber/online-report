@@ -68,6 +68,22 @@ function column(v, where, field) {
   return { ok: true, value: s };
 }
 
+/** 涨跌颜色：up-good 上涨为好（销售）、up-bad 上涨为坏（成本）；不写 = 中性色 */
+const TRENDS = new Set(['up-good', 'up-bad']);
+
+/** 右轴的结构问题（与前端 utils/biAdmin.ts 的 cardProblems 一致）；没有问题返回 '' */
+function rightAxisProblem(enc, type) {
+  if (!enc.rightAxis || enc.rightAxis.length === 0) return '';
+  if (type !== 'bar' && type !== 'line') return '只有柱状 / 折线图能设置右轴';
+  if (enc.series) return '按系列列拆分时不能设置右轴';
+  if (enc.horizontal) return '横向条形图不能设置右轴';
+  const values = enc.values && enc.values.length ? enc.values : enc.value ? [enc.value] : [];
+  const stray = enc.rightAxis.filter((c) => !values.includes(c));
+  if (stray.length) return `右轴列「${stray.join('、')}」须是数值列之一`;
+  if (values.every((c) => enc.rightAxis.includes(c))) return '至少留一个数值列在左轴';
+  return '';
+}
+
 function normalizeEncoding(input, type, where) {
   const e = isPlainObject(input) ? input : {};
   const out = {};
@@ -119,6 +135,27 @@ function normalizeEncoding(input, type, where) {
     out.topN = n;
   }
   if (e.horizontal != null) out.horizontal = !!e.horizontal;
+  // 右轴（柱 / 线组合）：values 里的一部分画成折线走右轴，如增长率与金额同图
+  const listField = (field, max) => {
+    if (e[field] == null) return { ok: true };
+    if (!Array.isArray(e[field]) || e[field].length > max) return fail(`${where} encoding.${field} 须为 ≤${max} 个列名的数组`);
+    const list = [];
+    for (const v of e[field]) {
+      const c = column(v, where, field);
+      if (!c.ok) return c;
+      if (c.value && !list.includes(c.value)) list.push(c.value);
+    }
+    if (list.length) out[field] = list;
+    return { ok: true };
+  };
+  for (const [field, max] of [['rightAxis', 10], ['deltaColumns', 50]]) {
+    const r = listField(field, max);
+    if (!r.ok) return r;
+  }
+  if (e.trend != null && e.trend !== '') {
+    if (!TRENDS.has(e.trend)) return fail(`${where} encoding.trend 须为 ${[...TRENDS].join(' / ')}`);
+    out.trend = e.trend;
+  }
   if (e.labels != null && e.labels !== '' && e.labels !== 'auto') {
     if (!['show', 'hide'].includes(e.labels)) return fail(`${where} encoding.labels 须为 auto / show / hide`);
     out.labels = e.labels;
@@ -128,6 +165,10 @@ function normalizeEncoding(input, type, where) {
   if (['bar', 'line', 'pie'].includes(type)) {
     if (!out.dimension) return fail(`${where} 图表须设置 encoding.dimension`);
     if (!out.value && !(out.values && out.values.length)) return fail(`${where} 图表须设置 encoding.value 或 values`);
+  }
+  if (out.rightAxis) {
+    const problem = rightAxisProblem(out, type);
+    if (problem) return fail(`${where} ${problem}`);
   }
   return { ok: true, value: out };
 }
@@ -228,6 +269,8 @@ function encodingColumns(enc) {
   const cols = [];
   for (const f of ['dimension', 'value', 'compare', 'series', 'label']) if (enc[f]) cols.push(enc[f]);
   for (const v of enc.values || []) cols.push(v);
+  for (const v of enc.rightAxis || []) cols.push(v);
+  for (const v of enc.deltaColumns || []) cols.push(v);
   for (const c of enc.columns || []) cols.push(c.column);
   return cols;
 }

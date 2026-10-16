@@ -118,3 +118,32 @@ test('图表校验：encoding.labels 只接受 show / hide，auto 视为不写',
   assert.equal(enc('auto').value.encoding.labels, undefined);
   assert.equal(enc('always').ok, false);
 });
+
+test('图表校验：右轴（柱线组合）只能放数值列的一部分；系列列 / 横向 / 饼图不能用', () => {
+  const q = new Map([['yoy', {
+    queryKey: 'yoy', label: '同比', params: [],
+    columns: [{ column: '月份', role: 'time' }, { column: '本期', role: 'measure' }, { column: '对比期', role: 'measure' }, { column: '增长率', role: 'measure', format: 'percent' }],
+  }]]);
+  const base = { chartKey: 'yoy_trend', label: '月度同比', type: 'bar', queryKey: 'yoy', params: {} };
+  const run = (encoding, type = 'bar') => validateChartInput({ ...base, type, encoding }, q);
+  const ok = run({ dimension: '月份', values: ['本期', '对比期', '增长率'], rightAxis: ['增长率', '增长率'] });
+  assert.equal(ok.ok, true);
+  assert.deepEqual(ok.value.encoding.rightAxis, ['增长率'], '去重');
+  assert.equal(run({ dimension: '月份', values: ['本期', '增长率'], rightAxis: ['增长率'] }, 'line').ok, true, '折线也可以');
+  assert.match(run({ dimension: '月份', values: ['本期'], rightAxis: ['增长率'] }).error, /须是数值列之一/);
+  assert.match(run({ dimension: '月份', values: ['本期', '增长率'], rightAxis: ['本期', '增长率'] }).error, /至少留一个数值列在左轴/);
+  assert.match(run({ dimension: '月份', values: ['本期', '增长率'], rightAxis: ['增长率'], series: '本期' }).error, /系列列/);
+  assert.match(run({ dimension: '月份', values: ['本期', '增长率'], rightAxis: ['增长率'], horizontal: true }).error, /横向/);
+  assert.match(run({ dimension: '月份', value: '本期', rightAxis: ['本期'] }, 'pie').error, /只有柱状/);
+});
+
+test('图表校验：涨跌着色列 / 涨跌颜色；引用检查包含这些列', () => {
+  const t = validateChartInput({ ...chartInput, type: 'table', drill: [], encoding: { deltaColumns: ['Amount'], trend: 'up-bad' } }, queries);
+  assert.equal(t.ok, true);
+  assert.deepEqual(t.value.encoding.deltaColumns, ['Amount']);
+  assert.equal(t.value.encoding.trend, 'up-bad');
+  assert.match(validateChartInput({ ...chartInput, encoding: { ...chartInput.encoding, trend: 'down' } }, queries).error, /trend 须为/);
+  const { checkCardRefs } = require('../src/bi-charts');
+  const problems = checkCardRefs({ queryKey: 'sales_by_cust', params: { period: 'x' }, encoding: { deltaColumns: ['Ghost'] }, drill: [] }, queries, '卡片');
+  assert.match(problems.join(), /列「Ghost」不在查询/);
+});

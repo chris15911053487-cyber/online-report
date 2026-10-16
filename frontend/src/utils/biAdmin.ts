@@ -325,10 +325,10 @@ export function cleanEncoding(type: BiCardType, enc: BiEncoding): BiEncoding {
   const out: BiEncoding = {}
   const keep: (keyof BiEncoding)[] =
     type === 'kpi'
-      ? ['value', 'compare', 'label', 'format', 'unit', 'scale']
+      ? ['value', 'compare', 'label', 'format', 'unit', 'scale', 'trend']
       : type === 'table'
-        ? ['columns', 'dimension']
-        : ['dimension', 'value', 'values', 'series', 'format', 'unit', 'scale', 'topN', 'horizontal', 'labels', 'columns']
+        ? ['columns', 'dimension', 'deltaColumns', 'trend']
+        : ['dimension', 'value', 'values', 'series', 'format', 'unit', 'scale', 'topN', 'horizontal', 'labels', 'columns', 'rightAxis']
   for (const k of keep) {
     const v = enc[k]
     if (v === undefined || v === '' || (Array.isArray(v) && v.length === 0)) continue
@@ -336,7 +336,36 @@ export function cleanEncoding(type: BiCardType, enc: BiEncoding): BiEncoding {
   }
   if (type !== 'bar') delete out.horizontal
   if (type === 'pie' || out.labels === 'auto') delete out.labels
+  if (type === 'pie') delete out.rightAxis
   return out
+}
+
+/** 右轴的结构问题（与后端 bi-charts.js 的 rightAxisProblem 一致）；没有问题返回 '' */
+export function rightAxisProblem(enc: BiEncoding, type: BiCardType): string {
+  if (!enc.rightAxis?.length) return ''
+  if (type !== 'bar' && type !== 'line') return '只有柱状 / 折线图能设置右轴'
+  if (enc.series) return '按系列列拆分时不能设置右轴'
+  if (enc.horizontal) return '横向条形图不能设置右轴'
+  const values = enc.values?.length ? enc.values : enc.value ? [enc.value] : []
+  const stray = enc.rightAxis.filter((c) => !values.includes(c))
+  if (stray.length) return `右轴列「${stray.join('、')}」须是数值列之一`
+  if (values.every((c) => enc.rightAxis!.includes(c))) return '至少留一个数值列在左轴'
+  return ''
+}
+
+/**
+ * 选了数值列后的右轴建议：保留仍在数值列里的右轴列；新选中的百分比列在还有非百分比列时自动放右轴
+ * （增长率和金额同图时，增长率走右轴才看得清）。
+ */
+export function suggestRightAxis(values: string[], prev: BiEncoding, cols: BiColumnSemantic[]): string[] | undefined {
+  const before = prev.values?.length ? prev.values : prev.value ? [prev.value] : []
+  const isPct = (c: string) => cols.find((x) => x.column === c)?.format === 'percent'
+  const kept = (prev.rightAxis || []).filter((c) => values.includes(c))
+  const added = values.filter((c) => !before.includes(c) && isPct(c) && !kept.includes(c))
+  const right = [...kept, ...added]
+  const left = values.filter((c) => !right.includes(c))
+  if (left.length === 0 || values.length < 2) return undefined
+  return right.length ? right : undefined
 }
 
 // ─── 引用完整性（与后端 checkDashboardRefs 一致） ───────────────────────────
@@ -352,6 +381,8 @@ function encodingColumns(enc: BiEncoding): string[] {
   const cols: string[] = []
   for (const f of ['dimension', 'value', 'compare', 'series', 'label'] as const) if (enc[f]) cols.push(enc[f] as string)
   for (const v of enc.values || []) cols.push(v)
+  for (const v of enc.rightAxis || []) cols.push(v)
+  for (const v of enc.deltaColumns || []) cols.push(v)
   for (const c of enc.columns || []) cols.push(c.column)
   return cols
 }
@@ -393,6 +424,8 @@ export function cardProblems(
     if (type === 'kpi' && !enc.value) problems.push(`${where}KPI 需要选择数值列`)
     if ((type === 'bar' || type === 'line' || type === 'pie') && !enc.dimension) problems.push(`${where}图表需要选择维度列`)
     if ((type === 'bar' || type === 'line' || type === 'pie') && !enc.value && !enc.values?.length) problems.push(`${where}图表需要选择数值列`)
+    const ra = rightAxisProblem(enc, type)
+    if (ra) problems.push(`${where}${ra}`)
   }
   checkLevel('', q, card.params, card.encoding, card.type, [])
   let source = q

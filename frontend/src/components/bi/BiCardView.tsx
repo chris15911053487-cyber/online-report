@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Info, RotateCw } from 'lucide-react'
 import { apiFetch } from '../../utils/api'
-import { BI_CARD_HEIGHT, changeRatio, formatValue, withColumnSemantics, type BiCard, type BiColumnDef, type BiFilterValues, type BiQueryMeta, type BiQueryResult } from '../../utils/bi'
+import { BI_CARD_HEIGHT, changeRatio, fillPlaceholders, formatValue, toNumber, withColumnSemantics, type BiCard, type BiColumnDef, type BiFilterValues, type BiQueryMeta, type BiQueryResult, type BiTrend } from '../../utils/bi'
 import { buildChartModel, columnLabel, type BiRow } from '../../utils/biOption'
 import { canDrillFrom, levelView, nextDrillLabel, popDrillTo, pushDrill, rootStack, type DrillFrame } from '../../utils/biDrill'
 import type { BiPick } from '../../utils/biContext'
@@ -16,7 +16,17 @@ interface Props {
   card: BiCard
   filters: BiFilterValues
   queries: Record<string, BiQueryMeta>
+  /** 筛选当前值的显示文字（filterDisplayText），替换标题 / 列名里的 {筛选名} */
+  filterText?: Record<string, string>
   onPick?: (pick: BiPick) => void
+}
+
+/** 涨跌颜色：up-good 涨绿跌红、up-bad 涨红跌绿；不写用中性色（主色 / 警示色） */
+function deltaTone(n: number, trend?: BiTrend): string {
+  if (n === 0) return 'text-muted'
+  if (trend === 'up-good') return n > 0 ? 'text-success' : 'text-danger'
+  if (trend === 'up-bad') return n > 0 ? 'text-danger' : 'text-success'
+  return n > 0 ? 'text-primary' : 'text-warning'
 }
 
 type LoadState = { key: string; data?: BiQueryResult; error?: string }
@@ -31,7 +41,7 @@ const hhmm = (iso?: string) => {
   return Number.isNaN(d.getTime()) ? '' : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-export default function BiCardView({ card, filters, queries, onPick }: Props) {
+export default function BiCardView({ card, filters, queries, filterText, onPick }: Props) {
   const [stack, setStack] = useState<DrillFrame[]>(() => rootStack(card))
   const view = levelView(card, stack, filters)
   const reqKey = JSON.stringify([view.queryKey, view.params])
@@ -65,10 +75,16 @@ export default function BiCardView({ card, filters, queries, onPick }: Props) {
   const drillLabel = nextDrillLabel(card, stack)
   const clickable = !!onPick && (view.type !== 'table' || canDrillFrom(card, stack))
 
+  // 标题 / 列名里的 {名称}：筛选显示文字优先（如「去年同期」），其次本级参数值
+  // （依赖 reqKey 而不是每次渲染都新建的 view.params，保证 encoding / 图表 option 引用稳定）
+  const vars = useMemo(() => ({ ...(JSON.parse(reqKey)[1] as Record<string, unknown>), ...filterText }), [reqKey, filterText])
+  const title = fillPlaceholders(card.title, vars)
+  const subtitle = card.subtitle ? fillPlaceholders(card.subtitle, vars) : ''
+
   const pick = (row: BiRow | null, x: number, y: number) => {
     if (!row || !onPick || !data) return
     onPick({
-      card,
+      card: title === card.title ? card : { ...card, title },
       stack,
       view,
       row,
@@ -84,7 +100,10 @@ export default function BiCardView({ card, filters, queries, onPick }: Props) {
   // 卡片没写的格式 / 单位 / 列名从查询的列语义继承；view.encoding 直接引用 card 里的对象，引用稳定
   const semantics = meta?.columns
   const resultColumns = data?.columns
-  const encoding = useMemo(() => withColumnSemantics(view.encoding, semantics, resultColumns), [view.encoding, semantics, resultColumns])
+  const encoding = useMemo(() => {
+    const enc = withColumnSemantics(view.encoding, semantics, resultColumns)
+    return enc.columns ? { ...enc, columns: enc.columns.map((c) => (c.label ? { ...c, label: fillPlaceholders(c.label, vars) } : c)) } : enc
+  }, [view.encoding, semantics, resultColumns, vars])
   const chart = useMemo(
     () =>
       view.type === 'bar' || view.type === 'line' || view.type === 'pie'
@@ -98,20 +117,20 @@ export default function BiCardView({ card, filters, queries, onPick }: Props) {
   return (
     <section
       className="bg-surface rounded-2xl border border-line shadow-sm p-4 flex flex-col min-w-0"
-      aria-label={card.title}
+      aria-label={title}
     >
       {/* 标题行 */}
       <header className="flex items-start justify-between gap-2 mb-2">
         <div className="min-w-0">
           <h3 className="text-[13.5px] font-semibold text-fg truncate flex items-center gap-1">
-            {card.title}
+            {title}
             {meta?.caliberNote && (
               <span title={`口径：${meta.caliberNote}`} className="text-subtle cursor-help">
                 <Info className="w-3.5 h-3.5" aria-label={`口径：${meta.caliberNote}`} />
               </span>
             )}
           </h3>
-          {card.subtitle && stack.length === 1 && <p className="text-[11.5px] text-subtle truncate">{card.subtitle}</p>}
+          {subtitle && stack.length === 1 && <p className="text-[11.5px] text-subtle truncate">{subtitle}</p>}
         </div>
         <div className="flex items-center gap-1.5 shrink-0 text-[10.5px] text-subtle">
           {data?.stale && <span className="text-warning" title="缓存已过期，后台正在更新">更新中</span>}
@@ -123,7 +142,7 @@ export default function BiCardView({ card, filters, queries, onPick }: Props) {
             disabled={refreshing || loading}
             className="p-1 rounded hover:bg-surface-2 disabled:opacity-40"
             title="刷新（跳过缓存）"
-            aria-label={`刷新 ${card.title}`}
+            aria-label={`刷新 ${title}`}
           >
             <RotateCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
           </button>
@@ -164,12 +183,12 @@ export default function BiCardView({ card, filters, queries, onPick }: Props) {
         {data && !error && rows.length === 0 && <p className="text-[12px] text-subtle py-6 text-center">暂无数据</p>}
         {data && !error && rows.length > 0 && (
           <>
-            {view.type === 'kpi' && <KpiBody card={card} enc={encoding} row={rows[0]} onClick={(x, y) => pick(rows[0], x, y)} clickable={!!onPick} />}
+            {view.type === 'kpi' && <KpiBody title={title} enc={encoding} row={rows[0]} onClick={(x, y) => pick(rows[0], x, y)} clickable={!!onPick} />}
             {chart && (
               <BiChart
                 option={chart.option}
                 height={height}
-                ariaLabel={`${card.title}图表，共 ${chart.plotted} 项`}
+                ariaLabel={`${title}图表，共 ${chart.plotted} 项`}
                 onPick={clickable ? (e) => pick(chart.rowAt(e.dataIndex, e.seriesName), e.x, e.y) : undefined}
               />
             )}
@@ -194,9 +213,12 @@ export default function BiCardView({ card, filters, queries, onPick }: Props) {
   )
 }
 
-function KpiBody({ card, enc, row, onClick, clickable }: { card: BiCard; enc: BiCard['encoding']; row: BiRow; onClick: (x: number, y: number) => void; clickable: boolean }) {
+function KpiBody({ title, enc, row, onClick, clickable }: { title: string; enc: BiCard['encoding']; row: BiRow; onClick: (x: number, y: number) => void; clickable: boolean }) {
   const value = enc.value ? row[enc.value] : undefined
-  const ratio = enc.compare ? changeRatio(value, row[enc.compare]) : null
+  const prev = enc.compare ? row[enc.compare] : undefined
+  const ratio = enc.compare ? changeRatio(value, prev) : null
+  // 对比列的显示名（如「去年同期」「上月」，可用 {筛选名} 占位符随对比方式变化）
+  const compareLabel = (enc.compare && enc.columns?.find((c) => c.column === enc.compare)?.label) || '对比期'
   const label = enc.label && row[enc.label] != null ? String(row[enc.label]) : ''
   const body = (
     <>
@@ -204,11 +226,16 @@ function KpiBody({ card, enc, row, onClick, clickable }: { card: BiCard; enc: Bi
         {formatValue(value, enc, { withUnit: false })}
         {enc.unit && enc.format !== 'percent' && <span className="text-[13px] font-normal text-subtle ml-1">{enc.unit}</span>}
       </div>
-      <div className="flex items-center gap-2 mt-1 text-[11.5px]">
+      <div className="flex items-center flex-wrap gap-x-2 gap-y-0.5 mt-1 text-[11.5px]">
         {ratio != null && (
-          <span className={ratio >= 0 ? 'text-primary' : 'text-warning'}>
-            {ratio >= 0 ? '▲' : '▼'} {Math.abs(ratio * 100).toFixed(1)}%
-            <span className="text-subtle ml-1">较对比期</span>
+          <span className={`num ${deltaTone(ratio, enc.trend)}`}>
+            {ratio > 0 ? '▲' : ratio < 0 ? '▼' : ''} {Math.abs(ratio * 100).toFixed(1)}%
+          </span>
+        )}
+        {enc.compare && toNumber(prev) != null && (
+          <span className="text-subtle">
+            {ratio != null ? '较' : ''}
+            {compareLabel} <span className="num">{formatValue(prev, enc)}</span>
           </span>
         )}
         {label && <span className="text-subtle truncate">{label}</span>}
@@ -221,7 +248,7 @@ function KpiBody({ card, enc, row, onClick, clickable }: { card: BiCard; enc: Bi
       type="button"
       className="text-left w-full rounded-lg -m-1 p-1 hover:bg-primary-soft/60 transition-colors"
       onClick={(e) => onClick(e.clientX, e.clientY)}
-      aria-label={`${card.title}：${formatValue(value, enc)}，点击查看操作`}
+      aria-label={`${title}：${formatValue(value, enc)}，点击查看操作`}
     >
       {body}
     </button>
@@ -242,6 +269,7 @@ function TableBody({
   onRow?: (row: BiRow, x: number, y: number) => void
 }) {
   const cols: BiColumnDef[] = encoding.columns?.length ? encoding.columns : columns.map((c) => ({ column: c }))
+  const delta = new Set(encoding.deltaColumns || [])
   const isNum = (v: unknown) => typeof v === 'number' || (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)))
   return (
     <div className="overflow-auto border border-line rounded-lg" style={{ maxHeight }}>
@@ -273,6 +301,15 @@ function TableBody({
               {cols.map((c) => {
                 const v = r[c.column]
                 const num = c.format != null || isNum(v)
+                const n = delta.has(c.column) ? toNumber(v) : null
+                if (n != null) {
+                  return (
+                    <td key={c.column} className={`px-2.5 py-1.5 whitespace-nowrap text-right tabular-nums ${deltaTone(n, encoding.trend)}`}>
+                      {n > 0 ? '▲ ' : n < 0 ? '▼ ' : ''}
+                      {formatValue(Math.abs(n), { format: c.format })}
+                    </td>
+                  )
+                }
                 return (
                   <td key={c.column} className={`px-2.5 py-1.5 whitespace-nowrap text-fg-2 ${num ? 'text-right tabular-nums' : ''}`}>
                     {c.format ? formatValue(v, { format: c.format }) : v == null ? '' : String(v)}

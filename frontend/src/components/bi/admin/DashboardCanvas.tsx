@@ -6,9 +6,9 @@
  * - 点卡片选中，右侧面板编辑标题、参数来源等
  * 布局规则与运行时 DashboardView 一致（顺序 + 宽高，自动换行），所见即所得。
  */
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { AlertTriangle, GripVertical, Trash2 } from 'lucide-react'
-import { BI_CARD_HEIGHT, initialFilterValues, type BiCard, type BiCardRef, type BiFilter, type BiFilterValues, type BiQueryMeta, type BiScalar } from '../../../utils/bi'
+import { BI_CARD_HEIGHT, filterDisplayText, initialFilterValues, type BiCard, type BiCardRef, type BiFilter, type BiFilterValues, type BiQueryMeta, type BiScalar } from '../../../utils/bi'
 import { cn } from '../../../ui/classes'
 import { IconButton } from '../../../ui'
 import BiCardView from '../BiCardView'
@@ -48,6 +48,7 @@ export default function DashboardCanvas({
 }) {
   const gridRef = useRef<HTMLDivElement>(null)
   const [values, setValues] = useState<BiFilterValues>(() => initialFilterValues(filters))
+  const filterText = useMemo(() => filterDisplayText(filters, values), [filters, values])
   const [dragFrom, setDragFrom] = useState<number | null>(null)
   const [drop, setDrop] = useState<Drop>(null)
   const [resizing, setResizing] = useState<number | null>(null)
@@ -168,7 +169,7 @@ export default function DashboardCanvas({
                 {/* 内容：真实卡片（不响应点击，点击只用于选中）；未完成的显示占位 */}
                 {card && !bad ? (
                   <div className={cn('flex-1 min-w-0 flex flex-col pointer-events-none select-none', card.type === 'kpi' ? '' : '[&>section]:flex-1')}>
-                    <BiCardView card={{ ...card, layout: size }} filters={values} queries={queries} />
+                    <BiCardView card={{ ...card, layout: size }} filters={values} queries={queries} filterText={filterText} />
                   </div>
                 ) : (
                   <div

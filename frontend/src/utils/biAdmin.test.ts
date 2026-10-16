@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   autoBindDrill,
   chartProblems,
+  rightAxisProblem,
+  suggestRightAxis,
   effectiveSource,
   newChart,
   nextRefId,
@@ -246,5 +248,48 @@ describe('图表与看板引用（与后端 bi-charts.js 一致）', () => {
     expect(effectiveSource(top, { id: 'a', chartKey: 'top_cust' }, { ...chart, params: {} }, filters)).toEqual({ kind: 'default', value: 20 })
     expect(effectiveSource(period, { id: 'a', chartKey: 'top_cust', params: { period: 'x' } }, chart, filters)).toEqual({ kind: 'override', value: 'x' })
     expect(effectiveSource(period, { id: 'a', chartKey: 'top_cust' }, chart, [])).toEqual({ kind: 'none' })
+  })
+})
+
+describe('右轴 / 涨跌着色', () => {
+  const cols = [
+    { column: '月份', role: 'time' as const },
+    { column: '本期', role: 'measure' as const, format: 'money' as const },
+    { column: '对比期', role: 'measure' as const, format: 'money' as const },
+    { column: '增长率', role: 'measure' as const, format: 'percent' as const },
+  ]
+
+  it('rightAxisProblem 与后端规则一致', () => {
+    const enc = { dimension: '月份', values: ['本期', '增长率'], rightAxis: ['增长率'] }
+    expect(rightAxisProblem(enc, 'bar')).toBe('')
+    expect(rightAxisProblem(enc, 'pie')).toMatch(/只有柱状/)
+    expect(rightAxisProblem({ ...enc, series: '月份' }, 'bar')).toMatch(/系列列/)
+    expect(rightAxisProblem({ ...enc, horizontal: true }, 'bar')).toMatch(/横向/)
+    expect(rightAxisProblem({ ...enc, rightAxis: ['本期', '增长率'] }, 'line')).toMatch(/左轴/)
+    expect(rightAxisProblem({ ...enc, values: ['本期'] }, 'bar')).toMatch(/须是数值列之一/)
+  })
+
+  it('suggestRightAxis：新选的百分比列自动放右轴；保留已有；只剩一列或全是百分比时不设', () => {
+    expect(suggestRightAxis(['本期', '对比期', '增长率'], { value: '本期' }, cols)).toEqual(['增长率'])
+    expect(suggestRightAxis(['本期', '增长率'], { values: ['本期', '对比期', '增长率'], rightAxis: ['增长率'] }, cols)).toEqual(['增长率'])
+    expect(suggestRightAxis(['本期', '对比期'], { values: ['本期', '对比期', '增长率'], rightAxis: ['增长率'] }, cols)).toBeUndefined()
+    expect(suggestRightAxis(['增长率'], {}, cols)).toBeUndefined()
+    expect(suggestRightAxis(['本期', '对比期'], { value: '本期' }, cols)).toBeUndefined()
+  })
+
+  it('cleanEncoding：切到表格保留涨跌列，切到饼图去掉右轴，KPI 保留涨跌颜色', () => {
+    const enc = { dimension: '月份', values: ['本期', '增长率'], rightAxis: ['增长率'], deltaColumns: ['增长率'], trend: 'up-good' as const }
+    expect(cleanEncoding('pie', enc).rightAxis).toBeUndefined()
+    expect(cleanEncoding('line', enc).rightAxis).toEqual(['增长率'])
+    expect(cleanEncoding('table', enc)).toEqual({ dimension: '月份', deltaColumns: ['增长率'], trend: 'up-good' })
+    expect(cleanEncoding('kpi', enc).trend).toBe('up-good')
+  })
+
+  it('chartProblems 报告右轴问题和不存在的涨跌列', () => {
+    const queries = new Map([['yoy', { queryKey: 'yoy', label: '同比', params: [], columns: cols }]])
+    const chart = { ...newChart(), chartKey: 'c', label: '同比', queryKey: 'yoy', type: 'bar' as const, encoding: { dimension: '月份', values: ['本期', '增长率'], rightAxis: ['本期', '增长率'] } }
+    expect(chartProblems(chart, queries)).toContain('至少留一个数值列在左轴')
+    const table = { ...chart, type: 'table' as const, encoding: { deltaColumns: ['不存在'] } }
+    expect(chartProblems(table, queries).join()).toMatch(/列「不存在」不在查询的输出列中/)
   })
 })

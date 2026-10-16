@@ -246,6 +246,8 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 
 **系统变量（按登录用户取数）**：查询 SQL 里可直接写 `@_loginUser`（登录用户编码，OUSR.USER_CODE）、`@_loginDisplayName`（显示名），与报表 SQL 同一约定，例如 `WHERE T0.U_Owner = @_loginUser`。它们不是参数（不进参数表；旧数据或 AI 草稿里声明了会自动去掉；前端传同名参数无效），由服务端按查看人绑定：看板 / 下钻用当前用户，Agent `run_named_query` 用对话用户，管理员试运行与 AI 起草用管理员本人，预警用 `ALERT_SYSTEM_USER`（默认 `SYSTEM`），看板每日要点逐人取数、逐人推送。用到时结果缓存 key 额外含用户（不同人不共享），没有登录用户则拒绝执行；Agent 的查询目录里标注「只返回当前登录用户的数据」。实现 `bi-queries.js` 的 `SESSION_PARAMS` / `sessionParamsUsed`、`bi-exec.js` 的 `bindSession`。
 
+**同比 / 环比**：查询固定输出 `Cur` / `Prev` / `GrowthRate`（`(Cur - Prev) / NULLIF(ABS(Prev), 0)`）三列，用参数 `cmp`（`yoy` / `mom`）切换对比期，按客户 / 产品再加 `periodType`（`month` / `ytd`）；看板放同名下拉筛选，切换即整板生效。展示用三个 encoding 字段（前后端同一校验：`bi-charts.js` 的 `rightAxisProblem`、`utils/biAdmin.ts` 同名函数）：`rightAxis`（柱 / 线组合，`values` 中的这些列画成折线走右轴并按其列语义格式显示，须留至少一列在左轴，不能与 `series`、`horizontal` 同用）、`deltaColumns`（表格涨跌着色列，▲▼）、`trend`（`up-good` / `up-bad`，KPI 增长率与表格涨跌列的颜色，不写为中性色）。KPI 配了 `compare` 时同时显示对比期数值。卡片标题 / 副标题 / 列中文名支持 `{筛选名}` 占位符（select 换成选项文字，其余换成值；前端 `utils/bi.ts`、后端 `bi-tokens.js` 的 `filterDisplayText` / `fillPlaceholders`，每日要点也替换）。SQL 模板见说明书「BI 看板管理 · 同比 / 环比怎么配」；AI 起草按此模式生成（`bi-draft.js` 的 SQL_RULES）。
+
 **SAP 自定义表（@ 开头）**：表名写成 `[@U_OHEC]` 或 `"@U_OHEC"`，方括号 / 双引号里的 `@` 不会被识别成参数。不加括号（`FROM @U_OHEC`、`JOIN dbo.@U_OHEC`）时，查询编辑器在 SQL 下方提示改写、不把它放进参数表，服务端拒绝保存与试运行并给出正确写法（SQL Server 本身也会把它当表变量报错）。实现 `bi-queries.js` / `utils/biAdmin.ts` 的 `bareTableRefs`。
 
 **配置流程**（管理后台 →「BI 看板管理」，全部表单化，看板另可切到 JSON）：

@@ -4,10 +4,10 @@
  *
  * 点中卡片元素时调用 onPick（由上层决定显示点击浮层 / 直接下钻）。
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { apiFetch } from '../../utils/api'
-import { initialFilterValues, type BiDashboard, type BiFilter, type BiFilterValues, type BiScalar } from '../../utils/bi'
+import { filterDisplayText, initialFilterValues, type BiDashboard, type BiFilter, type BiFilterValues, type BiScalar } from '../../utils/bi'
 import type { BiPick } from '../../utils/biContext'
 import BiCardView from './BiCardView'
 
@@ -84,6 +84,7 @@ export function DashboardView({
     onFiltersChange?.(next)
   }
   const span = (w: number, type: string) => (pcMode ? w : type === 'kpi' ? 6 : 12)
+  const filterText = useMemo(() => filterDisplayText(dashboard.filters || [], filters), [dashboard.filters, filters])
 
   return (
     <div className="flex flex-col gap-4">
@@ -114,7 +115,7 @@ export function DashboardView({
             >
               {/* 图表/表格撑满行高对齐；KPI 不拉伸，避免与同行图表等高留下大片空白 */}
               <div className={`flex-1 min-w-0 flex flex-col ${card.type === 'kpi' ? '' : '[&>section]:flex-1'}`}>
-                <BiCardView card={card} filters={filters} queries={dashboard.queries} onPick={onPick ? (p) => onPick(p, { dashboard, filters }) : undefined} />
+                <BiCardView card={card} filters={filters} queries={dashboard.queries} filterText={filterText} onPick={onPick ? (p) => onPick(p, { dashboard, filters }) : undefined} />
               </div>
             </div>
           ))}

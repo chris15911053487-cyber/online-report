@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   changeRatio,
+  fillPlaceholders,
+  filterDisplayText,
   formatValue,
   initialFilterValues,
   parseJsonField,
@@ -8,6 +10,7 @@ import {
   resolveDefaultToken,
   toJsonText,
   toNumber,
+  withColumnSemantics,
 } from './bi'
 
 const NOW = new Date(2026, 0, 15) // 2026-01-15（本地时区）
@@ -97,5 +100,32 @@ describe('parseJsonField / toJsonText', () => {
     expect(toJsonText({})).toBe('')
     expect(toJsonText(null)).toBe('')
     expect(toJsonText([{ a: 1 }])).toBe('[\n  {\n    "a": 1\n  }\n]')
+  })
+})
+
+describe('占位符', () => {
+  it('filterDisplayText：select 取选项文字，其余原样，空值跳过（与后端一致）', () => {
+    const filters = [
+      { name: 'cmp', label: '对比', type: 'select' as const, options: [{ value: 'yoy', label: '去年同期' }, { value: 'mom', label: '上月' }] },
+      { name: 'period', label: '月份', type: 'month' as const },
+      { name: 'x', label: 'x', type: 'string' as const },
+    ]
+    expect(filterDisplayText(filters, { cmp: 'mom', period: '2026-10', x: '' })).toEqual({ cmp: '上月', period: '2026-10' })
+  })
+  it('fillPlaceholders：大小写不敏感，缺值原样保留', () => {
+    expect(fillPlaceholders('对比{CMP}', { cmp: '去年同期' })).toBe('对比去年同期')
+    expect(fillPlaceholders('{nope}{a b}', { cmp: 'x' })).toBe('{nope}{a b}')
+  })
+})
+
+describe('withColumnSemantics + 右轴', () => {
+  it('主格式取左轴第一列，不被右轴的百分比列带偏', () => {
+    const sem = [
+      { column: '增长率', role: 'measure' as const, format: 'percent' as const },
+      { column: '本期', role: 'measure' as const, format: 'money' as const, unit: '万元', scale: 10000 },
+    ]
+    const out = withColumnSemantics({ dimension: 'm', values: ['增长率', '本期'], rightAxis: ['增长率'] }, sem)
+    expect(out.format).toBe('money')
+    expect(out.unit).toBe('万元')
   })
 })

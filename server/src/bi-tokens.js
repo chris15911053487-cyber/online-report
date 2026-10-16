@@ -64,4 +64,30 @@ function shiftPeriod(value, n) {
   return null;
 }
 
-module.exports = { TOKENS, resolveToken, resolveTokens, shiftPeriod, chinaYmd };
+/**
+ * 筛选当前值的显示文字：select 取选项文字（如 yoy → 同比），其余原样。
+ * 供标题 / 列名里的 {筛选名} 占位符使用；与前端 utils/bi.ts 的 filterDisplayText 一致。
+ */
+function filterDisplayText(filters, values) {
+  const out = {};
+  for (const f of filters || []) {
+    const v = values?.[f.name];
+    if (v == null || v === '') continue;
+    const opt = f.type === 'select' ? (f.options || []).find((o) => String(o.value) === String(v)) : undefined;
+    out[f.name] = opt ? String(opt.label) : String(v);
+  }
+  return out;
+}
+
+/** 把文本里的 {名称} 换成 vars 里的值（名称大小写不敏感）；没有对应值的原样保留 */
+function fillPlaceholders(text, vars) {
+  const s = String(text ?? '');
+  if (!s.includes('{')) return s;
+  const map = new Map(Object.entries(vars || {}).map(([k, v]) => [k.toLowerCase(), v]));
+  return s.replace(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (m, name) => {
+    const v = map.get(name.toLowerCase());
+    return v == null || v === '' ? m : String(v);
+  });
+}
+
+module.exports = { TOKENS, resolveToken, resolveTokens, shiftPeriod, chinaYmd, filterDisplayText, fillPlaceholders };

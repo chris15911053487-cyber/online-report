@@ -1,4 +1,4 @@
-<!-- tags: 看板,bi,查询库,图表,看板配置,下钻,筛选,语义,管理员 -->
+<!-- tags: 看板,bi,查询库,图表,看板配置,下钻,筛选,语义,同比,环比,增长率,右轴,管理员 -->
 <!-- audience: admin -->
 # BI 看板配置说明（管理员）
 
@@ -48,11 +48,78 @@ AI 只起草，不会自动保存，一切以你确认的为准。用户 / 权�
 4. **下钻**：配置下一级查询（如「客户 → 单据」），参数优先从上一级点中行的同名列取值。没配下钻时，点击只用于 AI 解读。
 5. 右侧 **实时预览**：用真实数据渲染，未固定的参数会临时生成筛选条。
 
-KPI 可以配对比列（显示环比箭头）。柱状图可设横向，多个度量会画成多系列，「按系列拆分」用于长表透视。
+KPI 可以配对比列：显示增长率箭头和对比期的数值。柱状图可设横向，多个度量会画成多系列，「按系列拆分」用于长表透视。多个度量里有增长率这类百分比时，可以放到「右轴（折线）」，见下一节。
 
 「显示数值」控制柱子、折线上是否直接标出数字：默认「自动」——只有一个度量且柱子不多（竖柱 12 根以内、横向条形 20 根以内）时标在柱顶 / 条形末端，多个度量或柱子很多时不标（以免挤在一起，可悬停或点击查看）；单条折线只标最新的那个点。个别图表可改成「显示」或「不显示」。数字按查询的缩放显示，单位写在坐标轴上。
 
 ![图表编辑与实时预览](images/bi/chart-editor.png)
+
+## 同比 / 环比怎么配
+
+要同时看今年、去年和增长率时，按「一条查询 + 一个对比方式筛选 + 三种图表」来配：
+
+**1. 查询固定输出三列**：`Cur`（本期）、`Prev`（对比期）、`GrowthRate`（增长率），再加参数 `cmp`：`yoy` 是同比（比去年同期），`mom` 是环比（比上月）。SQL 按 `cmp` 决定对比期取哪一段，输出的列名不变，所以同一张图表在同比、环比下都能用。
+
+- 增长率写成 `(Cur - Prev) / NULLIF(ABS(Prev), 0)`：对比期为 0 时显示「—」，不会报错；用 `ABS` 是为了利润这类可能为负的数也能算出正确方向。
+- 列语义里 `GrowthRate` 的格式选「百分比」；`Prev` 的中文名写 `{cmp}`，看板上会显示成筛选当前选项的文字（「去年同期」或「上月」）。
+- 合计的增长率要用合计后的本期 ÷ 合计后的对比期来算，不能把各行增长率相加或平均。
+- 不想手写可以用「AI 起草」，说「按月销售额同比环比」或「各客户本月销售额同比」，AI 会按这个模式写。
+
+按月趋势（参数 `year` 数字、`cmp`），取数从上一年 1 月开始，1 月的环比也能对上去年 12 月：
+
+```sql
+WITH m AS (
+  SELECT DATEFROMPARTS(YEAR(T0.DocDate), MONTH(T0.DocDate), 1) AS M, SUM(T0.DocTotal - T0.VatSum) AS Amount
+  FROM OINV T0
+  WHERE T0.CANCELED = 'N' AND T0.DocDate >= DATEFROMPARTS(@year - 1, 1, 1) AND T0.DocDate < DATEFROMPARTS(@year + 1, 1, 1)
+  GROUP BY DATEFROMPARTS(YEAR(T0.DocDate), MONTH(T0.DocDate), 1)
+)
+SELECT CONVERT(char(7), c.M, 120) AS Month, c.Amount AS Cur, p.Amount AS Prev,
+       (c.Amount - p.Amount) / NULLIF(ABS(p.Amount), 0) AS GrowthRate
+FROM m c
+LEFT JOIN m p ON p.M = CASE @cmp WHEN 'mom' THEN DATEADD(MONTH, -1, c.M) ELSE DATEADD(YEAR, -1, c.M) END
+WHERE YEAR(c.M) = @year
+ORDER BY c.M
+```
+
+按客户（参数 `period` 月份 `YYYY-MM`、`cmp`、`periodType`、`top`）。`periodType` 为 `month` 时只算当月，为 `ytd` 时算到当月为止的年累计（如 1~9 月累计同比）。本期、对比期用条件求和一次算出，只在其中一期有销售的客户也不会丢：
+
+```sql
+WITH r AS (
+  SELECT CASE WHEN @periodType = 'ytd' THEN DATEFROMPARTS(YEAR(m), 1, 1) ELSE m END AS CurFrom,
+         DATEADD(MONTH, 1, m) AS CurTo,
+         CASE WHEN @cmp = 'mom' THEN m ELSE DATEADD(YEAR, -1, DATEADD(MONTH, 1, m)) END AS PrevTo
+  FROM (SELECT CAST(@period + '-01' AS date) AS m) x
+), r2 AS (
+  SELECT CurFrom, CurTo, PrevTo,
+         CASE WHEN @periodType = 'ytd' THEN DATEFROMPARTS(YEAR(DATEADD(DAY, -1, PrevTo)), 1, 1) ELSE DATEADD(MONTH, -1, PrevTo) END AS PrevFrom
+  FROM r
+), s AS (
+  SELECT T0.CardCode, T0.CardName,
+         SUM(CASE WHEN T0.DocDate >= r2.CurFrom AND T0.DocDate < r2.CurTo THEN T0.DocTotal - T0.VatSum ELSE 0 END) AS Cur,
+         SUM(CASE WHEN T0.DocDate >= r2.PrevFrom AND T0.DocDate < r2.PrevTo THEN T0.DocTotal - T0.VatSum ELSE 0 END) AS Prev
+  FROM OINV T0 CROSS JOIN r2
+  WHERE T0.CANCELED = 'N' AND T0.DocDate >= r2.PrevFrom AND T0.DocDate < r2.CurTo
+  GROUP BY T0.CardCode, T0.CardName
+)
+SELECT TOP (@top) CardCode, CardName, Cur, Prev, (Cur - Prev) / NULLIF(ABS(Prev), 0) AS GrowthRate
+FROM s
+ORDER BY Cur DESC
+```
+
+**2. 看板加筛选**：「对比方式」筛选名 `cmp`，类型选下拉，选项 `yoy` → 去年同期、`mom` → 上月。按客户的看板再加「期间口径」筛选 `periodType`（`month` → 当月、`ytd` → 年累计）。筛选名和参数同名，会自动传给所有卡片，切换一次整个看板一起变。
+
+**3. 三种图表**：
+
+| 看什么 | 图表 | 怎么配 |
+|---|---|---|
+| 总数 | KPI | 数值列 `Cur`、对比列 `Prev`；卡片显示「▲ 12.4% 较去年同期 2,918 万」 |
+| 按月趋势 | 柱状 | 数值列选 `Cur`、`Prev`、`GrowthRate`，「右轴（折线）」选 `GrowthRate`：本期和对比期画成柱（左轴金额），增长率画成折线（右轴百分比）。选数值列时百分比列会自动放到右轴 |
+| 按客户 / 产品 | 表格 | 「涨跌着色列」选 `GrowthRate`：正数 ▲、负数 ▼ 并着色 |
+
+「涨跌颜色」（KPI 和表格都有）：**上涨为好**（涨绿跌红，适合销售）、**上涨为坏**（涨红跌绿，适合成本、退货）；不选为中性色。
+
+**标题和列名里的占位符**：卡片标题、副标题、列的中文名里都可以写 `{筛选名}`。下拉筛选换成选项文字，其他筛选换成筛选值，例如标题「销售额（对比{cmp}）」会显示成「销售额（对比去年同期）」。看板每日要点里的标题和列名也会这样替换。
 
 ## ③ 看板
 

@@ -28,9 +28,16 @@ export interface BiEncoding {
   horizontal?: boolean
   /** 柱/线上是否标数值：auto（默认，按规则）/ show / hide */
   labels?: BiLabelMode
+  /** 柱/线组合：数值列中画成折线、走右轴的列（如增长率与金额同图） */
+  rightAxis?: string[]
+  /** 表格：按正负着色并加 ▲▼ 的列（增长率、差额） */
+  deltaColumns?: string[]
+  /** 涨跌颜色（KPI 增长率、表格涨跌列）：up-good 上涨为好、up-bad 上涨为坏；不写 = 中性色 */
+  trend?: BiTrend
 }
 
 export type BiLabelMode = 'auto' | 'show' | 'hide'
+export type BiTrend = 'up-good' | 'up-bad'
 
 export interface BiDrillLevel {
   queryKey: string
@@ -221,7 +228,9 @@ export function withColumnSemantics(enc: BiEncoding, semantics?: BiColumnSemanti
   if (!semantics || semantics.length === 0) return enc
   const byName = new Map(semantics.map((c) => [c.column, c]))
   const out: BiEncoding = { ...enc }
-  const primary = byName.get(enc.value ?? enc.values?.[0] ?? '')
+  // 主度量取左轴第一列（右轴的增长率等不决定整张图的格式）
+  const left = (enc.values?.length ? enc.values : enc.value ? [enc.value] : []).filter((c) => !enc.rightAxis?.includes(c))
+  const primary = byName.get(left[0] ?? '')
   if (primary) {
     if (out.format == null && primary.format) out.format = primary.format
     if (out.scale == null && primary.scale) out.scale = primary.scale
@@ -241,6 +250,33 @@ export function withColumnSemantics(enc: BiEncoding, semantics?: BiColumnSemanti
     : (resultColumns ?? semantics.map((c) => c.column)).map((column) => ({ column }))
   out.columns = base.map(fill)
   return out
+}
+
+// ─── 标题 / 列名占位符 ────────────────────────────────────────────────────────
+
+/**
+ * 筛选当前值的显示文字：select 取选项文字（如 yoy → 去年同期），其余原样。
+ * 供标题 / 列名里的 {筛选名} 占位符；与后端 bi-tokens.js 的 filterDisplayText 一致。
+ */
+export function filterDisplayText(filters: BiFilter[], values: BiFilterValues): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const f of filters) {
+    const v = values[f.name]
+    if (v == null || v === '') continue
+    const opt = f.type === 'select' ? f.options?.find((o) => String(o.value) === String(v)) : undefined
+    out[f.name] = opt ? opt.label : String(v)
+  }
+  return out
+}
+
+/** 把文本里的 {名称} 换成 vars 里的值（名称大小写不敏感）；没有对应值的原样保留 */
+export function fillPlaceholders(text: string, vars: Record<string, unknown>): string {
+  if (!text.includes('{')) return text
+  const map = new Map(Object.entries(vars).map(([k, v]) => [k.toLowerCase(), v]))
+  return text.replace(/\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (m, name: string) => {
+    const v = map.get(name.toLowerCase())
+    return v == null || v === '' ? m : String(v)
+  })
 }
 
 // ─── 数值 ─────────────────────────────────────────────────────────────────────

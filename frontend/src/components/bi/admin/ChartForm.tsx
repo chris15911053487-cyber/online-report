@@ -4,7 +4,7 @@
  * 格式 / 单位 / 缩放不填时继承查询列语义（占位符里显示继承值）。
  */
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
-import { defaultChartSize, type BiCardType, type BiChartDef, type BiColumnRole, type BiColumnSemantic, type BiDrillLevel, type BiEncoding, type BiFormat, type BiLabelMode, type BiScalar } from '../../../utils/bi'
+import { defaultChartSize, type BiCardType, type BiChartDef, type BiColumnRole, type BiColumnSemantic, type BiDrillLevel, type BiEncoding, type BiFormat, type BiLabelMode, type BiScalar, type BiTrend } from '../../../utils/bi'
 import {
   COLUMN_ROLE_LABEL,
   FORMAT_LABEL,
@@ -14,6 +14,7 @@ import {
   defaultEncoding,
   newDrillLevel,
   paramSource,
+  suggestRightAxis,
 } from '../../../utils/biAdmin'
 import { Button, ChipSelect, Field, IconButton, Input, Notice, Segmented } from '../../../ui'
 import { compactInputClass } from '../../../ui/classes'
@@ -30,6 +31,11 @@ const LABEL_MODES: { value: BiLabelMode; label: string }[] = [
   { value: 'auto', label: '自动' },
   { value: 'show', label: '显示' },
   { value: 'hide', label: '不显示' },
+]
+const TRENDS: { value: BiTrend | 'neutral'; label: string }[] = [
+  { value: 'neutral', label: '中性' },
+  { value: 'up-good', label: '上涨为好' },
+  { value: 'up-bad', label: '上涨为坏' },
 ]
 const DRILL_TYPES = CARD_TYPES.filter((t) => t.value !== 'kpi') as { value: Exclude<BiCardType, 'kpi'>; label: string }[]
 
@@ -207,6 +213,12 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
   const inherit = (v?: string | number) => (v == null || v === '' ? '' : `继承：${v}`)
   const valueList = enc.values?.length ? enc.values : enc.value ? [enc.value] : []
 
+  const trendRow = (
+    <Row label="涨跌颜色" hint="上涨为好：涨绿跌红（销售）；上涨为坏：涨红跌绿（成本、退货）">
+      <Segmented size="sm" options={TRENDS} value={enc.trend || 'neutral'} onChange={(v) => set({ trend: v === 'neutral' ? undefined : v })} />
+    </Row>
+  )
+
   const formatRows = type !== 'table' && (
     <>
       <Row label="格式">
@@ -240,9 +252,10 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
         <Row label="数值列">
           <ColumnSelect ariaLabel="数值列" columns={columns} prefer={['measure']} value={enc.value} onChange={(v) => set({ value: v })} />
         </Row>
-        <Row label="对比列" hint="同一行里上期的值，显示环比">
+        <Row label="对比列" hint="同一行里对比期（去年同期 / 上月）的值：显示增长率和对比值">
           <ColumnSelect ariaLabel="对比列" columns={columns} prefer={['measure']} optional value={enc.compare} onChange={(v) => set({ compare: v })} />
         </Row>
+        {enc.compare && trendRow}
         <Row label="说明列">
           <ColumnSelect ariaLabel="说明列" columns={columns} prefer={['dimension', 'time']} optional value={enc.label} onChange={(v) => set({ label: v })} />
         </Row>
@@ -268,6 +281,16 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
         <Row label="行标题列" hint="下钻时面包屑显示这一列的值">
           <ColumnSelect ariaLabel="行标题列" columns={columns} prefer={['dimension']} optional value={enc.dimension} onChange={(v) => set({ dimension: v })} />
         </Row>
+        {measures.length > 0 && (
+          <Row label="涨跌着色列" hint="正数 ▲、负数 ▼ 并着色，适合增长率、差额">
+            <ChipSelect
+              options={measures.map((c) => ({ value: c.column, label: c.label || c.column }))}
+              selected={enc.deltaColumns || []}
+              onChange={(sel) => set({ deltaColumns: sel.length ? sel : undefined, trend: sel.length ? enc.trend : undefined })}
+            />
+          </Row>
+        )}
+        {!!enc.deltaColumns?.length && trendRow}
       </div>
     )
   }
@@ -286,7 +309,12 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
             <ChipSelect
               options={(measures.length ? measures : columns).map((c) => ({ value: c.column, label: c.label || c.column }))}
               selected={valueList}
-              onChange={(sel) => set(sel.length > 1 ? { values: sel, value: undefined } : { value: sel[0], values: undefined })}
+              onChange={(sel) =>
+                set({
+                  ...(sel.length > 1 ? { values: sel, value: undefined } : { value: sel[0], values: undefined }),
+                  rightAxis: enc.series || enc.horizontal ? undefined : suggestRightAxis(sel, enc, columns),
+                })
+              }
               empty="查询没有度量列"
             />
           )
@@ -294,9 +322,18 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
           <ColumnSelect ariaLabel="数值列" columns={columns} prefer={['measure']} value={enc.value} onChange={(v) => set({ value: v })} />
         )}
       </Row>
+      {type !== 'pie' && valueList.length > 1 && !enc.series && !enc.horizontal && (
+        <Row label="右轴（折线）" hint="选中的列画成折线、用右侧坐标轴，如增长率与金额同图">
+          <ChipSelect
+            options={valueList.map((c) => ({ value: c, label: columns.find((x) => x.column === c)?.label || c }))}
+            selected={enc.rightAxis || []}
+            onChange={(sel) => set({ rightAxis: sel.length ? sel : undefined })}
+          />
+        </Row>
+      )}
       {type !== 'pie' && (
         <Row label="系列列" hint="长表透视：按这一列的值拆成多条系列（可选）">
-          <ColumnSelect ariaLabel="系列列" columns={columns} prefer={['dimension', 'attr']} optional value={enc.series} onChange={(v) => set({ series: v })} />
+          <ColumnSelect ariaLabel="系列列" columns={columns} prefer={['dimension', 'attr']} optional value={enc.series} onChange={(v) => set({ series: v, rightAxis: v ? undefined : enc.rightAxis })} />
         </Row>
       )}
       <Row label="只显示前">
@@ -312,7 +349,7 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
           />
           {type === 'bar' && (
             <label className="flex items-center gap-1.5 text-[12.5px] text-fg-2">
-              <input type="checkbox" className="accent-primary w-4 h-4" checked={!!enc.horizontal} onChange={(e) => set({ horizontal: e.target.checked || undefined })} />
+              <input type="checkbox" className="accent-primary w-4 h-4" checked={!!enc.horizontal} onChange={(e) => set({ horizontal: e.target.checked || undefined, rightAxis: e.target.checked ? undefined : enc.rightAxis })} />
               横向条形
             </label>
           )}

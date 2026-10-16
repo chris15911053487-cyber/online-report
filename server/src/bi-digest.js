@@ -6,7 +6,7 @@
  *   卡片查询用了 @_loginUser 等会话变量时改为逐人取数、逐人写要点
  * - AI 只负责把已取到的数字写成要点，不再查数；数据里没有的数字不许写
  */
-const { resolveToken } = require('./bi-tokens');
+const { resolveToken, filterDisplayText, fillPlaceholders } = require('./bi-tokens');
 const { filterDashboardForRoles } = require('./bi-dashboards');
 const { sessionParamsUsed } = require('./bi-queries');
 
@@ -53,24 +53,28 @@ const cell = (v) => {
 /**
  * 按角色取看板数据。
  * @param {{ loaded: { dashboard, queries }, roles: string[], run: (query, params) => Promise<{columns, rows}>, now? }} args
- * @returns {Promise<{ label, filterValues, cards: { title, type, text }[] }>}
+ * @returns {Promise<{ label, filterValues, filterText, cards: { title, type, text }[] }>}
  */
 async function collectDashboardData({ loaded, roles, run, now = Date.now() }) {
   const view = filterDashboardForRoles(loaded.dashboard, loaded.queries, roles);
   const byKey = new Map(loaded.queries.map((q) => [q.queryKey, q]));
   const filterValues = initialFilterValues(view.filters, now);
+  const displayText = filterDisplayText(view.filters, filterValues);
   const cards = [];
   for (const card of (view.cards || []).slice(0, MAX_CARDS)) {
     const query = byKey.get(card.queryKey);
-    const title = card.title || query?.label || card.queryKey;
+    const params = resolveCardParams(card.params, filterValues);
+    // 标题 / 列名里的 {筛选名} 占位符：筛选显示文字优先，其次本卡参数值
+    const vars = { ...params, ...displayText };
+    const title = fillPlaceholders(card.title || query?.label || card.queryKey, vars);
     let text;
     try {
-      const r = await run(query, resolveCardParams(card.params, filterValues));
+      const r = await run(query, params);
       const cols = cardColumns(card, r.columns || []);
       const sem = new Map((query?.columns || []).map((c) => [c.column, c]));
       const head = cols.map((c) => {
         const s = sem.get(c);
-        const tag = [s?.label, s?.format === 'percent' ? '比例(0.12=12%)' : s?.unit].filter(Boolean).join('，');
+        const tag = [s?.label && fillPlaceholders(s.label, vars), s?.format === 'percent' ? '比例(0.12=12%)' : s?.unit].filter(Boolean).join('，');
         return tag ? `${c}(${tag})` : c;
       });
       const rows = (card.type === 'kpi' ? r.rows.slice(0, 1) : r.rows.slice(0, MAX_ROWS)).map((row) => cols.map((c) => cell(row[c])).join(','));
@@ -82,7 +86,7 @@ async function collectDashboardData({ loaded, roles, run, now = Date.now() }) {
     const caliber = query?.caliberNote ? `\n口径：${String(query.caliberNote).replace(/^\s*口径(说明)?\s*[:：]\s*/, '').slice(0, 200)}` : '';
     cards.push({ title, type: card.type, text: `${text}${caliber}` });
   }
-  return { label: view.label, filterValues, cards };
+  return { label: view.label, filterValues, filterText: displayText, cards };
 }
 
 const DIGEST_SYSTEM = `你是企业经营分析助手。根据看板各卡片的数据，写今天的要点推送给管理者。
@@ -95,7 +99,7 @@ const DIGEST_SYSTEM = `你是企业经营分析助手。根据看板各卡片的
 - 不写空话套话，不写建议清单；只输出列表`;
 
 function digestPrompt(data, focus) {
-  const filters = Object.entries(data.filterValues).map(([k, v]) => `${k}=${v ?? ''}`).join('，');
+  const filters = Object.entries(data.filterValues).map(([k, v]) => `${k}=${data.filterText?.[k] ?? v ?? ''}`).join('，');
   let body = data.cards.map((c, i) => `### ${i + 1}. ${c.title}（${c.type}）\n${c.text}`).join('\n\n');
   if (body.length > MAX_INPUT_CHARS) body = `${body.slice(0, MAX_INPUT_CHARS)}\n…（其余省略）`;
   return `看板：${data.label}${filters ? `（筛选：${filters}）` : ''}\n${focus ? `关注点：${focus}\n` : ''}\n${body}`;

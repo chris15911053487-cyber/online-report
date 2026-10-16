@@ -167,6 +167,14 @@ const SQL_RULES = `## SQL 规则（必须遵守）
 - Top N 用 TOP (@top) 并给 top 参数默认值；结果行数通常 ≤ 200
 - 期间 / 年份 / 日期参数不要写死默认值（会过时），设为必填，由看板筛选提供；示例值写在 sampleParams
 
+## 同比 / 环比（需求提到同比、环比、去年同期、上月、增长率时）
+- 输出固定三列：Cur（本期）、Prev（对比期）、GrowthRate（增长率 = (Cur - Prev) / NULLIF(ABS(Prev), 0)，基数为 0 时为 NULL）
+- 加参数 cmp（string，'yoy' 同比 / 'mom' 环比，默认 'yoy'）：SQL 按它决定对比期取哪段，列名不变，看板「对比方式」筛选切换即可
+- 按客户 / 产品等对比时再加 periodType（string，'month' 当月 / 'ytd' 年累计，默认 'month'）；用条件聚合 SUM(CASE WHEN 日期在本期 THEN 金额 ELSE 0 END) 同时算两段，只在一期有数的也不会丢
+- 按月趋势用 @year（number）：先按月汇总（取数从上一年 1 月开始，1 月的环比也有上期），再自连接 ON 对比月 = CASE @cmp WHEN 'mom' THEN DATEADD(MONTH, -1, 月) ELSE DATEADD(YEAR, -1, 月) END
+- columns：Prev 的 label 写 "{cmp}"（显示时换成筛选选项文字「去年同期 / 上月」），GrowthRate 的 format 为 percent
+- 合计行的增长率按合计后的 Cur / Prev 计算，不要对各行增长率求和或平均
+
 ## 列语义 columns
 每个输出列一项：{"column": 别名, "label": 中文名, "role": "dimension|measure|time|attr", "format": "money|number|integer|percent"(度量才填), "unit": 可选, "scale": 可选(10000 = 按万显示)}
 - dimension：可分组的名称（客户名、物料名）；time：日期 / 期间；measure：可汇总的数值；attr：编码等其它`;
@@ -179,6 +187,7 @@ ${SQL_RULES}
 - 例如排名类查询：横向条形（排名）+ 饼图（占比）+ 表格（明细）；趋势类：折线 + 当期 KPI；单值类：KPI
 - type：kpi（单个数，取第一行）/ bar / line（时间趋势）/ pie（占比，类别 ≤ 8）/ table
 - encoding：kpi 用 {"value": 度量列}；bar/line/pie 用 {"dimension": 维度列, "value": 度量列}，可加 "horizontal": true（横向条形，适合排名）、"labels": "show"/"hide"（柱/线上是否标数值，不写 = 自动）、"topN"
+- 同比 / 环比查询：按月趋势用 bar {"dimension": "Month", "values": ["Cur", "Prev", "GrowthRate"], "rightAxis": ["GrowthRate"]}（增长率画折线走右轴）；按客户 / 产品用 table {"deltaColumns": ["GrowthRate"], "trend": "up-good"}（增长率涨绿跌红；成本类用 "up-bad"）；KPI 用 {"value": "Cur", "compare": "Prev", "trend": "up-good"}
 - 列名必须是 SQL 的输出列别名
 - params 只写固定值（一般留空 {}）；@period 等参数由看板上的同名筛选提供
 

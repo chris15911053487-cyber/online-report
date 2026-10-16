@@ -83,3 +83,21 @@ test('dashboardUsesSession：只看卡片用到的查询是否用了 @_loginUser
   assert.equal(dashboardUsesSession({ dashboard: { cards: [{ queryKey: 'all' }, { queryKey: 'mine' }] }, queries }), true);
   assert.equal(dashboardUsesSession(null), false);
 });
+
+test('collectDashboardData：标题 / 列名里的 {筛选名} 换成筛选选项文字；提示词里筛选显示选项文字', async () => {
+  const l = {
+    dashboard: {
+      dashboardKey: 'yoy', label: '同比看板', enabled: true,
+      filters: [{ name: 'cmp', type: 'select', options: [{ value: 'yoy', label: '去年同期' }, { value: 'mom', label: '上月' }] }],
+      cards: [{ id: 'k', title: '销售额（对比{cmp}）', type: 'kpi', queryKey: 'k', params: { cmp: '$filter.cmp' }, encoding: { value: '本期', compare: '对比期' }, drill: [] }],
+    },
+    queries: [{ queryKey: 'k', enabled: true, roles: ['sales'], columns: [{ column: '本期', role: 'measure' }, { column: '对比期', label: '{cmp}', role: 'measure' }, { column: '金额', label: '{nope}', role: 'measure' }] }],
+  };
+  const d = await collectDashboardData({ loaded: l, roles: ['sales'], run: async () => ({ columns: ['本期', '对比期'], rows: [{ 本期: 2, 对比期: 1 }] }), now: NOW });
+  assert.equal(d.cards[0].title, '销售额（对比去年同期）');
+  assert.match(d.cards[0].text, /^本期,对比期\(去年同期\)/);
+  assert.deepEqual(d.filterText, { cmp: '去年同期' });
+  let seen;
+  await writeDigest(async (m) => { seen = m; return '- x'; }, d);
+  assert.match(seen[1].content, /筛选：cmp=去年同期/);
+});
