@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildChartModel, columnLabel, labelPlan, rightAxisColumns, valueColumns } from './biOption'
+import { alignedAxisRanges, buildChartModel, columnLabel, labelPlan, rightAxisColumns, valueColumns } from './biOption'
 import { canDrillFrom, levelView, nextDrillLabel, popDrillTo, pushDrill, rootStack, rowCaption } from './biDrill'
 import type { BiCard } from './bi'
 
@@ -215,5 +215,39 @@ describe('柱线组合（右轴）', () => {
     expect(rightAxisColumns('line', { ...enc, rightAxis: ['增长率', '不存在'] })).toEqual(['增长率'])
     const o = buildChartModel('bar', { ...enc, rightAxis: ['本期', '对比期', '增长率'] }, yoy).option as { yAxis: Axis }
     expect(Array.isArray(o.yAxis)).toBe(false)
+  })
+
+  // 0 在第几格（从下往上数）
+  const zeroAt = (r: { min: number; interval: number }) => Math.round(-r.min / r.interval)
+
+  it('两轴的 0 对齐：增长率有负数时，左轴也往下延伸，0% 与柱子底边同一条线', () => {
+    const o = buildChartModel('bar', enc, yoy).option as { yAxis: { min: number; max: number; interval: number }[] }
+    const [l, r] = o.yAxis
+    expect(r.min).toBeLessThanOrEqual(-0.1)
+    expect(r.max).toBeGreaterThanOrEqual(0.2)
+    expect(l.max).toBeGreaterThanOrEqual(120)
+    expect(zeroAt(l)).toBeGreaterThan(0)
+    expect(zeroAt(l)).toBe(zeroAt(r))
+    expect((l.max - l.min) / l.interval).toBeCloseTo((r.max - r.min) / r.interval)
+    // 金额本身没有负数：左轴 0 以下不标数字
+    const lf = (o.yAxis[0] as unknown as Axis).axisLabel?.formatter
+    expect(lf?.(l.min)).toBe('')
+    expect(lf?.(100)).toBe('100')
+  })
+
+  it('对齐时刻度取整、留白不过多', () => {
+    // 全是正数：两轴都从 0 开始
+    const [l, r] = alignedAxisRanges([29180000, 25960000], [0.124, 0.03])!
+    expect(l).toEqual({ min: 0, max: 30000000, interval: 5000000 })
+    expect(r.min).toBe(0)
+    expect(r.max).toBeGreaterThanOrEqual(0.124)
+    // 有负数：步长是 1 / 2 / 2.5 / 5 × 10^n，没有浮点尾巴
+    const [l2, r2] = alignedAxisRanges([3000, 2800, 3500], [-0.35, 0.08, 0.6])!
+    expect(r2).toMatchObject({ min: -0.4, interval: 0.2 })
+    expect(r2.max).toBeGreaterThanOrEqual(0.6)
+    expect(String(r2.max)).toMatch(/^0\.\d$/)
+    expect(zeroAt(l2)).toBe(zeroAt(r2))
+    // 某根轴没有数值时交给 ECharts
+    expect(alignedAxisRanges([1, 2], [null, null])).toBeNull()
   })
 })

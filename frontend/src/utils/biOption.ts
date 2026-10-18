@@ -71,6 +71,52 @@ export function rightAxisColumns(type: BiChartType, enc: BiEncoding): string[] {
   return right.length < cols.length ? right : []
 }
 
+/** 向上取「好看」的步长：1 / 2 / 2.5 / 5 × 10^n */
+function niceStep(x: number): number {
+  const p = Math.pow(10, Math.floor(Math.log10(x)))
+  const m = [1, 2, 2.5, 5, 10].find((s) => s * p >= x * (1 - 1e-9)) ?? 10
+  return Number((m * p).toPrecision(12))
+}
+
+export interface AxisRange {
+  min: number
+  max: number
+  interval: number
+}
+
+/**
+ * 双轴共用同样的格数，且 0 落在同一条格线上（左轴金额、右轴增长率有负数时，0% 与柱子底边对齐，
+ * 负增长的点不会画在柱子底边上方）。逐个试总格数（4~6）和「0 以下几格」，取两根轴留白之和最小的方案。
+ * 任一轴没有数值时返回 null（交给 ECharts 自动定刻度）。
+ */
+export function alignedAxisRanges(left: (number | null)[], right: (number | null)[]): [AxisRange, AxisRange] | null {
+  const bounds = (vals: (number | null)[]) => {
+    const nums = vals.filter((v): v is number => v != null && Number.isFinite(v))
+    if (nums.length === 0) return null
+    const lo = Math.min(0, ...nums)
+    const hi = Math.max(0, ...nums)
+    return lo === hi ? { lo: 0, hi: 1 } : { lo, hi }
+  }
+  const axes = [bounds(left), bounds(right)]
+  if (!axes[0] || !axes[1]) return null
+  const b = axes as { lo: number; hi: number }[]
+
+  let best: { score: number; ranges: [AxisRange, AxisRange] } | null = null
+  // 先试 5 格，留白相同时保留 5 格
+  for (const splits of [5, 6, 4]) {
+    for (let k = 0; k <= splits; k++) {
+      if (b.some((a) => (a.lo < 0 && k === 0) || (a.hi > 0 && k === splits))) continue
+      const ranges = b.map(({ lo, hi }) => {
+        const step = niceStep(Math.max(hi > 0 ? hi / (splits - k) : 0, lo < 0 ? -lo / k : 0))
+        return { min: k === 0 ? 0 : -Number((k * step).toPrecision(12)), max: Number(((splits - k) * step).toPrecision(12)), interval: step }
+      }) as [AxisRange, AxisRange]
+      const score = ranges.reduce((s, r, i) => s + 1 - (b[i].hi - b[i].lo) / (r.max - r.min), 0)
+      if (!best || score < best.score - 1e-9) best = { score, ranges }
+    }
+  }
+  return best?.ranges ?? null
+}
+
 export function buildChartModel(
   type: BiChartType,
   enc: BiEncoding,
@@ -209,6 +255,24 @@ export function buildChartModel(
     position: 'right',
     axisLabel: { fontSize: 11, formatter: axisFormatter({ format: rightFormat }) },
     splitLine: { show: false },
+  }
+  if (right.length) {
+    // 两轴的 0 对齐：0% 正好在柱子底边那条线上，线上为正增长、线下为负增长
+    // 自动标数值时最后一个点已包成 { value, label }
+    const values = (onRight: boolean) =>
+      series
+        .filter((_, i) => isRight(i) === onRight)
+        .flatMap((s) => (s.data as unknown[]).map((v) => (v != null && typeof v === 'object' ? (v as { value: number | null }).value : (v as number | null))))
+    const aligned = alignedAxisRanges(values(false), values(true))
+    if (aligned) {
+      Object.assign(valueAxis, aligned[0])
+      Object.assign(rightAxis, aligned[1])
+      // 左轴本身没有负数（只是为对齐往下延伸）时，0 以下不标数字，免得出现「-2,000 万」
+      if (!values(false).some((v) => v != null && v < 0)) {
+        const fmt = axisFormatter(enc)
+        valueAxis.axisLabel.formatter = (v: number) => (v < 0 ? '' : fmt(v))
+      }
+    }
   }
 
   return {
