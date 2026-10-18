@@ -849,6 +849,7 @@ export default function AgentRunView() {
       return
     }
     exitDashFullscreen()
+    biPopover.pick.exitFullscreen?.()
     if (isPc) setPcLeftCollapsed(false)
     void doSend(explainPrompt(ctx), { context: ctx, mode: 'fast' })
   }
@@ -860,6 +861,7 @@ export default function AgentRunView() {
     setBiPopover(null)
     setPendingContext(ctx)
     exitDashFullscreen()
+    biPopover.pick.exitFullscreen?.()
     if (isPc) {
       setPcLeftCollapsed(false)
       setTimeout(() => pcInputRef.current?.focus(), 50)

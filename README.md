@@ -220,7 +220,7 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 
 ### BI 看板（AI 原生）
 
-给 Agent 关联一块固定样式的看板：进入 Agent 右侧即显示（读缓存，秒开），不再自动执行 `defaultPrompt`。看到疑问可以就地下钻，或点击数字/图形让 AI 解读、继续追问。看板标题行右侧有全屏切换图标（`hooks/usePageFullscreen.ts`：容器改为铺满视口，并尝试整页浏览器全屏；Esc 退出，AI 解读 / 问点别的时自动退出）。
+给 Agent 关联一块固定样式的看板：进入 Agent 右侧即显示（读缓存，秒开），不再自动执行 `defaultPrompt`。看到疑问可以就地下钻，或点击数字/图形让 AI 解读、继续追问。看板标题行右侧有全屏切换图标（`hooks/usePageFullscreen.ts`：容器改为铺满视口，并尝试整页浏览器全屏；Esc 退出，AI 解读 / 问点别的时自动退出）。图表 / 表格卡片右上角另有单卡全屏（`BiCardView` 同一个卡片原地 `fixed inset-0`，图表 / 表格高度铺满，保留下钻；AI 解读 / 问点别的时经 `BiPick.exitFullscreen` 退出）。
 
 **三层分开维护**：查询（数据与口径）→ 图表（怎么展示，可复用）→ 看板（组合与排版）。迁移脚本 `server/sql/migrate-bi.sql`，服务启动自动执行。
 

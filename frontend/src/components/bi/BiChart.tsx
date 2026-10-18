@@ -21,7 +21,8 @@ export interface BiChartClick {
 
 interface Props {
   option: Record<string, unknown>
-  height: number
+  /** 像素高度；全屏时传 '100%' 铺满父容器 */
+  height: number | string
   onPick?: (e: BiChartClick) => void
   /** 屏幕阅读器用的图表说明 */
   ariaLabel?: string

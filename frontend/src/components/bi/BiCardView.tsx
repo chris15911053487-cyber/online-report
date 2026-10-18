@@ -1,10 +1,12 @@
 /**
  * 看板卡片：自己取数（POST /bi/query，走服务端缓存），按类型渲染 KPI / 图表 / 表格，
  * 卡片内逐级下钻（面包屑返回）。点中元素时把 BiPick 交给上层（显示点击浮层）。
+ * 图表 / 表格卡片可单独全屏：同一个卡片原地铺满视口（不卸载，保留下钻），Esc 退出。
  */
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronLeft, ChevronRight, Info, RotateCw } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Info, Maximize2, Minimize2, RotateCw } from 'lucide-react'
 import { apiFetch } from '../../utils/api'
+import { usePageFullscreen } from '../../hooks/usePageFullscreen'
 import { BI_CARD_HEIGHT, changeRatio, fillPlaceholders, formatValue, toNumber, withColumnSemantics, type BiCard, type BiColumnDef, type BiFilterValues, type BiQueryMeta, type BiQueryResult, type BiTrend } from '../../utils/bi'
 import { buildChartModel, columnLabel, type BiRow } from '../../utils/biOption'
 import { canDrillFrom, levelView, nextDrillLabel, popDrillTo, pushDrill, rootStack, type DrillFrame } from '../../utils/biDrill'
@@ -47,6 +49,7 @@ export default function BiCardView({ card, filters, queries, filterText, onPick 
   const reqKey = JSON.stringify([view.queryKey, view.params])
   const [state, setState] = useState<LoadState | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const { fullscreen, toggle: toggleFullscreen, exit: exitFullscreen } = usePageFullscreen()
 
   // 参数变化（筛选、下钻）即取数；只在 Promise 回调里 setState
   useEffect(() => {
@@ -93,6 +96,7 @@ export default function BiCardView({ card, filters, queries, filterText, onPick 
       y,
       drillLabel,
       drill: () => setStack((s) => pushDrill(card, s, row, view.encoding)),
+      exitFullscreen,
     })
   }
 
@@ -113,11 +117,19 @@ export default function BiCardView({ card, filters, queries, filterText, onPick 
   )
 
   const height = BI_CARD_HEIGHT[card.layout.h] ?? BI_CARD_HEIGHT[2]
+  // 全屏时图表 / 表格铺满内容区（内容区是 flex-1，高度确定）
+  const bodyHeight: number | string = fullscreen ? '100%' : height
 
   return (
     <section
-      className="bg-surface rounded-2xl border border-line shadow-sm p-4 flex flex-col min-w-0"
+      className={
+        fullscreen
+          ? 'fixed inset-0 z-[95] bg-surface p-4 lg:p-6 safe-bottom flex flex-col min-w-0'
+          : 'bg-surface rounded-2xl border border-line shadow-sm p-4 flex flex-col min-w-0'
+      }
       aria-label={title}
+      aria-modal={fullscreen || undefined}
+      role={fullscreen ? 'dialog' : undefined}
     >
       {/* 标题行 */}
       <header className="flex items-start justify-between gap-2 mb-2">
@@ -146,6 +158,18 @@ export default function BiCardView({ card, filters, queries, filterText, onPick 
           >
             <RotateCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
           </button>
+          {card.type !== 'kpi' && (
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              className="p-1 rounded hover:bg-surface-2"
+              title={fullscreen ? '退出全屏（Esc）' : '全屏查看'}
+              aria-label={fullscreen ? `退出全屏 ${title}` : `全屏查看 ${title}`}
+              aria-pressed={fullscreen}
+            >
+              {fullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
+          )}
         </div>
       </header>
 
@@ -172,8 +196,8 @@ export default function BiCardView({ card, filters, queries, filterText, onPick 
       )}
 
       {/* 内容 */}
-      <div className={`relative flex-1 min-h-0 ${loading && data ? 'opacity-60' : ''}`}>
-        {loading && !data && <div className="rounded-xl animate-pulse bg-surface-2" style={{ height: view.type === 'kpi' ? 56 : height }} />}
+      <div className={`relative flex-1 min-h-0 ${fullscreen ? 'flex flex-col' : ''} ${loading && data ? 'opacity-60' : ''}`}>
+        {loading && !data && <div className="rounded-xl animate-pulse bg-surface-2" style={{ height: view.type === 'kpi' ? 56 : bodyHeight }} />}
         {error && (
           <div className="text-[12px] text-danger py-3">
             {error}
@@ -184,22 +208,26 @@ export default function BiCardView({ card, filters, queries, filterText, onPick 
         {data && !error && rows.length > 0 && (
           <>
             {view.type === 'kpi' && <KpiBody title={title} enc={encoding} row={rows[0]} onClick={(x, y) => pick(rows[0], x, y)} clickable={!!onPick} />}
-            {chart && (
-              <BiChart
-                option={chart.option}
-                height={height}
-                ariaLabel={`${title}图表，共 ${chart.plotted} 项`}
-                onPick={clickable ? (e) => pick(chart.rowAt(e.dataIndex, e.seriesName), e.x, e.y) : undefined}
-              />
-            )}
-            {view.type === 'table' && (
-              <TableBody
-                rows={rows}
-                columns={data.columns}
-                encoding={encoding}
-                maxHeight={height}
-                onRow={clickable ? (row, x, y) => pick(row, x, y) : undefined}
-              />
+            {(chart || view.type === 'table') && (
+              <div className={fullscreen ? 'flex-1 min-h-0' : undefined}>
+                {chart && (
+                  <BiChart
+                    option={chart.option}
+                    height={bodyHeight}
+                    ariaLabel={`${title}图表，共 ${chart.plotted} 项`}
+                    onPick={clickable ? (e) => pick(chart.rowAt(e.dataIndex, e.seriesName), e.x, e.y) : undefined}
+                  />
+                )}
+                {view.type === 'table' && (
+                  <TableBody
+                    rows={rows}
+                    columns={data.columns}
+                    encoding={encoding}
+                    maxHeight={bodyHeight}
+                    onRow={clickable ? (row, x, y) => pick(row, x, y) : undefined}
+                  />
+                )}
+              </div>
             )}
             {data.truncated && <p className="text-[10.5px] text-subtle mt-1">仅显示前 {data.rowCount} 行</p>}
           </>
@@ -265,7 +293,7 @@ function TableBody({
   rows: BiRow[]
   columns: string[]
   encoding: BiCard['encoding']
-  maxHeight: number
+  maxHeight: number | string
   onRow?: (row: BiRow, x: number, y: number) => void
 }) {
   const cols: BiColumnDef[] = encoding.columns?.length ? encoding.columns : columns.map((c) => ({ column: c }))

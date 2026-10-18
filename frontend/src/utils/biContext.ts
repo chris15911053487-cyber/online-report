@@ -24,6 +24,8 @@ export interface BiPick {
   /** 还能否下钻；能的话下一级的名称 */
   drillLabel: string | null
   drill: () => void
+  /** 退出这张卡片的单卡全屏（转去对话看回答前调用） */
+  exitFullscreen?: () => void
 }
 
 export type BiIntent = 'explain' | 'ask'
