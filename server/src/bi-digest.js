@@ -20,7 +20,7 @@ function initialFilterValues(filters, now = Date.now()) {
   const out = {};
   for (const f of filters || []) {
     let v = resolveToken(f.default, now);
-    if (v == null && f.type === 'select' && f.options?.length) v = f.options[0].value;
+    if (v == null && f.type === 'select' && !f.multiple && f.options?.length) v = f.options[0].value;
     out[f.name] = v ?? null;
   }
   return out;

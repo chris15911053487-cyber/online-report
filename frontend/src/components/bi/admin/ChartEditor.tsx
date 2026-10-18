@@ -8,7 +8,7 @@
 import { useMemo, useState } from 'react'
 import { useStore } from '../../../store'
 import { apiFetch } from '../../../utils/api'
-import type { BiChartDef, BiDashboard, BiQueryMeta, BiScalar } from '../../../utils/bi'
+import type { BiChartDef, BiDashboard, BiQueryMeta, BiValue } from '../../../utils/bi'
 import { chartPreviewDashboard, chartProblems, type QueryRef } from '../../../utils/biAdmin'
 import { AdminPage, Card, Checkbox, EditorActions, Field, Input, Notice, Section, Textarea } from '../../../ui'
 import { DashboardView } from '../DashboardPanel'
@@ -29,7 +29,7 @@ export default function ChartEditor({
   /** 页面顶部的提示（如 AI 草稿说明） */
   banner?: React.ReactNode
   /** 预览筛选的默认值（AI 草稿试运行用过的参数，保证预览有数据） */
-  previewDefaults?: Record<string, BiScalar>
+  previewDefaults?: Record<string, BiValue>
   onDone: (changed: boolean) => void
 }) {
   const showToast = useStore((s) => s.showToast)

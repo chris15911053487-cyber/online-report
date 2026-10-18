@@ -65,18 +65,26 @@ function shiftPeriod(value, n) {
 }
 
 /**
- * 筛选当前值的显示文字：select 取选项文字（如 yoy → 同比），其余原样。
+ * 筛选当前值的显示文字：select 取选项文字（如 yoy → 同比），多选列前 3 项，其余原样。
  * 供标题 / 列名里的 {筛选名} 占位符使用；与前端 utils/bi.ts 的 filterDisplayText 一致。
  */
 function filterDisplayText(filters, values) {
   const out = {};
   for (const f of filters || []) {
     const v = values?.[f.name];
-    if (v == null || v === '') continue;
-    const opt = f.type === 'select' ? (f.options || []).find((o) => String(o.value) === String(v)) : undefined;
-    out[f.name] = opt ? String(opt.label) : String(v);
+    if (v == null || v === '' || (Array.isArray(v) && v.length === 0)) continue;
+    const text = (x) => {
+      const opt = f.type === 'select' ? (f.options || []).find((o) => String(o.value) === String(x)) : undefined;
+      return opt ? String(opt.label) : String(x);
+    };
+    out[f.name] = Array.isArray(v) ? joinValues(v.map(text)) : text(v);
   }
   return out;
+}
+
+/** 多选的显示：最多列 3 项，其余写「等 N 项」 */
+function joinValues(items) {
+  return items.length <= 3 ? items.join('、') : `${items.slice(0, 3).join('、')} 等 ${items.length} 项`;
 }
 
 /** 把文本里的 {名称} 换成 vars 里的值（名称大小写不敏感）；没有对应值的原样保留 */

@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react'
 import { Check, Pencil } from 'lucide-react'
 import { useStore } from '../../../store'
 import { apiFetch } from '../../../utils/api'
-import type { BiChartDef, BiQueryMeta, BiScalar } from '../../../utils/bi'
+import type { BiChartDef, BiQueryMeta, BiValue } from '../../../utils/bi'
 import { chartPreviewDashboard, chartProblems, type QueryRef } from '../../../utils/biAdmin'
 import { AdminPage, Badge, Button, Card, Checkbox, EditorActions, Notice } from '../../../ui'
 import { DashboardView } from '../DashboardPanel'
@@ -25,7 +25,7 @@ export default function AiChartsReview({
 }: {
   charts: BiChartDef[]
   availableQueries: QueryOption[]
-  sampleParams: Record<string, BiScalar>
+  sampleParams: Record<string, BiValue>
   onDone: (changed: boolean) => void
 }) {
   const showToast = useStore((s) => s.showToast)

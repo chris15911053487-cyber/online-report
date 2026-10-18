@@ -18,7 +18,7 @@ import type {
   BiFilter,
   BiFormat,
   BiParamDef,
-  BiScalar,
+  BiValue,
 } from './bi'
 
 // ─── SQL 参数 ────────────────────────────────────────────────────────────────
@@ -119,7 +119,9 @@ export function sessionParamsUsed(sql: string): string[] {
 
 /** 按参数名猜类型：日期类名 → date；数量类 → number；其余 string（期间 YYYY-MM 也是 string） */
 export function guessParamType(name: string): BiParamDef['type'] {
-  if (/(date|day|dt)$/i.test(name) || /^(date|from|to|start|end)/i.test(name)) return 'date'
+  if (isMonthName(name)) return 'month'
+  // 前缀须是独立的词（toDate、from_date、end），避免把 top、total 当日期
+  if (/(date|day|dt)$/i.test(name) || /^(?:[Dd]ate|[Ff]rom|[Tt]o|[Ss]tart|[Ee]nd)(?=[A-Z_\d]|$)/.test(name)) return 'date'
   if (/(qty|count|num|top|limit|year|days)$/i.test(name)) return 'number'
   return 'string'
 }
@@ -224,24 +226,161 @@ export function columnOptionLabel(c: BiColumnSemantic): string {
 // ─── 筛选与参数绑定 ─────────────────────────────────────────────────────────
 
 /** 由查询参数生成一个全局筛选（名称一致，后续卡片可自动绑定） */
+const isMonthName = (name: string) => /(period|month|ym)$/i.test(name) || /^(period|month)/i.test(name)
+
+/**
+ * 由查询参数生成看板筛选：参数有可选值 / 选项来自查询 / 是/否 → 下拉（多选参数 → 多选下拉），选项一并带出；
+ * 月份 / 年份 / 日期按类型与名称识别并给动态默认值；参数自己的默认值优先。
+ */
 export function filterFromParam(p: BiParamDef): BiFilter {
-  let type: BiFilter['type'] = 'string'
-  if (p.type === 'date') type = 'date'
-  else if (/(period|month|ym)$/i.test(p.name) || /^(period|month)/i.test(p.name)) type = 'month'
-  else if (/(^|_)(year|yr)$/i.test(p.name) || /^year/i.test(p.name)) type = 'year'
-  const f: BiFilter = { name: p.name, label: p.label || p.name, type }
-  if (type === 'month') f.default = '$thisMonth'
-  else if (type === 'year') f.default = '$thisYear'
-  else if (type === 'date') f.default = '$today'
+  const f: BiFilter = { name: p.name, label: p.label || p.name, type: 'string' }
+  if (p.options?.length || p.optionsQuery || p.type === 'bool') {
+    f.type = 'select'
+    if (p.options?.length) f.options = p.options.map((o) => ({ ...o }))
+    else if (p.optionsQuery) f.optionsQuery = { ...p.optionsQuery }
+    else f.options = [{ value: true, label: '是' }, { value: false, label: '否' }]
+    if (p.type === 'list') f.multiple = true
+  } else if (p.type === 'date') f.type = 'date'
+  else if (p.type === 'month' || isMonthName(p.name)) f.type = 'month'
+  else if (/(^|_)(year|yr)$/i.test(p.name) || /^year/i.test(p.name)) f.type = 'year'
+  if (p.default != null && (!Array.isArray(p.default) || f.multiple)) f.default = p.default
+  else if (f.type === 'month') f.default = '$thisMonth'
+  else if (f.type === 'year') f.default = '$thisYear'
+  else if (f.type === 'date') f.default = '$today'
   return f
+}
+
+/** 看板卡片（含下钻）所用查询的参数，按名称（小写）取第一个；有可选值的优先 */
+export function paramDefsOfCards(cards: BiCard[], queries: Map<string, QueryRef>): Map<string, BiParamDef> {
+  const out = new Map<string, BiParamDef>()
+  const add = (q?: QueryRef) => {
+    for (const p of q?.params || []) {
+      const k = p.name.toLowerCase()
+      const cur = out.get(k)
+      if (!cur || (!cur.options?.length && !cur.optionsQuery && (p.options?.length || p.optionsQuery))) out.set(k, p)
+    }
+  }
+  for (const c of cards) {
+    add(queries.get(c.queryKey))
+    for (const d of c.drill) add(queries.get(d.queryKey))
+  }
+  return out
+}
+
+/** 筛选的下拉选项能否从同名参数带出（参数有选项、筛选还没配或与参数不同） */
+export function paramOptionsFor(f: BiFilter, p: BiParamDef | undefined): Pick<BiFilter, 'options' | 'optionsQuery' | 'multiple'> | null {
+  if (!p || f.type !== 'select' || (!p.options?.length && !p.optionsQuery)) return null
+  const next = p.options?.length ? { options: p.options.map((o) => ({ ...o })), optionsQuery: undefined } : { options: undefined, optionsQuery: { ...p.optionsQuery! } }
+  const same = JSON.stringify(f.options ?? null) === JSON.stringify(next.options ?? null) && JSON.stringify(f.optionsQuery ?? null) === JSON.stringify(next.optionsQuery ?? null)
+  return same ? null : { ...next, multiple: p.type === 'list' ? true : f.multiple }
+}
+
+// ─── 参数取值（与后端 bi-params.js 一致） ───────────────────────────────────
+
+export const PARAM_TOKENS: Partial<Record<BiParamDef['type'], { value: string; label: string }[]>> = {
+  date: [
+    { value: '$today', label: '今天' },
+    { value: '$yesterday', label: '昨天' },
+    { value: '$monthStart', label: '本月 1 日' },
+    { value: '$yearStart', label: '今年 1 月 1 日' },
+  ],
+  month: [
+    { value: '$thisMonth', label: '本月' },
+    { value: '$lastMonth', label: '上月' },
+  ],
+  number: [
+    { value: '$thisYear', label: '今年' },
+    { value: '$lastYear', label: '去年' },
+  ],
+}
+
+const MONTH_RE = /^(\d{4})(?:[-/.](\d{1,2})(?:[-/.]\d{1,2})?|(\d{2}))$/
+const DATE_RE = /^\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?$/
+const LIST_SPLIT_RE = /[,，、;；\n]+/
+
+/** 多选的文本写法拆成数组（逗号、顿号、分号、换行） */
+export function splitList(v: BiValue): string[] {
+  if (v == null || v === '') return []
+  const items = Array.isArray(v) ? v.map(String) : String(v).split(LIST_SPLIT_RE)
+  return [...new Set(items.map((x) => x.trim()).filter(Boolean))]
+}
+
+/** 固定值是否合法（类型 / 可选值 / 范围）；合法返回 '' */
+export function paramValueProblem(p: BiParamDef, v: BiValue | undefined): string {
+  if (v == null || v === '' || (Array.isArray(v) && v.length === 0)) return ''
+  const name = p.label || p.name
+  if (typeof v === 'string' && PARAM_TOKENS[p.type]?.some((t) => t.value === v)) return ''
+  const notIn = (x: string | number | boolean) =>
+    p.options?.length && !p.options.some((o) => String(o.value) === String(x)) ? `参数「${name}」的值「${x}」不在可选值中` : ''
+  if (p.type === 'list') {
+    for (const x of splitList(v)) {
+      const bad = notIn(x)
+      if (bad) return bad
+    }
+    return ''
+  }
+  if (Array.isArray(v)) return `参数「${name}」不是多选参数，只能是一个值`
+  switch (p.type) {
+    case 'number': {
+      const n = typeof v === 'number' ? v : Number(String(v).trim())
+      if (!Number.isFinite(n)) return `参数「${name}」须为数字`
+      if (p.min != null && n < p.min) return `参数「${name}」不能小于 ${p.min}`
+      if (p.max != null && n > p.max) return `参数「${name}」不能大于 ${p.max}`
+      return notIn(n)
+    }
+    case 'month': {
+      const m = String(v).trim().match(MONTH_RE)
+      const mo = m ? Number(m[2] ?? m[3]) : 0
+      return m && mo >= 1 && mo <= 12 ? '' : `参数「${name}」须为月份（YYYY-MM，如 2026-09）`
+    }
+    case 'date':
+      return DATE_RE.test(String(v).trim()) ? '' : `参数「${name}」须为日期（YYYY-MM-DD）`
+    case 'bool':
+      return [true, false, 1, 0, '1', '0', 'true', 'false'].includes(v as never) ? '' : `参数「${name}」须为 true / false`
+    default:
+      return notIn(v)
+  }
+}
+
+/** 参数定义的问题（编辑器即时提示；与后端 normalizeConstraints / normalizeDefault 一致） */
+export function paramDefProblems(p: BiParamDef): string[] {
+  const out: string[] = []
+  const hasOptions = !!p.options?.length
+  if ((hasOptions || p.optionsQuery) && !['string', 'number', 'list'].includes(p.type)) out.push('只有文本 / 数字 / 多选参数能设置可选值')
+  if (hasOptions && p.optionsQuery) out.push('固定可选值与「来自查询」只能选一种')
+  if (p.optionsQuery && (!p.optionsQuery.queryKey || !p.optionsQuery.valueColumn)) out.push('请选择选项来源的查询与取值列')
+  if (hasOptions) {
+    const vals = p.options!.map((o) => String(o.value))
+    if (new Set(vals).size !== vals.length) out.push('可选值有重复')
+    if (p.type === 'number' && vals.some((x) => !Number.isFinite(Number(x)))) out.push('数字参数的可选值须为数字')
+  }
+  if ((p.min != null || p.max != null) && p.type !== 'number') out.push('只有数字参数能设置范围')
+  if (p.min != null && p.max != null && p.min > p.max) out.push('最小值不能大于最大值')
+  const dv = paramValueProblem(p, p.default)
+  if (dv) out.push(`默认值：${dv.replace(/^参数「[^」]*」/, '')}`)
+  return out
+}
+
+/** 下拉选项 ⇄ 文本（每行「值=显示名」，值与显示名相同时只写一个） */
+export const optionsToText = (options?: BiFilter['options']) =>
+  (options || []).map((o) => (String(o.value) === o.label ? o.label : `${o.value}=${o.label}`)).join('\n')
+export function textToOptions(text: string): NonNullable<BiFilter['options']> {
+  return text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => {
+      const i = l.indexOf('=')
+      return i > 0 ? { value: l.slice(0, i).trim(), label: l.slice(i + 1).trim() } : { value: l, label: l }
+    })
 }
 
 const filterRef = (name: string) => `$filter.${name}`
 
 /** 参数取值来源的描述 */
-export type ParamSource = { kind: 'filter'; filter: string } | { kind: 'fixed'; value: BiScalar } | { kind: 'none' }
+export type ParamSource = { kind: 'filter'; filter: string } | { kind: 'fixed'; value: BiValue } | { kind: 'none' }
 
-export function paramSource(v: BiScalar | undefined): ParamSource {
+export function paramSource(v: BiValue | undefined): ParamSource {
   if (v === undefined) return { kind: 'none' }
   if (typeof v === 'string' && v.startsWith('$filter.')) return { kind: 'filter', filter: v.slice(8) }
   return { kind: 'fixed', value: v }
@@ -251,8 +390,8 @@ export function paramSource(v: BiScalar | undefined): ParamSource {
 export function autoBindParams(
   queryParams: BiParamDef[],
   filters: BiFilter[],
-  current: Record<string, BiScalar> = {},
-): Record<string, BiScalar> {
+  current: Record<string, BiValue> = {},
+): Record<string, BiValue> {
   const out = { ...current }
   const setKeys = new Set(Object.keys(out).map((k) => k.toLowerCase()))
   for (const p of queryParams) {
@@ -271,8 +410,8 @@ export function autoBindDrill(
   targetParams: BiParamDef[],
   sourceColumns: string[],
   filters: BiFilter[],
-  current: { bind: Record<string, string>; params: Record<string, BiScalar> },
-): { bind: Record<string, string>; params: Record<string, BiScalar> } {
+  current: { bind: Record<string, string>; params: Record<string, BiValue> },
+): { bind: Record<string, string>; params: Record<string, BiValue> } {
   const bind = { ...current.bind }
   const params = { ...current.params }
   const taken = new Set([...Object.keys(bind), ...Object.keys(params)].map((k) => k.toLowerCase()))
@@ -395,7 +534,7 @@ export function cardProblems(
   card: BiCard,
   queries: Map<string, QueryRef>,
   filterNames?: Set<string>,
-  { requireSources = true }: { requireSources?: boolean } = {},
+  { requireSources = true, filters = [] }: { requireSources?: boolean; filters?: BiFilter[] } = {},
 ): string[] {
   const problems: string[] = []
   if (!card.title.trim()) problems.push('标题不能为空')
@@ -406,12 +545,23 @@ export function cardProblems(
   }
   const names = (x: QueryRef) => new Set(x.params.map((p) => p.name.toLowerCase()))
   const colSet = (x: QueryRef) => (x.columns?.length ? new Set(x.columns.map((c) => c.column)) : null)
-  const checkLevel = (where: string, target: QueryRef, params: Record<string, BiScalar>, enc: BiEncoding, type: BiCardType, provided: string[]) => {
-    const n = names(target)
+  const checkLevel = (where: string, target: QueryRef, params: Record<string, BiValue>, enc: BiEncoding, type: BiCardType, provided: string[]) => {
+    const defs = new Map(target.params.map((p) => [p.name.toLowerCase(), p]))
     for (const [k, v] of Object.entries(params || {})) {
-      if (!n.has(k.toLowerCase())) problems.push(`${where}「${k}」不是查询的参数`)
+      const def = defs.get(k.toLowerCase())
+      if (!def) {
+        problems.push(`${where}「${k}」不是查询的参数`)
+        continue
+      }
       const src = paramSource(v)
       if (filterNames && src.kind === 'filter' && !filterNames.has(src.filter)) problems.push(`${where}参数「${k}」引用的筛选「${src.filter}」不存在`)
+      // 多选筛选的值是一组，只能传给多选参数
+      const f = src.kind === 'filter' ? filters.find((x) => x.name === src.filter) : undefined
+      if (f?.multiple && def.type !== 'list') problems.push(`${where}筛选「${f.label || f.name}」是多选，参数「${def.label || def.name}」不是多选参数`)
+      if (src.kind === 'fixed') {
+        const bad = paramValueProblem(def, src.value)
+        if (bad) problems.push(`${where}${bad}`)
+      }
     }
     const have = new Set([...Object.keys(params || {}), ...provided].map((k) => k.toLowerCase()))
     for (const p of requireSources ? target.params : []) {
@@ -452,10 +602,10 @@ export function cardProblems(
 }
 
 /** 筛选改名 / 删除（to = null）时同步看板卡片（引用）里的 $filter 覆盖；删除时去掉该参数映射 */
-export function renameFilterRefs<T extends { params?: Record<string, BiScalar> }>(refs: T[], from: string, to: string | null): T[] {
+export function renameFilterRefs<T extends { params?: Record<string, BiValue> }>(refs: T[], from: string, to: string | null): T[] {
   return refs.map((r) => {
     if (!r.params) return r
-    const out: Record<string, BiScalar> = {}
+    const out: Record<string, BiValue> = {}
     for (const [k, v] of Object.entries(r.params)) {
       if (v === filterRef(from)) {
         if (to) out[k] = filterRef(to)
@@ -526,9 +676,9 @@ const lowerKeys = (o?: Record<string, unknown>) => new Set(Object.keys(o || {}).
 const withoutKeys = <V,>(o: Record<string, V> | undefined, keys: Set<string>) =>
   Object.fromEntries(Object.entries(o || {}).filter(([k]) => !keys.has(k.toLowerCase()))) as Record<string, V>
 
-function autoBindFilters(defs: BiParamDef[] | undefined, filters: BiFilter[], taken: Set<string>): Record<string, BiScalar> {
+function autoBindFilters(defs: BiParamDef[] | undefined, filters: BiFilter[], taken: Set<string>): Record<string, BiValue> {
   const byLower = new Map(filters.map((f) => [f.name.toLowerCase(), f.name]))
-  const out: Record<string, BiScalar> = {}
+  const out: Record<string, BiValue> = {}
   for (const p of defs || []) {
     const k = p.name.toLowerCase()
     if (taken.has(k)) continue
@@ -578,7 +728,7 @@ export function refProblems(ref: BiCardRef, chart: BiChartDef | undefined, filte
   if (!chart) return [`图表「${ref.chartKey}」不存在`]
   const problems = chart.enabled ? [] : ['图表已停用，看板上不会显示']
   const card = resolveCard(ref, chart, filters, queries)
-  return [...problems, ...cardProblems(card, queries, new Set(filters.map((f) => f.name)))]
+  return [...problems, ...cardProblems(card, queries, new Set(filters.map((f) => f.name)), { filters })]
 }
 
 /** 新卡片 id：优先用 chartKey，重复时加序号 */
@@ -596,15 +746,15 @@ export function nextRefId(chartKey: string, existing: string[]): string {
  * override = 看板覆盖；fixed = 图表固定值；filter = 同名筛选自动提供；default = 查询默认值；none = 没有来源。
  */
 export type EffectiveSource =
-  | { kind: 'override'; value: BiScalar }
-  | { kind: 'fixed'; value: BiScalar }
+  | { kind: 'override'; value: BiValue }
+  | { kind: 'fixed'; value: BiValue }
   | { kind: 'filter'; filter: string }
-  | { kind: 'default'; value: BiScalar }
+  | { kind: 'default'; value: BiValue }
   | { kind: 'none' }
 
 export function effectiveSource(p: BiParamDef, ref: BiCardRef, chart: BiChartDef, filters: BiFilter[]): EffectiveSource {
   const k = p.name.toLowerCase()
-  const find = (o?: Record<string, BiScalar>) => Object.entries(o || {}).find(([x]) => x.toLowerCase() === k)
+  const find = (o?: Record<string, BiValue>) => Object.entries(o || {}).find(([x]) => x.toLowerCase() === k)
   const ov = find(ref.params)
   if (ov) return { kind: 'override', value: ov[1] }
   const fx = find(chart.params)
@@ -623,7 +773,7 @@ export function chartPreviewDashboard(
   chart: BiChartDef,
   queryMap: Map<string, QueryRef>,
   queries: Record<string, BiQueryMeta>,
-  defaults?: Record<string, BiScalar>,
+  defaults?: Record<string, BiValue>,
 ): BiDashboard | null {
   if (chartProblems(chart, queryMap).length > 0) return null
   const filters = suggestFilterParams([chartAsCard(chart)], queryMap, [])

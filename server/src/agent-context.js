@@ -36,6 +36,24 @@ function formatColumns(columns) {
  * 带上语义层：输出列（中文名 / 角色 / 单位）、口径、示例问法，让模型知道每个查询能回答什么、结果列是什么意思。
  * 内容对同一 Agent + 同一角色组合逐字稳定（按 queryKey 排序），不破坏 system prompt 前缀缓存。
  */
+/**
+ * 参数说明：名称:类型、必填、默认值，以及取值约束（模型据此传合法值）：
+ * cmp:string（必填）=yoy，可选 yoy(同比)|mom(环比)；period:month(YYYY-MM)；whs:list(传数组)；top:number[1~100]=10
+ */
+function formatParam(p) {
+  const type = p.type === 'month' ? 'month(YYYY-MM)' : p.type === 'list' ? 'list(多个值传数组，不传=全部)' : p.type;
+  const range = p.min != null || p.max != null ? `[${p.min ?? ''}~${p.max ?? ''}]` : '';
+  const dflt = p.default == null ? '' : `=${Array.isArray(p.default) ? JSON.stringify(p.default) : p.default}`;
+  let s = `${p.name}:${type}${range}${p.required ? '（必填）' : ''}${dflt}`;
+  if (p.options?.length) {
+    s += `，可选 ${p.options.slice(0, 20).map((o) => (String(o.value) === o.label ? String(o.value) : `${o.value}(${o.label})`)).join('|')}`;
+    if (p.options.length > 20) s += ` 等 ${p.options.length} 个`;
+  } else if (p.optionsQuery) {
+    s += `，取值为查询 ${p.optionsQuery.queryKey} 的 ${p.optionsQuery.valueColumn} 列`;
+  }
+  return s;
+}
+
 function formatQueryCatalog(queries) {
   if (!queries || queries.length === 0) return '';
   const lines = [
@@ -43,9 +61,7 @@ function formatQueryCatalog(queries) {
     '',
   ];
   for (const q of queries.slice(0, MAX_CATALOG_QUERIES)) {
-    const params = (q.params || [])
-      .map((p) => `${p.name}:${p.type}${p.required ? '（必填）' : ''}${p.default != null ? `=${p.default}` : ''}`)
-      .join(', ');
+    const params = (q.params || []).map(formatParam).join(', ');
     const caliber = String(q.caliberNote || '').replace(/^\s*口径(说明)?\s*[:：]\s*/, '');
     const block = [];
     let line = `- \`${q.queryKey}\` ${q.label}`;

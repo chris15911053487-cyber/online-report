@@ -15,82 +15,11 @@
 const { sql } = require('./db');
 const { runSqlLimited } = require('./agent-sql');
 const { onQueryChanged, SESSION_PARAMS, sessionParamsUsed } = require('./bi-queries');
-
-class BiParamError extends Error {
-  constructor(message) {
-    super(message);
-    this.name = 'BiParamError';
-    this.code = 'BI_BAD_PARAM';
-  }
-}
+const { BiParamError, coerceParam, resolveParams, MAX_STRING_PARAM } = require('./bi-params');
 
 function envInt(name, fallback, min = 0) {
   const n = Number(process.env[name]);
   return Number.isFinite(n) && n >= min ? Math.floor(n) : fallback;
-}
-
-const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/;
-const MAX_STRING_PARAM = 400;
-
-/** 单个参数值转换；返回 { value, type }，value 为 null 表示绑定 NULL */
-function coerceParam(def, raw) {
-  if (raw === undefined || raw === null || raw === '') return { value: null };
-  switch (def.type) {
-    case 'number': {
-      const n = typeof raw === 'number' ? raw : Number(String(raw).trim());
-      if (!Number.isFinite(n)) throw new BiParamError(`参数「${def.label || def.name}」须为数字`);
-      return { value: n };
-    }
-    case 'bool': {
-      if (raw === true || raw === 1 || raw === '1' || raw === 'true') return { value: true };
-      if (raw === false || raw === 0 || raw === '0' || raw === 'false') return { value: false };
-      throw new BiParamError(`参数「${def.label || def.name}」须为 true / false`);
-    }
-    case 'date': {
-      const s = String(raw).trim();
-      const m = s.match(DATE_RE);
-      if (!m) throw new BiParamError(`参数「${def.label || def.name}」须为日期（YYYY-MM-DD）`);
-      // 校验真实存在的日期（2026-02-30 之类直接拒绝），统一成 YYYY-MM-DD[ HH:mm:ss]
-      const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
-      const dt = new Date(Date.UTC(y, mo - 1, d));
-      if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) {
-        throw new BiParamError(`参数「${def.label || def.name}」不是有效日期`);
-      }
-      const time = m[4] ? ` ${m[4]}:${m[5]}:${m[6] || '00'}` : '';
-      return { value: `${m[1]}-${m[2]}-${m[3]}${time}` };
-    }
-    default: {
-      if (typeof raw === 'object') throw new BiParamError(`参数「${def.label || def.name}」须为文本`);
-      const s = String(raw);
-      if (s.length > MAX_STRING_PARAM) {
-        throw new BiParamError(`参数「${def.label || def.name}」不能超过 ${MAX_STRING_PARAM} 字符`);
-      }
-      return { value: s };
-    }
-  }
-}
-
-/**
- * 按定义解析全部参数：入参按名字大小写不敏感匹配，缺省用 default，缺必填报错。
- * 返回 { name: value } ——只含定义里声明的参数，顺序与定义一致（用于缓存 key 稳定）。
- */
-function resolveParams(defs, input) {
-  const src = {};
-  for (const [k, v] of Object.entries(input && typeof input === 'object' ? input : {})) {
-    src[String(k).replace(/^@/, '').toLowerCase()] = v;
-  }
-  const out = {};
-  for (const def of defs || []) {
-    const key = def.name.toLowerCase();
-    let raw = Object.prototype.hasOwnProperty.call(src, key) ? src[key] : undefined;
-    if (raw === undefined || raw === null || raw === '') raw = def.default;
-    const { value } = coerceParam(def, raw);
-    if (value === null && def.required) {
-      throw new BiParamError(`缺少必填参数「${def.label || def.name}」`);
-    }
-    out[def.name] = value;
-  }
-  return out;
 }
 
 /**
@@ -130,6 +59,11 @@ function sqlTypeFor(def, value) {
       return sql.Bit;
     case 'date':
       return sql.DateTime2(0);
+    case 'month':
+      return sql.NVarChar(7);
+    // 多选：JSON 数组文本，SQL 里 IN (SELECT value FROM OPENJSON(@x))
+    case 'list':
+      return sql.NVarChar(sql.MAX);
     default:
       return sql.NVarChar(MAX_STRING_PARAM);
   }
@@ -143,7 +77,10 @@ async function executeQuery(pool, query, params, opts = {}) {
   for (const def of query.params || []) {
     const v = params[def.name];
     const isInt = def.type === 'number' && v != null && Number.isSafeInteger(Number(v));
-    request.input(def.name, sqlTypeFor(def, v), def.type === 'number' && v != null ? (isInt ? Number(v) : String(v)) : v);
+    let bound = v;
+    if (def.type === 'number' && v != null) bound = isInt ? Number(v) : String(v);
+    else if (def.type === 'list' && v != null) bound = JSON.stringify(v);
+    request.input(def.name, sqlTypeFor(def, v), bound);
   }
   bindSession(request, query, opts.session);
   // hardCap = maxRows + 1：只需知道「是否超出」，不为统计总数扫完大结果集

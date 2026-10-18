@@ -104,6 +104,7 @@ export default function BiAdminView() {
         initial={editQuery.draft}
         isNew={editQuery.isNew}
         availableRoles={availableRoles}
+        availableQueries={availableQueries}
         initialTestValues={ai ? Object.fromEntries(Object.entries(ai.sampleParams).map(([k, v]) => [k, v == null ? '' : String(v)])) : undefined}
         banner={
           ai && (

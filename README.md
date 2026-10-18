@@ -248,14 +248,18 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 
 **同比 / 环比**：查询固定输出 `Cur` / `Prev` / `GrowthRate`（`(Cur - Prev) / NULLIF(ABS(Prev), 0)`）三列，用参数 `cmp`（`yoy` / `mom`）切换对比期，按客户 / 产品再加 `periodType`（`month` / `ytd`）；看板放同名下拉筛选，切换即整板生效。展示用三个 encoding 字段（前后端同一校验：`bi-charts.js` 的 `rightAxisProblem`、`utils/biAdmin.ts` 同名函数）：`rightAxis`（柱 / 线组合，`values` 中的这些列画成折线走右轴并按其列语义格式显示，两轴 0 刻度自动对齐（`biOption.ts` 的 `alignedAxisRanges`：同格数、整步长），须留至少一列在左轴，不能与 `series`、`horizontal` 同用）、`deltaColumns`（表格涨跌着色列，▲▼）、`trend`（`up-good` / `up-bad`，KPI 增长率与表格涨跌列的颜色，不写为中性色）。KPI 配了 `compare` 时同时显示对比期数值。卡片标题 / 副标题 / 列中文名支持 `{筛选名}` 占位符（select 换成选项文字，其余换成值；前端 `utils/bi.ts`、后端 `bi-tokens.js` 的 `filterDisplayText` / `fillPlaceholders`，每日要点也替换）。SQL 模板见说明书「BI 看板管理 · 同比 / 环比怎么配」；AI 起草按此模式生成（`bi-draft.js` 的 SQL_RULES）。
 
+**参数类型与取值约束**（`server/src/bi-params.js`，前端 `utils/biAdmin.ts` 的 `paramValueProblem` / `paramDefProblems` 同规则）：参数定义 `{ name, type, label, required, default?, options?, optionsQuery?, min?, max? }`。`type` 为 `string` / `number` / `date` / `bool` / `month`（`YYYY-MM` 文本，`2026-9`、`202609` 自动规范，绑定 `NVarChar(7)`）/ `list`（多选：数组、JSON 数组文本或「A,B」都接受，去空去重、≤200 项，空 = `NULL`，绑定为 JSON 数组文本 `NVarChar(MAX)`，SQL 写 `(@x IS NULL OR col IN (SELECT value FROM OPENJSON(@x)))`，需兼容级别 ≥130）。`options`（文本 / 数字 / 多选的固定可选值，≤100）：传入不在其中的值返回 400 并列出可选值，防止落进 SQL 的 `ELSE` 分支；`optionsQuery`（`{ queryKey, valueColumn, labelColumn? }`，选项来自另一条命名查询，执行时不逐值核对；保存查询时检查来源存在、无必填参数、列在输出列中，不能指向自己）；`min` / `max`（数字范围）。默认值与入参都按这些约束校验；`date` / `month` / 年份类 `number` 的入参或默认值可写动态值（`$thisMonth` 等，按中国日期解析）。图表 / 看板卡片的固定值同样按约束检查；多选参数的固定值可写数组。下拉选项接口 `POST /bi/options`（`{ queryKey, valueColumn, labelColumn }`，权限同 `/bi/query`，按取值列去重最多 500 项，走结果缓存）。Agent 查询目录写明可选值、月份格式、多选传数组与范围（`agent-context.js` 的 `formatParam`），AI 起草按 `month` / `options` / `list` 生成参数。
+
+**看板筛选的多选与选项来源**：`select` 筛选可加 `multiple: true`（值为数组、默认值可写数组，不选 = 全部；只能传给 `list` 参数，保存看板时检查）和 `optionsQuery`（与 `options` 二选一，前端 `utils/biOptions.ts` 的 `useFilterOptions` 经 `/bi/options` 取，取不到时退回文本输入）。由参数「建成筛选」时带出参数的可选值 / 选项来源，`list` 参数生成多选下拉，`bool` 生成是 / 否下拉；已有下拉筛选可一键「带出参数的选项」。`{筛选名}` 占位符对多选列前 3 项、其余写「等 N 项」。看板点击上下文（`bi-context.js`）的 `params` / `filters` 保留标量短数组（≤50 项），AI 追问可原样复用多选参数。
+
 **SAP 自定义表（@ 开头）**：表名写成 `[@U_OHEC]` 或 `"@U_OHEC"`，方括号 / 双引号里的 `@` 不会被识别成参数。不加括号（`FROM @U_OHEC`、`JOIN dbo.@U_OHEC`）时，查询编辑器在 SQL 下方提示改写、不把它放进参数表，服务端拒绝保存与试运行并给出正确写法（SQL Server 本身也会把它当表变量报错）。实现 `bi-queries.js` / `utils/biAdmin.ts` 的 `bareTableRefs`。
 
 **配置流程**（管理后台 →「BI 看板管理」，全部表单化，看板另可切到 JSON）：
 
-1. **查询库**：写 SQL → `@参数` 自动识别成参数表（类型 / 必填 / 默认值）→ 试运行（按参数类型生成输入框）→ **自动识别输出列**（按数据库列类型和列名预填角色：维度 / 度量 / 时间 / 属性，度量预填格式）→ 核对中文名、单位、缩放 → 填「回答什么问题」「示例问法」（AI 据此选查询）
+1. **查询库**：写 SQL → `@参数` 自动识别成参数表（类型 / 必填 / 默认值；`period` / `month` 类名称猜为月份；参数名下「取值」设可选值 / 来自查询 / 范围）→ 试运行（按参数类型生成输入框，可选值为下拉、多选为勾选）→ **自动识别输出列**（按数据库列类型和列名预填角色：维度 / 度量 / 时间 / 属性，度量预填格式）→ 核对中文名、单位、缩放 → 填「回答什么问题」「示例问法」（AI 据此选查询）
 2. **图表**：选查询 → 选类型，维度 / 度量按列语义自动预选 → 列从输出列下拉选，格式 / 单位 / 缩放不填即**继承列语义** → 需要时把个别参数写成固定值（如 Top N）→ 配下钻（参数优先从上一级同名列取值）→ 右侧**实时预览**（未固定的参数临时生成筛选条）
-3. **看板**：从下拉添加图表（按类型自动定尺寸：KPI 1/4 并排在最前、折线 / 表格整行、柱状 1/2、饼图 1/3）→ 在**看板画布**上排版：拖 ⠿ 换位置、拖右边缘改宽度、拖下边缘改高度，画布即真实效果 → 点卡片在右侧改标题 / 参数来源 → 图表需要但没有来源的参数会提示「建议建成筛选」，一键生成（期间 → 月份、年份 → 年份、日期参数 → 日期）；筛选改名 / 删除同步更新卡片上的覆盖
-4. **引用完整性**：保存图表时校验参数存在、用到的列在查询输出列中；保存看板时展开后再查必填参数是否有来源。修改查询 / 图表后若下游对不上，保存成功但列出受影响的图表与看板卡片。删除时：查询被图表用到、图表被看板用到、看板被 Agent 关联，均不能删
+3. **看板**：从下拉添加图表（按类型自动定尺寸：KPI 1/4 并排在最前、折线 / 表格整行、柱状 1/2、饼图 1/3）→ 在**看板画布**上排版：拖 ⠿ 换位置、拖右边缘改宽度、拖下边缘改高度，画布即真实效果 → 点卡片在右侧改标题 / 参数来源 → 图表需要但没有来源的参数会提示「建议建成筛选」，一键生成（期间 → 月份、年份 → 年份、日期参数 → 日期、有可选值 → 下拉并带出选项、多选参数 → 多选下拉）；筛选改名 / 删除同步更新卡片上的覆盖
+4. **引用完整性**：保存图表时校验参数存在、用到的列在查询输出列中、固定值符合参数约束；保存看板时展开后再查必填参数是否有来源、多选筛选只传给多选参数。修改查询 / 图表后若下游对不上，保存成功但列出受影响的图表与看板卡片。删除时：查询被图表用到、图表被看板用到、看板被 Agent 关联，均不能删
 
 **界面**：PC 左侧对话、右侧「📊 看板 / 当前结果」两个页签（回答出来后自动切到结果）；移动端顶部「看板 / 对话」页签。点击 KPI 数字或图表元素弹出通用浮层：
 
@@ -315,7 +319,7 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 
 柱 / 线上的数值标签：`encoding.labels` = `show` / `hide`，不写为自动（单系列柱形图 ≤12 根、横向条形 ≤20 根时标；多系列不标；单条折线只标最后一个点），规则在 `utils/biOption.ts` 的 `labelPlan()`。
 
-`encoding` 还支持 `values`（多系列）、`series`（长表透视）、`compare`（KPI 对比列，显示环比）、`columns`（表格列与格式）、`format`（`number` / `money` / `percent` / `integer`）。筛选类型 `month`（月份）/ `year`（年份，近 10 年下拉，值如 `2026`）/ `date` / `select` / `string`；默认值可用 `$today` `$yesterday` `$thisMonth` `$lastMonth` `$monthStart` `$yearStart` `$thisYear` `$lastYear`（前端 `resolveDefaultToken` 与服务端 `bi-tokens.js` 同一清单）。查询参数名为 `year` 时「一键建成筛选」生成年份筛选，默认今年。
+`encoding` 还支持 `values`（多系列）、`series`（长表透视）、`compare`（KPI 对比列，显示环比）、`columns`（表格列与格式）、`format`（`number` / `money` / `percent` / `integer`）。筛选类型 `month`（月份）/ `year`（年份，近 10 年下拉，值如 `2026`）/ `date` / `select`（可 `multiple`，选项 `options` 或 `optionsQuery`）/ `string`；默认值可用 `$today` `$yesterday` `$thisMonth` `$lastMonth` `$monthStart` `$yearStart` `$thisYear` `$lastYear`（前端 `resolveDefaultToken` 与服务端 `bi-tokens.js` 同一清单）。查询参数名为 `year` 时「一键建成筛选」生成年份筛选，默认今年。
 
 **安全与缓存**：
 

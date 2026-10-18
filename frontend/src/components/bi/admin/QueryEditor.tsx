@@ -4,16 +4,17 @@
  * 输出列语义是看板配置的基础：卡片的维度 / 度量只能从这里选，格式 / 单位默认从这里继承。
  * 保存后若用到它的图表 / 看板对不上（删了列、改了参数），接口返回 warnings，编辑器保持打开并列出。
  */
-import { useMemo, useState } from 'react'
-import type { BiScalar } from '../../../utils/bi'
-import { Loader2, Play, Sparkles, Trash2, Undo2, Wand2 } from 'lucide-react'
+import { Fragment, useMemo, useState } from 'react'
+import type { BiValue } from '../../../utils/bi'
+import { ChevronDown, ChevronRight, Loader2, Play, Sparkles, Trash2, Undo2, Wand2 } from 'lucide-react'
 import { useStore } from '../../../store'
 import { apiFetch } from '../../../utils/api'
 import type { BiColumnRole, BiColumnSemantic, BiFormat, BiParamDef } from '../../../utils/bi'
-import { COLUMN_ROLE_LABEL, FORMAT_LABEL, bareTableRefs, extractSqlParams, mergeDetectedColumns, sessionParamsUsed, syncParamsWithSql } from '../../../utils/biAdmin'
-import { AdminPage, Badge, Button, Checkbox, ChipSelect, Code, EditorActions, Field, IconButton, Input, Notice, ResultTable, Section, Textarea } from '../../../ui'
+import { COLUMN_ROLE_LABEL, FORMAT_LABEL, bareTableRefs, extractSqlParams, mergeDetectedColumns, optionsToText, paramDefProblems, sessionParamsUsed, syncParamsWithSql, textToOptions } from '../../../utils/biAdmin'
+import { AdminPage, Badge, Button, Checkbox, ChipSelect, Code, EditorActions, Field, IconButton, Input, Notice, ResultTable, Section, Segmented, Textarea } from '../../../ui'
 import { compactInputClass, tableClass, tdClass, thClass } from '../../../ui/classes'
-import { errMsg, type BiQueryAdmin, type TestResult } from './types'
+import { errMsg, type BiQueryAdmin, type QueryOption, type TestResult } from './types'
+import ParamValueInput from './ParamValueInput'
 import { useRoleLabels } from '../../../hooks/useAppRoles'
 
 const SCALE_OPTIONS = [
@@ -24,7 +25,127 @@ const SCALE_OPTIONS = [
   { value: '100000000', label: '亿' },
 ]
 
-const PARAM_TYPE_LABEL: Record<BiParamDef['type'], string> = { string: '文本', number: '数字', date: '日期', bool: '是/否' }
+const PARAM_TYPE_LABEL: Record<BiParamDef['type'], string> = { string: '文本', number: '数字', date: '日期', month: '月份', bool: '是/否', list: '多选' }
+
+/** 改类型时去掉不再适用的约束（可选值只给文本 / 数字 / 多选，范围只给数字） */
+function changeParamType(p: BiParamDef, type: BiParamDef['type']): BiParamDef {
+  const next: BiParamDef = { ...p, type }
+  if (!['string', 'number', 'list'].includes(type)) {
+    delete next.options
+    delete next.optionsQuery
+  }
+  if (type !== 'number') {
+    delete next.min
+    delete next.max
+  }
+  if (Array.isArray(next.default) && type !== 'list') delete next.default
+  return next
+}
+
+/** 参数「取值」一栏的摘要 */
+function constraintSummary(p: BiParamDef): string {
+  const parts: string[] = []
+  if (p.options?.length) parts.push(`${p.options.length} 个可选值`)
+  if (p.optionsQuery) parts.push(`来自 ${p.optionsQuery.queryKey || '查询'}`)
+  if (p.min != null || p.max != null) parts.push(`${p.min ?? ''}~${p.max ?? ''}`)
+  return parts.join('，') || '不限'
+}
+
+/** 参数的取值约束：可选值（固定 / 来自查询）、数字范围，以及按类型的 SQL 写法提示 */
+function ParamConstraints({ p, selfKey, queries, onPatch }: { p: BiParamDef; selfKey: string; queries: QueryOption[]; onPatch: (next: BiParamDef) => void }) {
+  const canOptions = ['string', 'number', 'list'].includes(p.type)
+  const mode: 'none' | 'fixed' | 'query' = p.optionsQuery ? 'query' : p.options ? 'fixed' : 'none'
+  const setMode = (m: 'none' | 'fixed' | 'query') => {
+    const next = { ...p }
+    delete next.options
+    delete next.optionsQuery
+    if (m === 'fixed') next.options = []
+    if (m === 'query') next.optionsQuery = { queryKey: '', valueColumn: '' }
+    onPatch(next)
+  }
+  const sources = queries.filter((q) => q.queryKey !== selfKey && q.enabled)
+  const src = sources.find((q) => q.queryKey === p.optionsQuery?.queryKey)
+  const setOq = (patch: Partial<NonNullable<BiParamDef['optionsQuery']>>) => onPatch({ ...p, optionsQuery: { queryKey: '', valueColumn: '', ...p.optionsQuery, ...patch } })
+  const colSelect = (value: string, onChange: (v: string) => void, label: string, optional?: boolean) =>
+    src?.columns.length ? (
+      <select className={compactInputClass} aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">{optional ? '（同取值列）' : '选择列'}</option>
+        {src.columns.map((c) => (
+          <option key={c.column} value={c.column}>
+            {c.label ? `${c.label}（${c.column}）` : c.column}
+          </option>
+        ))}
+      </select>
+    ) : (
+      <input className={compactInputClass + ' font-mono'} aria-label={label} placeholder={optional ? '显示列（可空）' : '取值列名'} value={value} onChange={(e) => onChange(e.target.value.trim())} />
+    )
+
+  return (
+    <div className="flex flex-col gap-2.5 py-1">
+      {canOptions && (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[12px] text-muted w-14 shrink-0">可选值</span>
+            <Segmented
+              size="sm"
+              value={mode}
+              onChange={setMode}
+              options={[
+                { value: 'none', label: '不限' },
+                { value: 'fixed', label: '固定选项' },
+                { value: 'query', label: '来自查询' },
+              ]}
+            />
+          </div>
+          {mode === 'fixed' && (
+            <textarea
+              className={compactInputClass + ' h-auto py-1.5 font-mono'}
+              rows={3}
+              aria-label={`参数 ${p.name} 可选值`}
+              placeholder={'每行一个：值=显示名\nyoy=同比\nmom=环比'}
+              defaultValue={optionsToText(p.options)}
+              onBlur={(e) => onPatch({ ...p, options: textToOptions(e.target.value).map((o) => (p.type === 'number' && Number.isFinite(Number(o.value)) ? { ...o, value: Number(o.value) } : o)) })}
+            />
+          )}
+          {mode === 'query' && (
+            <div className="grid gap-2 sm:grid-cols-3">
+              <select className={compactInputClass} aria-label="选项来源查询" value={p.optionsQuery?.queryKey || ''} onChange={(e) => setOq({ queryKey: e.target.value, valueColumn: '', labelColumn: undefined })}>
+                <option value="">选择查询</option>
+                {sources.map((q) => (
+                  <option key={q.queryKey} value={q.queryKey}>
+                    {q.label}（{q.queryKey}）
+                  </option>
+                ))}
+              </select>
+              {colSelect(p.optionsQuery?.valueColumn || '', (v) => setOq({ valueColumn: v }), '取值列')}
+              {colSelect(p.optionsQuery?.labelColumn || '', (v) => setOq({ labelColumn: v || undefined }), '显示列', true)}
+            </div>
+          )}
+          {mode === 'fixed' && <p className="text-[11.5px] text-subtle">传入不在其中的值会直接报错并列出可选值；看板上同名下拉筛选可一键带出这些选项。</p>}
+          {mode === 'query' && <p className="text-[11.5px] text-subtle">来源查询不能有必填参数；下拉里按取值列去重，最多 500 项。执行时不逐值核对。</p>}
+        </div>
+      )}
+      {p.type === 'number' && (
+        <div className="flex items-center gap-2">
+          <span className="text-[12px] text-muted w-14 shrink-0">范围</span>
+          <input className={compactInputClass + ' w-24'} type="number" aria-label="最小值" placeholder="最小" value={p.min ?? ''} onChange={(e) => onPatch({ ...p, min: e.target.value === '' ? undefined : Number(e.target.value) })} />
+          <span className="text-subtle">~</span>
+          <input className={compactInputClass + ' w-24'} type="number" aria-label="最大值" placeholder="最大" value={p.max ?? ''} onChange={(e) => onPatch({ ...p, max: e.target.value === '' ? undefined : Number(e.target.value) })} />
+        </div>
+      )}
+      {p.type === 'list' && (
+        <p className="text-[11.5px] text-muted">
+          多选在 SQL 里这样写（不选 = 全部）：<Code>(@{p.name} IS NULL OR 列 IN (SELECT value FROM OPENJSON(@{p.name})))</Code>
+        </p>
+      )}
+      {p.type === 'month' && (
+        <p className="text-[11.5px] text-muted">
+          值为 <Code>YYYY-MM</Code> 文本（2026-9、202609 会自动规范成 2026-09），例如 <Code>CONVERT(char(7), T0.DocDate, 120) = @{p.name}</Code>
+        </p>
+      )}
+    </div>
+  )
+}
 
 /** 提交体：示例问法按行拆分 */
 function toBody(d: BiQueryAdmin, samplesText: string) {
@@ -48,6 +169,7 @@ export default function QueryEditor({
   initial,
   isNew,
   availableRoles,
+  availableQueries = [],
   initialTestValues,
   banner,
   onDone,
@@ -55,6 +177,8 @@ export default function QueryEditor({
   initial: BiQueryAdmin
   isNew: boolean
   availableRoles: string[]
+  /** 可作为「选项来自查询」来源的查询（公开元数据） */
+  availableQueries?: QueryOption[]
   /** 试运行参数的初始值（AI 草稿带来的示例参数） */
   initialTestValues?: Record<string, string>
   /** 页面顶部的提示（如 AI 草稿说明） */
@@ -71,9 +195,10 @@ export default function QueryEditor({
   const [savedOnce, setSavedOnce] = useState(false)
   const [saving, setSaving] = useState(false)
   const [warnings, setWarnings] = useState<string[]>([])
-  const [testValues, setTestValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(initial.params.map((p) => [p.name, initialTestValues?.[p.name] ?? (p.default == null ? '' : String(p.default))])),
+  const [testValues, setTestValues] = useState<Record<string, BiValue>>(() =>
+    Object.fromEntries(initial.params.map((p) => [p.name, initialTestValues?.[p.name] ?? p.default ?? ''])),
   )
+  const [openParam, setOpenParam] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [testError, setTestError] = useState('')
@@ -95,6 +220,7 @@ export default function QueryEditor({
   const setSql = (sqlText: string) => setD((cur) => ({ ...cur, sqlText, params: syncParamsWithSql(cur.params, sqlText).params }))
   const patchParam = (name: string, p: Partial<BiParamDef>) =>
     setD((cur) => ({ ...cur, params: cur.params.map((x) => (x.name === name ? { ...x, ...p } : x)) }))
+  const replaceParam = (name: string, next: BiParamDef) => setD((cur) => ({ ...cur, params: cur.params.map((x) => (x.name === name ? next : x)) }))
   const removeParam = (name: string) => setD((cur) => ({ ...cur, params: cur.params.filter((x) => x.name !== name) }))
   const patchColumn = (column: string, p: Partial<BiColumnSemantic>) =>
     setD((cur) => ({ ...cur, columns: cur.columns.map((c) => (c.column === column ? { ...c, ...p } : c)) }))
@@ -121,8 +247,12 @@ export default function QueryEditor({
   }
 
   const currentParams = () => {
-    const params: Record<string, string> = {}
-    for (const p of d.params) if (testValues[p.name]?.trim()) params[p.name] = testValues[p.name].trim()
+    const params: Record<string, BiValue> = {}
+    for (const p of d.params) {
+      const v = testValues[p.name]
+      if (v == null || v === '' || (Array.isArray(v) && v.length === 0)) continue
+      params[p.name] = typeof v === 'string' ? v.trim() : v
+    }
     return params
   }
   const snapshot = () => ({ d: structuredClone(d), samplesText })
@@ -140,13 +270,13 @@ export default function QueryEditor({
     setAiBusy('revise')
     try {
       const r = (await apiFetch('/admin/bi/ai/revise-query', { method: 'POST', body: JSON.stringify({ query: toBody(d, samplesText), instruction }) })) as {
-        revision: { query: BiQueryAdmin; sample: TestResult; sampleParams: Record<string, BiScalar>; changes: string; notes: string; removedColumns: string[]; attempts: number }
+        revision: { query: BiQueryAdmin; sample: TestResult; sampleParams: Record<string, BiValue>; changes: string; notes: string; removedColumns: string[]; attempts: number }
       }
       const v = r.revision
       const undo = snapshot()
       setD((cur) => ({ ...cur, sqlText: v.query.sqlText, params: syncParamsWithSql(v.query.params, v.query.sqlText).params, columns: v.query.columns, caliberNote: v.query.caliberNote, description: v.query.description || cur.description }))
       setSamplesText(v.query.sampleQuestions.join('\n'))
-      setTestValues((cur) => ({ ...cur, ...Object.fromEntries(Object.entries(v.sampleParams).map(([k, x]) => [k, x == null ? '' : String(x)])) }))
+      setTestValues((cur) => ({ ...cur, ...Object.fromEntries(Object.entries(v.sampleParams).map(([k, x]) => [k, x ?? ''])) }))
       setTestResult({ ...v.sample, truncated: false, durationMs: 0 })
       setTestError('')
       setColumnNote('')
@@ -333,47 +463,72 @@ export default function QueryEditor({
                     </tr>
                   </thead>
                   <tbody>
-                    {d.params.map((p) => (
-                      <tr key={p.name}>
-                        <td className={tdClass}>
-                          <Code>@{p.name}</Code>
-                          {unusedParams.has(p.name) && (
-                            <Badge tone="warning" className="ml-1">
-                              SQL 未使用
-                            </Badge>
+                    {d.params.map((p) => {
+                      const problems = paramDefProblems(p)
+                      const open = openParam === p.name
+                      return (
+                        <Fragment key={p.name}>
+                          <tr className="align-top">
+                            <td className={tdClass}>
+                              <Code>@{p.name}</Code>
+                              {unusedParams.has(p.name) && (
+                                <Badge tone="warning" className="ml-1">
+                                  SQL 未使用
+                                </Badge>
+                              )}
+                              <button
+                                type="button"
+                                className="mt-1 flex items-center gap-0.5 text-[11.5px] text-primary hover:underline whitespace-nowrap"
+                                aria-expanded={open}
+                                title="可选值、范围"
+                                onClick={() => setOpenParam(open ? null : p.name)}
+                              >
+                                {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                                取值：{constraintSummary(p)}
+                              </button>
+                            </td>
+                            <td className={tdClass}>
+                              <input className={compactInputClass + ' min-w-[5rem]'} value={p.label || ''} placeholder={p.name} onChange={(e) => patchParam(p.name, { label: e.target.value })} />
+                            </td>
+                            <td className={tdClass}>
+                              <select className={compactInputClass + ' min-w-[4.5rem]'} value={p.type} onChange={(e) => replaceParam(p.name, changeParamType(p, e.target.value as BiParamDef['type']))}>
+                                {Object.entries(PARAM_TYPE_LABEL).map(([v, l]) => (
+                                  <option key={v} value={v}>
+                                    {l}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className={tdClass}>
+                              <input type="checkbox" className="accent-primary w-4 h-4" checked={!!p.required} onChange={(e) => patchParam(p.name, { required: e.target.checked })} aria-label={`${p.name} 必填`} />
+                            </td>
+                            <td className={tdClass + ' min-w-[7.5rem]'}>
+                              <ParamValueInput
+                                param={p}
+                                ariaLabel={`参数 ${p.name} 默认值`}
+                                value={p.default}
+                                onChange={(v) => patchParam(p.name, { default: v === '' || v == null || (Array.isArray(v) && v.length === 0) ? undefined : v })}
+                              />
+                            </td>
+                            <td className={tdClass + ' w-8'}>
+                              {unusedParams.has(p.name) && (
+                                <IconButton label="删除参数" className="hover:text-danger" onClick={() => removeParam(p.name)}>
+                                  <Trash2 className="w-4 h-4" />
+                                </IconButton>
+                              )}
+                            </td>
+                          </tr>
+                          {(open || problems.length > 0) && (
+                            <tr>
+                              <td className={tdClass} colSpan={6}>
+                                {problems.length > 0 && <p className="text-[12px] text-danger">{problems.join('；')}</p>}
+                                {open && <ParamConstraints p={p} selfKey={d.queryKey.trim().toLowerCase()} queries={availableQueries} onPatch={(next) => replaceParam(p.name, next)} />}
+                              </td>
+                            </tr>
                           )}
-                        </td>
-                        <td className={tdClass}>
-                          <input className={compactInputClass} value={p.label || ''} placeholder={p.name} onChange={(e) => patchParam(p.name, { label: e.target.value })} />
-                        </td>
-                        <td className={tdClass}>
-                          <select className={compactInputClass + ' min-w-[5.5rem]'} value={p.type} onChange={(e) => patchParam(p.name, { type: e.target.value as BiParamDef['type'] })}>
-                            {Object.entries(PARAM_TYPE_LABEL).map(([v, l]) => (
-                              <option key={v} value={v}>
-                                {l}
-                              </option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className={tdClass}>
-                          <input type="checkbox" className="accent-primary w-4 h-4" checked={!!p.required} onChange={(e) => patchParam(p.name, { required: e.target.checked })} aria-label={`${p.name} 必填`} />
-                        </td>
-                        <td className={tdClass}>
-                          <input
-                            className={compactInputClass}
-                            value={p.default == null ? '' : String(p.default)}
-                            onChange={(e) => patchParam(p.name, { default: e.target.value === '' ? undefined : e.target.value })}
-                          />
-                        </td>
-                        <td className={tdClass + ' w-8'}>
-                          {unusedParams.has(p.name) && (
-                            <IconButton label="删除参数" className="hover:text-danger" onClick={() => removeParam(p.name)}>
-                              <Trash2 className="w-4 h-4" />
-                            </IconButton>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
+                        </Fragment>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -388,21 +543,7 @@ export default function QueryEditor({
                       {p.label || p.name}
                       {p.required && <span className="text-danger"> *</span>}
                     </span>
-                    {p.type === 'bool' ? (
-                      <select className={compactInputClass} value={testValues[p.name] ?? ''} onChange={(e) => setTestValues((v) => ({ ...v, [p.name]: e.target.value }))}>
-                        <option value="">（空）</option>
-                        <option value="true">是</option>
-                        <option value="false">否</option>
-                      </select>
-                    ) : (
-                      <input
-                        className={compactInputClass}
-                        type={p.type === 'date' ? 'date' : p.type === 'number' ? 'number' : 'text'}
-                        value={testValues[p.name] ?? ''}
-                        placeholder={p.name === 'period' ? '2026-09' : ''}
-                        onChange={(e) => setTestValues((v) => ({ ...v, [p.name]: e.target.value }))}
-                      />
-                    )}
+                    <ParamValueInput param={p} ariaLabel={`试运行参数 ${p.name}`} value={testValues[p.name]} onChange={(v) => setTestValues((cur) => ({ ...cur, [p.name]: v }))} />
                   </label>
                 ))}
                 <Button variant="soft" icon={<Play className="w-3.5 h-3.5" />} onClick={() => void runTest()} disabled={testing || !d.sqlText.trim()}>

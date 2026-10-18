@@ -5,7 +5,7 @@
  * 点中某行进入下一级时：下一级参数 = 之前各级累积的绑定值 + 该级 params（$filter 解析）+ 本次 bind 从行里取的列值。
  * 累积是为了让第 3 级仍能拿到第 1 级绑定的客户编码等；服务端只绑定查询声明过的参数，多传无害。
  */
-import { resolveCardParams, type BiCard, type BiCardType, type BiEncoding, type BiFilterValues, type BiScalar } from './bi'
+import { resolveCardParams, type BiCard, type BiCardType, type BiEncoding, type BiFilterValues, type BiScalar, type BiValue } from './bi'
 import type { BiRow } from './biOption'
 
 export interface DrillFrame {
@@ -23,7 +23,7 @@ export interface LevelView {
   queryKey: string
   type: BiCardType
   encoding: BiEncoding
-  params: Record<string, BiScalar>
+  params: Record<string, BiValue>
 }
 
 export function rootStack(card: BiCard): DrillFrame[] {

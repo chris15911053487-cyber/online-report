@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react'
 import { Loader2, Sparkles } from 'lucide-react'
 import { apiFetch } from '../../../utils/api'
-import type { BiChartDef, BiScalar } from '../../../utils/bi'
+import type { BiChartDef, BiValue } from '../../../utils/bi'
 import { COLUMN_ROLE_LABEL } from '../../../utils/biAdmin'
 import { Badge, Button, Code, Field, Modal, Notice, ResultTable, Textarea } from '../../../ui'
 import { errMsg, type BiQueryAdmin } from './types'
@@ -14,7 +14,7 @@ export interface BiDraft {
   query: BiQueryAdmin
   charts: BiChartDef[]
   sample: { columns: string[]; rows: Record<string, unknown>[]; rowCount: number }
-  sampleParams: Record<string, BiScalar>
+  sampleParams: Record<string, BiValue>
   notes: string
   unlabeledColumns: string[]
   tables: string[]

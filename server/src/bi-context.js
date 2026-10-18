@@ -22,27 +22,33 @@ const KEY_RE = /^[a-z][a-z0-9_-]{0,63}$/;
 const CARD_ID_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const INTENTS = new Set(['explain', 'ask']);
 
+const MAX_LIST = 50;
+
 function str(v, max = MAX_STR) {
   if (v == null) return '';
   return String(v).replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max);
 }
 
-function scalar(v) {
+function scalar(v, lists = false) {
   if (v == null) return null;
   if (typeof v === 'number') return Number.isFinite(v) ? v : null;
   if (typeof v === 'boolean') return v;
   if (typeof v === 'string') return str(v);
-  return undefined; // 对象/数组一律丢弃
+  // 多选参数 / 筛选：保留简单值的短数组（AI 追问时原样复用）
+  if (lists && Array.isArray(v) && v.length <= MAX_LIST && v.every((x) => typeof x === 'string' || (typeof x === 'number' && Number.isFinite(x)))) {
+    return v.map((x) => (typeof x === 'string' ? str(x, 80) : x));
+  }
+  return undefined; // 对象 / 其它数组一律丢弃
 }
 
-/** 简单键值表：键限长，值只允许标量 */
-function scalarMap(input, max = MAX_ENTRIES) {
+/** 简单键值表：键限长，值只允许标量（lists：参数 / 筛选还允许标量的短数组） */
+function scalarMap(input, { lists = false, max = MAX_ENTRIES } = {}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined;
   const out = {};
   let n = 0;
   for (const [k, v] of Object.entries(input)) {
     const key = str(k, 64);
-    const val = scalar(v);
+    const val = scalar(v, lists);
     if (!key || val === undefined) continue;
     out[key] = val;
     if (++n >= max) break;
@@ -73,7 +79,7 @@ function normalizeBiContext(raw) {
     if (path.length) ctx.path = path;
   }
   for (const k of ['point', 'filters', 'params']) {
-    const m = scalarMap(raw[k]);
+    const m = scalarMap(raw[k], { lists: k !== 'point' });
     if (m) ctx[k] = m;
   }
   if (INTENTS.has(raw.intent)) ctx.intent = raw.intent;

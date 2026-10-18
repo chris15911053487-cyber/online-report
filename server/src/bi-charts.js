@@ -8,6 +8,7 @@
  */
 const { sql } = require('./db');
 const { SQL_CHINA_LOCAL_NOW_EXPR } = require('./china-datetime');
+const { coerceParam } = require('./bi-params');
 
 const CHART_KEY_RE = /^[a-z][a-z0-9_-]{0,63}$/;
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
@@ -50,7 +51,9 @@ function normalizeParamMap(input, filterNames, where) {
   const out = {};
   for (const [k, v] of Object.entries(input)) {
     if (!NAME_RE.test(k)) return fail(`${where} 参数名非法：「${k}」`);
-    if (!isScalar(v)) return fail(`${where} 参数「${k}」须为简单值或 $filter.xxx`);
+    // 多选参数的固定值可写数组
+    const ok = isScalar(v) || (Array.isArray(v) && v.length <= 200 && v.every((x) => x !== null && isScalar(x)));
+    if (!ok) return fail(`${where} 参数「${k}」须为简单值（多选参数可写数组）或 $filter.xxx`);
     if (typeof v === 'string' && v.startsWith('$filter.')) {
       if (!filterNames) return fail(`${where} 参数「${k}」只能写固定值；看板筛选按同名自动提供`);
       const f = v.slice('$filter.'.length);
@@ -282,14 +285,32 @@ function encodingColumns(enc) {
  * - 查询登记了输出列时：encoding 用到的列、bind 取值的列须在其中（未登记列的旧查询跳过列检查）。
  * 返回问题列表（空 = 通过）。
  */
-function checkCardRefs(card, queriesByKey, where, { requireSources = true } = {}) {
+function checkCardRefs(card, queriesByKey, where, { requireSources = true, filters = null } = {}) {
   const problems = [];
   const paramNames = (q) => new Set((q.params || []).map((p) => p.name.toLowerCase()));
   const columnSet = (q) => ((q.columns || []).length > 0 ? new Set(q.columns.map((c) => c.column)) : null);
+  const filterByName = new Map((filters || []).map((f) => [f.name, f]));
   const checkLevel = (w, q, params, encoding, provided) => {
     const names = paramNames(q);
-    for (const k of Object.keys(params || {})) {
-      if (!names.has(k.toLowerCase())) problems.push(`${w}：「${k}」不是查询「${q.label}」的参数`);
+    const defs = new Map((q.params || []).map((p) => [p.name.toLowerCase(), p]));
+    for (const [k, v] of Object.entries(params || {})) {
+      const def = defs.get(k.toLowerCase());
+      if (!names.has(k.toLowerCase())) {
+        problems.push(`${w}：「${k}」不是查询「${q.label}」的参数`);
+        continue;
+      }
+      if (typeof v === 'string' && v.startsWith('$filter.')) {
+        // 多选筛选的值是一组，只能传给多选参数
+        const f = filterByName.get(v.slice('$filter.'.length));
+        if (f?.multiple && def.type !== 'list') problems.push(`${w}：筛选「${f.label || f.name}」是多选，参数「${def.label || def.name}」不是多选参数`);
+        continue;
+      }
+      // 固定值按参数的类型 / 可选值 / 范围检查
+      try {
+        coerceParam(def, v);
+      } catch (err) {
+        problems.push(`${w}：${err.message}`);
+      }
     }
     if (requireSources) {
       const have = new Set([...Object.keys(params || {}), ...provided].map((k) => k.toLowerCase()));

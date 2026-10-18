@@ -4,6 +4,7 @@
  * 用户侧：
  *   - GET  /agents/:agentKey/dashboard  进入 Agent 时取其关联看板（按 Agent 门禁 + 查询角色裁剪卡片）
  *   - POST /bi/query                    卡片 / 下钻取数（命名查询 + 参数），走结果缓存
+ *   - POST /bi/options                  下拉选项来自查询：执行来源查询（默认参数），按取值 / 显示列去重
  * 管理侧（仅管理员）：
  *   - /admin/bi/queries     查询库增删改查 + 试运行（不走缓存）
  *   - /admin/bi/charts      图表库增删改查（图表引用查询；看板引用图表）
@@ -27,6 +28,7 @@ const {
   toPublicQuery,
 } = require('../bi-queries');
 const { runNamedQuery, testRunQuery, BiParamError } = require('../bi-exec');
+const { optionsFromRows, optionsQueryProblems } = require('../bi-params');
 const { draftQueryAndChart, draftFromSql, reviseQuery, enrichQuery, DraftError } = require('../bi-draft');
 const { aiService } = require('../ai');
 const {
@@ -139,6 +141,28 @@ async function biRoutes(fastify) {
     }
   });
 
+  /** 参数 / 筛选的「选项来自查询」：权限与 /bi/query 相同（看不到来源查询就拿不到选项） */
+  fastify.post('/bi/options', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const body = request.body || {};
+    const valueColumn = String(body.valueColumn || '').trim();
+    const labelColumn = String(body.labelColumn || '').trim();
+    if (!valueColumn) return reply.code(400).send({ error: '缺少取值列', code: 'BI_BAD_PARAM' });
+    const pool = await getPool();
+    const query = await getQuery(pool, body.queryKey);
+    if (!query || !query.enabled) return reply.code(404).send({ error: '选项来源查询不存在或未启用', code: 'BI_NO_QUERY' });
+    const roles = await rolesOf(pool, request);
+    if (!canUseQuery(roles, query.roles)) return reply.code(403).send({ error: '无权读取选项', code: 'BI_FORBIDDEN' });
+    try {
+      const r = await runNamedQuery({ pool, query, params: {}, roles, session: request.user });
+      if (r.rows.length > 0 && !r.columns.includes(valueColumn)) {
+        return reply.code(400).send({ error: `选项来源查询没有列「${valueColumn}」`, code: 'BI_BAD_PARAM' });
+      }
+      return optionsFromRows(r.rows, valueColumn, r.columns.includes(labelColumn) ? labelColumn : '');
+    } catch (err) {
+      return sendQueryError(request, reply, err, roles);
+    }
+  });
+
   // ---------- 管理侧：查询库 ----------
 
   fastify.get('/admin/bi/queries', { preHandler: [fastify.requireAdmin] }, async () => {
@@ -156,6 +180,8 @@ async function biRoutes(fastify) {
       const bad = parsed.value.roles.filter((r) => !known.has(r));
       if (bad.length > 0) return reply.code(400).send({ error: `未定义的角色：${bad.join('、')}` });
     }
+    const oqProblems = optionsQueryProblems(parsed.value.params, new Map((await listAllQueries(pool)).map((q) => [q.queryKey, q])));
+    if (oqProblems.length > 0) return reply.code(400).send({ error: oqProblems.slice(0, 3).join('；') });
     const saved = await upsertQuery(pool, parsed.value);
     // 影响分析：改了参数 / 输出列后，用到它的图表、引用这些图表的看板是否还对得上
     const using = (await listAllCharts(pool)).filter((c) => chartUsesQuery(c, saved.queryKey));

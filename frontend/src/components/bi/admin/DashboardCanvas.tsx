@@ -8,7 +8,8 @@
  */
 import { useMemo, useRef, useState } from 'react'
 import { AlertTriangle, GripVertical, Trash2 } from 'lucide-react'
-import { BI_CARD_HEIGHT, filterDisplayText, initialFilterValues, type BiCard, type BiCardRef, type BiFilter, type BiFilterValues, type BiQueryMeta, type BiScalar } from '../../../utils/bi'
+import { useFilterOptions } from '../../../utils/biOptions'
+import { BI_CARD_HEIGHT, filterDisplayText, initialFilterValues, type BiCard, type BiCardRef, type BiFilter, type BiFilterValues, type BiQueryMeta, type BiValue } from '../../../utils/bi'
 import { cn } from '../../../ui/classes'
 import { IconButton } from '../../../ui'
 import BiCardView from '../BiCardView'
@@ -48,7 +49,8 @@ export default function DashboardCanvas({
 }) {
   const gridRef = useRef<HTMLDivElement>(null)
   const [values, setValues] = useState<BiFilterValues>(() => initialFilterValues(filters))
-  const filterText = useMemo(() => filterDisplayText(filters, values), [filters, values])
+  const filterOptions = useFilterOptions(filters)
+  const filterText = useMemo(() => filterDisplayText(filters, values, filterOptions.loaded), [filters, values, filterOptions.loaded])
   const [dragFrom, setDragFrom] = useState<number | null>(null)
   const [drop, setDrop] = useState<Drop>(null)
   const [resizing, setResizing] = useState<number | null>(null)
@@ -103,7 +105,7 @@ export default function DashboardCanvas({
 
   return (
     <div className="flex flex-col gap-3">
-      <FilterBar filters={filters} values={values} onChange={(name: string, v: BiScalar) => setValues((cur) => ({ ...cur, [name]: v }))} />
+      <FilterBar filters={filters} values={values} loaded={filterOptions} onChange={(name: string, v: BiValue) => setValues((cur) => ({ ...cur, [name]: v }))} />
       <div ref={gridRef} className="grid gap-3" style={{ gridTemplateColumns: 'repeat(12, minmax(0, 1fr))' }}>
         {refs.map((ref, i) => {
           const card = cards[i]

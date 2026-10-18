@@ -4,7 +4,7 @@
  * 格式 / 单位 / 缩放不填时继承查询列语义（占位符里显示继承值）。
  */
 import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
-import { defaultChartSize, type BiCardType, type BiChartDef, type BiColumnRole, type BiColumnSemantic, type BiDrillLevel, type BiEncoding, type BiFormat, type BiLabelMode, type BiScalar, type BiTrend } from '../../../utils/bi'
+import { defaultChartSize, type BiCardType, type BiChartDef, type BiColumnRole, type BiColumnSemantic, type BiDrillLevel, type BiEncoding, type BiFormat, type BiLabelMode, type BiValue, type BiTrend } from '../../../utils/bi'
 import {
   COLUMN_ROLE_LABEL,
   FORMAT_LABEL,
@@ -19,6 +19,7 @@ import {
 import { Button, ChipSelect, Field, IconButton, Input, Notice, Segmented } from '../../../ui'
 import { compactInputClass } from '../../../ui/classes'
 import type { QueryOption } from './types'
+import ParamValueInput from './ParamValueInput'
 
 const CARD_TYPES: { value: BiCardType; label: string }[] = [
   { value: 'kpi', label: 'KPI' },
@@ -128,11 +129,11 @@ function ParamBindings({
   onChange,
 }: {
   query: QueryOption
-  params: Record<string, BiScalar>
+  params: Record<string, BiValue>
   /** 下钻：参数从上一级点中行的列取值 */
   bind?: Record<string, string>
   sourceColumns?: BiColumnSemantic[]
-  onChange: (params: Record<string, BiScalar>, bind?: Record<string, string>) => void
+  onChange: (params: Record<string, BiValue>, bind?: Record<string, string>) => void
 }) {
   if (query.params.length === 0) return <p className="text-[12px] text-subtle">该查询没有参数</p>
   const find = <T,>(obj: Record<string, T> | undefined, name: string): [string, T] | undefined =>
@@ -176,12 +177,7 @@ function ParamBindings({
               <option value="fixed">固定值</option>
             </select>
             {src.kind === 'fixed' ? (
-              <input
-                className={compactInputClass}
-                aria-label={`参数 ${p.name} 固定值`}
-                value={src.value == null ? '' : String(src.value)}
-                onChange={(e) => onChange({ ...params, [pv?.[0] ?? p.name]: p.type === 'number' && e.target.value !== '' && Number.isFinite(Number(e.target.value)) ? Number(e.target.value) : e.target.value }, bind)}
-              />
+              <ParamValueInput param={p} ariaLabel={`参数 ${p.name} 固定值`} value={src.value} onChange={(v) => onChange({ ...params, [pv?.[0] ?? p.name]: v }, bind)} />
             ) : bind && sourceColumns?.length === 0 && src.kind !== 'filter' ? (
               <input
                 className={compactInputClass + ' font-mono'}

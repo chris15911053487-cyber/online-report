@@ -7,9 +7,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { apiFetch } from '../../utils/api'
-import { filterDisplayText, initialFilterValues, type BiDashboard, type BiFilter, type BiFilterValues, type BiScalar } from '../../utils/bi'
+import { filterDisplayText, initialFilterValues, type BiDashboard, type BiFilter, type BiFilterValues, type BiOption, type BiValue } from '../../utils/bi'
 import type { BiPick } from '../../utils/biContext'
+import { useFilterOptions } from '../../utils/biOptions'
 import BiCardView from './BiCardView'
+import MultiSelect from './MultiSelect'
 
 interface Props {
   agentKey: string
@@ -78,13 +80,14 @@ export function DashboardView({
 }) {
   const [localFilters, setLocalFilters] = useState<BiFilterValues>(() => initialFilterValues(dashboard.filters || []))
   const filters = controlled ?? localFilters
-  const setFilter = (name: string, v: BiScalar) => {
+  const setFilter = (name: string, v: BiValue) => {
     const next = { ...filters, [name]: v }
     setLocalFilters(next)
     onFiltersChange?.(next)
   }
   const span = (w: number, type: string) => (pcMode ? w : type === 'kpi' ? 6 : 12)
-  const filterText = useMemo(() => filterDisplayText(dashboard.filters || [], filters), [dashboard.filters, filters])
+  const filterOptions = useFilterOptions(dashboard.filters || [])
+  const filterText = useMemo(() => filterDisplayText(dashboard.filters || [], filters, filterOptions.loaded), [dashboard.filters, filters, filterOptions.loaded])
 
   return (
     <div className="flex flex-col gap-4">
@@ -98,7 +101,7 @@ export function DashboardView({
           <span />
         )}
         <div className="flex items-end gap-2 flex-wrap">
-          <FilterBar filters={dashboard.filters} values={filters} onChange={setFilter} />
+          <FilterBar filters={dashboard.filters} values={filters} onChange={setFilter} loaded={filterOptions} />
           {actions}
         </div>
       </div>
@@ -129,29 +132,73 @@ export function DashboardView({
   )
 }
 
-/** 看板筛选条（Agent 看板与管理端画布共用） */
-export function FilterBar({ filters, values, onChange }: { filters: BiFilter[]; values: BiFilterValues; onChange: (name: string, v: BiScalar) => void }) {
+/** 看板筛选条（Agent 看板与管理端画布共用）；loaded：来自查询的选项（useFilterOptions） */
+export function FilterBar({
+  filters,
+  values,
+  onChange,
+  loaded,
+}: {
+  filters: BiFilter[]
+  values: BiFilterValues
+  onChange: (name: string, v: BiValue) => void
+  loaded: { loaded: Record<string, BiOption[]>; errors: Record<string, string> }
+}) {
   if (filters.length === 0) return null
   return (
     <div className="flex items-end gap-2 flex-wrap" role="group" aria-label="看板筛选">
       {filters.map((f) => (
-        <FilterInput key={f.name} filter={f} value={values[f.name] ?? null} onChange={(v) => onChange(f.name, v)} />
+        <FilterInput
+          key={f.name}
+          filter={f}
+          value={values[f.name] ?? null}
+          options={f.options?.length ? f.options : loaded.loaded[f.name]}
+          optionsError={loaded.errors[f.name]}
+          onChange={(v) => onChange(f.name, v)}
+        />
       ))}
     </div>
   )
 }
 
-function FilterInput({ filter, value, onChange }: { filter: BiFilter; value: BiScalar; onChange: (v: BiScalar) => void }) {
+function FilterInput({
+  filter,
+  value,
+  options,
+  optionsError,
+  onChange,
+}: {
+  filter: BiFilter
+  value: BiValue
+  /** 固定选项或已取到的「来自查询」选项；undefined = 还在取 / 取不到 */
+  options?: BiOption[]
+  optionsError?: string
+  onChange: (v: BiValue) => void
+}) {
   const id = `bi-filter-${filter.name}`
   const cls = 'h-8 px-2.5 rounded-lg border border-line bg-surface text-[12.5px] text-fg-2 focus:outline-none focus:border-primary'
+  const fromQuery = !filter.options?.length && !!filter.optionsQuery
   let control: React.ReactNode
-  if (filter.type === 'select') {
+  if (filter.type === 'select' && fromQuery && !options) {
+    // 来自查询的选项还没取到（或无权读取）：取不到时退回文本输入，多个值用逗号分隔
+    control = optionsError ? (
+      <TextFilter id={id} className={cls} value={Array.isArray(value) ? value.join(',') : value} onCommit={onChange} title={`选项加载失败：${optionsError}`} placeholder={filter.multiple ? '多个用逗号分隔' : undefined} />
+    ) : (
+      <select id={id} className={cls} disabled>
+        <option>加载中…</option>
+      </select>
+    )
+  } else if (filter.type === 'select' && filter.multiple) {
+    control = <MultiSelect id={id} className={cls} options={options || []} value={Array.isArray(value) ? value : value == null ? null : [String(value)]} onChange={onChange} />
+  } else if (filter.type === 'select') {
     control = (
       <select id={id} className={cls} value={value == null ? '' : String(value)} onChange={(e) => {
-        const opt = filter.options?.find((o) => String(o.value) === e.target.value)
-        onChange(opt ? opt.value : e.target.value)
+        const opt = options?.find((o) => String(o.value) === e.target.value)
+        onChange(opt ? opt.value : e.target.value || null)
       }}>
-        {filter.options?.map((o) => (
+        {/* 来自查询的下拉：可不选（= 全部）；固定选项照旧必选其一 */}
+        {fromQuery && <option value="">全部</option>}
+        {options?.map((o) => (
           <option key={String(o.value)} value={String(o.value)}>{o.label}</option>
         ))}
       </select>
@@ -175,7 +222,7 @@ function FilterInput({ filter, value, onChange }: { filter: BiFilter; value: BiS
     )
   } else {
     // 文本：回车或失焦才生效，避免每个字都触发全部卡片重查
-    control = <TextFilter id={id} className={cls} value={value} onCommit={onChange} />
+    control = <TextFilter id={id} className={cls} value={Array.isArray(value) ? value.join(',') : value} onCommit={onChange} />
   }
   return (
     <label htmlFor={id} className="flex flex-col gap-0.5">
@@ -185,7 +232,7 @@ function FilterInput({ filter, value, onChange }: { filter: BiFilter; value: BiS
   )
 }
 
-function TextFilter({ id, className, value, onCommit }: { id: string; className: string; value: BiScalar; onCommit: (v: BiScalar) => void }) {
+function TextFilter({ id, className, value, onCommit, title, placeholder }: { id: string; className: string; value: BiValue; onCommit: (v: BiValue) => void; title?: string; placeholder?: string }) {
   const [draft, setDraft] = useState(value == null ? '' : String(value))
   const commit = () => {
     const v = draft.trim() || null
@@ -195,6 +242,8 @@ function TextFilter({ id, className, value, onCommit }: { id: string; className:
     <input
       id={id}
       className={className}
+      title={title}
+      placeholder={placeholder}
       value={draft}
       onChange={(e) => setDraft(e.target.value)}
       onBlur={commit}

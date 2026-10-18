@@ -83,7 +83,8 @@ function sampleParamsFor(params, given) {
     if (hit && hit[1] !== '' && hit[1] != null) out[p.name] = hit[1];
     else if (p.default != null) continue;
     else if (p.type === 'date') out[p.name] = ymd;
-    else if (/period|month|ym/i.test(p.name)) out[p.name] = ym;
+    else if (p.type === 'month' || /period|month|ym/i.test(p.name)) out[p.name] = ym;
+    else if (p.options?.length) out[p.name] = p.options[0].value;
   }
   return out;
 }
@@ -161,7 +162,10 @@ const SQL_RULES = `## SQL 规则（必须遵守）
 - 只用给出的表与列；参数一律写 @name（如 @period），不要拼接常量；不要用 @@ 系统变量
 - SAP 自定义表以 @ 开头，表名必须加方括号：FROM [@U_OHEC] T0（不加会被当成参数 / 变量）
 - 需要按「当前登录用户」过滤时（我的订单、本人负责的客户等）直接写 @_loginUser（OUSR.USER_CODE）/ @_loginDisplayName，由系统按看的人自动代入；它们不是参数，不要写进 params
-- 期间参数用字符串 'YYYY-MM'，例如 CONVERT(char(7), T0.DocDate, 120) = @period；日期参数类型 date
+- 期间参数类型 month（值为 'YYYY-MM' 文本），例如 CONVERT(char(7), T0.DocDate, 120) = @period；日期参数类型 date；年份 number
+- 只有几个固定取值的参数（如 cmp、periodType、单据状态）写 options：[{"value": "yoy", "label": "同比"}, ...]，传错值会直接报错，不会落进 ELSE 分支
+- 可多选的条件（多个仓库 / 客户 / 物料组）用 list 类型，SQL 写 (@whs IS NULL OR T0.WhsCode IN (SELECT value FROM OPENJSON(@whs)))，不传 = 全部
+- 参数 type 为 string / number / date / bool / month / list；number 参数可写 min / max 限定范围（如 top：min 1，max 100）
 - 排除已取消单据（CANCELED = 'N'）；金额按本币（DocTotal / LineTotal 等），说明里写清口径
 - 输出列别名用英文字母开头、无空格（如 CardName、Amount、Qty），中文名写在 columns 的 label 里
 - Top N 用 TOP (@top) 并给 top 参数默认值；结果行数通常 ≤ 200
@@ -169,8 +173,8 @@ const SQL_RULES = `## SQL 规则（必须遵守）
 
 ## 同比 / 环比（需求提到同比、环比、去年同期、上月、增长率时）
 - 输出固定三列：Cur（本期）、Prev（对比期）、GrowthRate（增长率 = (Cur - Prev) / NULLIF(ABS(Prev), 0)，基数为 0 时为 NULL）
-- 加参数 cmp（string，'yoy' 同比 / 'mom' 环比，默认 'yoy'）：SQL 按它决定对比期取哪段，列名不变，看板「对比方式」筛选切换即可
-- 按客户 / 产品等对比时再加 periodType（string，'month' 当月 / 'ytd' 年累计，默认 'month'）；用条件聚合 SUM(CASE WHEN 日期在本期 THEN 金额 ELSE 0 END) 同时算两段，只在一期有数的也不会丢
+- 加参数 cmp（string，options 为 yoy=同比 / mom=环比，默认 'yoy'）：SQL 按它决定对比期取哪段，列名不变，看板「对比方式」筛选切换即可
+- 按客户 / 产品等对比时再加 periodType（string，options 为 month=当月 / ytd=年累计，默认 'month'）；用条件聚合 SUM(CASE WHEN 日期在本期 THEN 金额 ELSE 0 END) 同时算两段，只在一期有数的也不会丢
 - 按月趋势用 @year（number）：先按月汇总（取数从上一年 1 月开始，1 月的环比也有上期），再自连接 ON 对比月 = CASE @cmp WHEN 'mom' THEN DATEADD(MONTH, -1, 月) ELSE DATEADD(YEAR, -1, 月) END
 - columns：Prev 的 label 写 "{cmp}"（显示时换成筛选选项文字「去年同期 / 上月」），GrowthRate 的 format 为 percent
 - 合计行的增长率按合计后的 Cur / Prev 计算，不要对各行增长率求和或平均
@@ -198,7 +202,7 @@ ${SQL_RULES}
     "label": "中文名称",
     "description": "这条查询回答什么问题",
     "sqlText": "SELECT ...",
-    "params": [{"name": "period", "type": "string|number|date|bool", "label": "期间", "required": true, "default": null}],
+    "params": [{"name": "period", "type": "month", "label": "期间", "required": true, "default": null}, {"name": "top", "type": "number", "label": "前 N 名", "required": false, "default": 10, "min": 1, "max": 100}],
     "columns": [...],
     "caliberNote": "口径说明：取数范围、时间字段、是否含税、排除了什么",
     "sampleQuestions": ["用户可能怎么问，3~5 条"]
@@ -351,7 +355,7 @@ const FROM_SQL_SYSTEM = `${GEN_SYSTEM}
 ## 这次的任务：把对话里的临时 SQL 收藏成命名查询
 用户在 AI 对话里问了一个问题，AI 当场写了下面这条 SQL 并得到了答案。把它整理成一条**可复用**的命名查询（以后每月 / 每天都能看）：
 - 保持原 SQL 的取数逻辑与口径不变，只做必要改写（DECLARE / 变量 / 多语句改成单条 SELECT）
-- 把写死的、会随时间或对象变化的常量改成参数：月份 / 年份 → @period（'YYYY-MM'）/ @year（'YYYY'），日期区间 → @dateFrom / @dateTo（date），GETDATE() 推算的当月 / 上月 → @period，具体客户 / 物料编码 → 对应参数；原值写进 sampleParams
+- 把写死的、会随时间或对象变化的常量改成参数：月份 / 年份 → @period（month 类型，'YYYY-MM'）/ @year（number），日期区间 → @dateFrom / @dateTo（date），GETDATE() 推算的当月 / 上月 → @period，具体客户 / 物料编码 → 对应参数；原值写进 sampleParams
 - 原 SQL 里写死的用户编码就是提问人自己（见下面「提问人用户编码」）时，改成 @_loginUser，这样每个人看到的是自己的数据
 - 固定的业务口径（如排除取消单、只看某类单据）保留为常量
 - TOP 10 这类改成 TOP (@top) 并给默认值

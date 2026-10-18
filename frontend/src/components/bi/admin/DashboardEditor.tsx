@@ -11,11 +11,12 @@ import { useMemo, useState } from 'react'
 import { Plus, Sparkles, Trash2, ArrowUp, ArrowDown } from 'lucide-react'
 import { useStore } from '../../../store'
 import { apiFetch } from '../../../utils/api'
-import { parseJsonField, toJsonText, type BiCard, type BiCardRef, type BiCardType, type BiChartDef, type BiFilter, type BiQueryMeta, type BiScalar } from '../../../utils/bi'
-import { effectiveSource, filterFromParam, nextRefId, refProblems, renameFilterRefs, resolveCard, suggestFilterParams, type QueryRef } from '../../../utils/biAdmin'
+import { parseJsonField, toJsonText, type BiCard, type BiCardRef, type BiCardType, type BiChartDef, type BiFilter, type BiParamDef, type BiQueryMeta, type BiValue } from '../../../utils/bi'
+import { effectiveSource, filterFromParam, nextRefId, optionsToText, paramDefsOfCards, paramOptionsFor, refProblems, renameFilterRefs, resolveCard, suggestFilterParams, textToOptions, type QueryRef } from '../../../utils/biAdmin'
 import { AdminPage, Badge, Button, Card, Checkbox, EditorActions, EmptyState, Field, IconButton, Input, JsonField, Notice, Section, Segmented, Textarea } from '../../../ui'
 import { cn, compactInputClass, tableClass, tdClass, thClass } from '../../../ui/classes'
 import DashboardCanvas from './DashboardCanvas'
+import ParamValueInput from './ParamValueInput'
 import { errMsg, type BiDashboardAdmin, type QueryOption } from './types'
 
 const TYPE_LABEL: Record<BiCardType, string> = { kpi: 'KPI', bar: '柱状', line: '折线', pie: '饼图', table: '表格' }
@@ -44,24 +45,91 @@ const DEFAULT_TOKENS: Record<string, { value: string; label: string }[]> = {
 }
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/
 
-/** select 筛选的选项 ⇄ 文本（每行「值=显示名」） */
-const optionsToText = (f: BiFilter) => (f.options || []).map((o) => (String(o.value) === o.label ? o.label : `${o.value}=${o.label}`)).join('\n')
-function textToOptions(text: string): BiFilter['options'] {
-  return text
-    .split('\n')
-    .map((l) => l.trim())
-    .filter(Boolean)
-    .map((l) => {
-      const i = l.indexOf('=')
-      return i > 0 ? { value: l.slice(0, i).trim(), label: l.slice(i + 1).trim() } : { value: l, label: l }
-    })
-}
-
 // ─── 全局筛选 ────────────────────────────────────────────────────────────────
+
+/** 下拉筛选的选项：固定选项 / 来自查询；可设多选；同名参数有可选值时一键带出 */
+function SelectOptionsEditor({ f, param, queries, onPatch }: { f: BiFilter; param?: BiParamDef; queries: QueryOption[]; onPatch: (p: Partial<BiFilter>) => void }) {
+  const fromQuery = !!f.optionsQuery
+  const src = queries.find((q) => q.queryKey === f.optionsQuery?.queryKey)
+  const fromParam = paramOptionsFor(f, param)
+  const setOq = (patch: Partial<NonNullable<BiFilter['optionsQuery']>>) => onPatch({ optionsQuery: { queryKey: '', valueColumn: '', ...f.optionsQuery, ...patch } })
+  const colSelect = (value: string, onChange: (v: string) => void, label: string, optional?: boolean) =>
+    src?.columns.length ? (
+      <select className={compactInputClass} aria-label={label} value={value} onChange={(e) => onChange(e.target.value)}>
+        <option value="">{optional ? '显示列（同取值列）' : '取值列'}</option>
+        {src.columns.map((c) => (
+          <option key={c.column} value={c.column}>
+            {c.label ? `${c.label}（${c.column}）` : c.column}
+          </option>
+        ))}
+      </select>
+    ) : (
+      <input className={compactInputClass + ' font-mono'} aria-label={label} placeholder={optional ? '显示列（可空）' : '取值列名'} value={value} onChange={(e) => onChange(e.target.value.trim())} />
+    )
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-3 flex-wrap text-[12px]">
+        <Segmented
+          size="sm"
+          value={fromQuery ? 'query' : 'fixed'}
+          onChange={(v) => onPatch(v === 'query' ? { options: undefined, optionsQuery: { queryKey: '', valueColumn: '' } } : { optionsQuery: undefined, options: f.options ?? [] })}
+          options={[
+            { value: 'fixed', label: '固定选项' },
+            { value: 'query', label: '来自查询' },
+          ]}
+        />
+        <label className="inline-flex items-center gap-1 text-fg-2">
+          <input
+            type="checkbox"
+            className="accent-primary w-3.5 h-3.5"
+            checked={!!f.multiple}
+            onChange={(e) => onPatch({ multiple: e.target.checked || undefined, default: undefined })}
+          />
+          多选
+        </label>
+        {fromParam && (
+          <button type="button" className="text-primary hover:underline" onClick={() => onPatch(fromParam)} title="用查询参数里登记的可选值">
+            带出参数「{param!.label || param!.name}」的选项
+          </button>
+        )}
+      </div>
+      {fromQuery ? (
+        <div className="grid gap-1.5">
+          <select className={compactInputClass} aria-label="选项来源查询" value={f.optionsQuery?.queryKey || ''} onChange={(e) => setOq({ queryKey: e.target.value, valueColumn: '', labelColumn: undefined })}>
+            <option value="">选择查询</option>
+            {queries.filter((q) => q.enabled).map((q) => (
+              <option key={q.queryKey} value={q.queryKey}>
+                {q.label}（{q.queryKey}）
+              </option>
+            ))}
+          </select>
+          <div className="grid grid-cols-2 gap-1.5">
+            {colSelect(f.optionsQuery?.valueColumn || '', (v) => setOq({ valueColumn: v }), '取值列')}
+            {colSelect(f.optionsQuery?.labelColumn || '', (v) => setOq({ labelColumn: v || undefined }), '显示列', true)}
+          </div>
+        </div>
+      ) : (
+        <textarea
+          // 选项被「带出」替换后需要重新挂载
+          key={optionsToText(f.options)}
+          className={compactInputClass + ' h-auto py-1.5'}
+          rows={3}
+          aria-label="下拉选项"
+          placeholder={'每行一个：值=显示名\nWH01=一号仓'}
+          defaultValue={optionsToText(f.options)}
+          onBlur={(e) => onPatch({ options: textToOptions(e.target.value) })}
+        />
+      )}
+      {f.multiple && <p className="text-[11px] text-subtle">多选的值是一组，只能传给「多选」类型的参数；不选 = 全部。</p>}
+    </div>
+  )
+}
 
 function FiltersEditor({
   filters,
   suggestions,
+  paramDefs,
+  queries,
   onChange,
   onAddFromParam,
   onRename,
@@ -69,6 +137,9 @@ function FiltersEditor({
 }: {
   filters: BiFilter[]
   suggestions: { name: string; label?: string; required?: boolean }[]
+  /** 看板卡片所用查询的参数（按小写名）：同名筛选可带出其可选值 */
+  paramDefs: Map<string, BiParamDef>
+  queries: QueryOption[]
   onChange: (f: BiFilter[]) => void
   onAddFromParam: (name: string) => void
   onRename: (from: string, to: string) => void
@@ -131,12 +202,19 @@ function FiltersEditor({
                     </td>
                     <td className={tdClass}>
                       <select
-                        className={compactInputClass}
+                        className={compactInputClass + ' min-w-[5rem]'}
                         aria-label="筛选类型"
                         value={f.type}
                         onChange={(e) => {
                           const type = e.target.value as BiFilter['type']
-                          patch(i, { type, default: DEFAULT_TOKENS[type]?.[0]?.value, options: type === 'select' ? (f.options ?? []) : undefined })
+                          const isSelect = type === 'select'
+                          patch(i, {
+                            type,
+                            default: DEFAULT_TOKENS[type]?.[0]?.value,
+                            options: isSelect && !f.optionsQuery ? (f.options ?? []) : undefined,
+                            optionsQuery: isSelect ? f.optionsQuery : undefined,
+                            multiple: isSelect ? f.multiple : undefined,
+                          })
                         }}
                       >
                         {FILTER_TYPES.map((t) => (
@@ -148,14 +226,7 @@ function FiltersEditor({
                     </td>
                     <td className={tdClass + ' min-w-[14rem]'}>
                       {f.type === 'select' ? (
-                        <textarea
-                          className={compactInputClass + ' h-auto py-1.5'}
-                          rows={3}
-                          aria-label="下拉选项"
-                          placeholder={'每行一个：值=显示名\nWH01=一号仓'}
-                          defaultValue={optionsToText(f)}
-                          onBlur={(e) => patch(i, { options: textToOptions(e.target.value) })}
-                        />
+                        <SelectOptionsEditor f={f} param={paramDefs.get(f.name.toLowerCase())} queries={queries} onPatch={(p) => patch(i, p)} />
                       ) : tokens ? (
                         <div className="flex gap-2">
                           <select
@@ -229,10 +300,10 @@ function ChartSelect({ charts, value, onChange, placeholder, ariaLabel }: { char
 }
 
 /** 一张卡片的参数来源：默认显示自动结果（同名筛选 / 图表固定值 / 查询默认），可覆盖为筛选或固定值 */
-function ParamOverrides({ cardRef, chart, query, filters, onChange }: { cardRef: BiCardRef; chart: BiChartDef; query: QueryOption; filters: BiFilter[]; onChange: (params: Record<string, BiScalar> | undefined) => void }) {
+function ParamOverrides({ cardRef, chart, query, filters, onChange }: { cardRef: BiCardRef; chart: BiChartDef; query: QueryOption; filters: BiFilter[]; onChange: (params: Record<string, BiValue> | undefined) => void }) {
   if (query.params.length === 0) return <p className="text-[12px] text-subtle">图表的查询没有参数</p>
   const params = cardRef.params || {}
-  const setOverride = (name: string, v: BiScalar | undefined) => {
+  const setOverride = (name: string, v: BiValue | undefined) => {
     const next = Object.fromEntries(Object.entries(params).filter(([k]) => k.toLowerCase() !== name.toLowerCase()))
     if (v !== undefined) next[name] = v
     onChange(Object.keys(next).length ? next : undefined)
@@ -281,12 +352,7 @@ function ParamOverrides({ cardRef, chart, query, filters, onChange }: { cardRef:
               <option value="fixed">固定值</option>
             </select>
             {key === 'fixed' ? (
-              <input
-                className={compactInputClass}
-                aria-label={`参数 ${p.name} 固定值`}
-                value={ov == null ? '' : String(ov)}
-                onChange={(e) => setOverride(p.name, p.type === 'number' && e.target.value !== '' && Number.isFinite(Number(e.target.value)) ? Number(e.target.value) : e.target.value)}
-              />
+              <ParamValueInput param={p} ariaLabel={`参数 ${p.name} 固定值`} value={ov} onChange={(v) => setOverride(p.name, v)} />
             ) : (
               <span className="text-[11px] text-subtle font-mono truncate">@{p.name}</span>
             )}
@@ -408,6 +474,7 @@ export default function DashboardEditor({
     [d.cards, d.filters, chartMap, queryMap],
   )
   const suggestions = useMemo(() => suggestFilterParams(expanded.filter((c): c is BiCard => !!c), queryMap, d.filters), [expanded, queryMap, d.filters])
+  const paramDefs = useMemo(() => paramDefsOfCards(expanded.filter((c): c is BiCard => !!c), queryMap), [expanded, queryMap])
   const ref = d.cards[selected]
   const refChart = ref ? chartMap.get(ref.chartKey) : undefined
 
@@ -570,6 +637,8 @@ export default function DashboardEditor({
             <FiltersEditor
               filters={d.filters}
               suggestions={suggestions}
+              paramDefs={paramDefs}
+              queries={availableQueries}
               onChange={(filters) => patch({ filters })}
               onAddFromParam={addFilterFromParam}
               onRename={renameFilter}

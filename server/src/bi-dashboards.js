@@ -59,16 +59,34 @@ function normalizeFilters(input) {
     const type = str(raw.type || 'string', 16).toLowerCase();
     if (!FILTER_TYPES.has(type)) return fail(`筛选项「${name}」type 须为 month / year / date / string / select`);
     const f = { name, label: str(raw.label || name, 64), type };
-    if (raw.default !== undefined && raw.default !== null && raw.default !== '') {
+    // 多选（仅下拉）：值为数组，只能传给多选参数；默认值可写数组，不写 = 全部
+    if (raw.multiple === true) {
+      if (type !== 'select') return fail(`筛选项「${name}」只有下拉能多选`);
+      f.multiple = true;
+    }
+    if (Array.isArray(raw.default)) {
+      if (!f.multiple) return fail(`筛选项「${name}」默认值须为简单值`);
+      if (!raw.default.every((v) => isScalar(v) && v !== null)) return fail(`筛选项「${name}」默认值须为简单值的数组`);
+      if (raw.default.length > 0) f.default = raw.default;
+    } else if (raw.default !== undefined && raw.default !== null && raw.default !== '') {
       if (!isScalar(raw.default)) return fail(`筛选项「${name}」默认值须为简单值`);
       if (typeof raw.default === 'string' && raw.default.startsWith('$') && !DEFAULT_TOKENS.has(raw.default)) {
         return fail(`筛选项「${name}」默认值记号不支持：${raw.default}（可用 ${[...DEFAULT_TOKENS].join(' ')}）`);
       }
       f.default = raw.default;
     }
-    if (type === 'select') {
+    if (type === 'select' && isPlainObject(raw.optionsQuery) && raw.optionsQuery.queryKey) {
+      // 选项来自查询（运行时经 /bi/options 取）
+      const oq = raw.optionsQuery;
+      const queryKey = str(oq.queryKey, 64).toLowerCase();
+      const valueColumn = str(oq.valueColumn, 128);
+      const labelColumn = str(oq.labelColumn, 128);
+      if (!/^[a-z][a-z0-9_-]{0,63}$/.test(queryKey)) return fail(`筛选项「${name}」选项来源查询标识非法`);
+      if (!valueColumn) return fail(`筛选项「${name}」请选择选项来源的取值列`);
+      f.optionsQuery = { queryKey, valueColumn, ...(labelColumn && labelColumn !== valueColumn ? { labelColumn } : {}) };
+    } else if (type === 'select') {
       const opts = Array.isArray(raw.options) ? raw.options : [];
-      if (opts.length === 0) return fail(`筛选项「${name}」为 select 时须配置 options`);
+      if (opts.length === 0) return fail(`筛选项「${name}」为 select 时须配置 options 或 optionsQuery`);
       if (opts.length > MAX_OPTIONS) return fail(`筛选项「${name}」选项不能超过 ${MAX_OPTIONS} 个`);
       f.options = [];
       for (const o of opts) {
@@ -133,7 +151,7 @@ function checkDashboardRefs(dashboard, queriesByKey) {
   const problems = [];
   for (const card of dashboard.cards || []) {
     if (!queriesByKey.get(card.queryKey)) continue;
-    problems.push(...checkCardRefs(card, queriesByKey, `卡片「${card.title}」`));
+    problems.push(...checkCardRefs(card, queriesByKey, `卡片「${card.title}」`, { filters: dashboard.filters }));
   }
   return problems;
 }

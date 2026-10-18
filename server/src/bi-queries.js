@@ -12,11 +12,11 @@
 const { sql } = require('./db');
 const { normalizeRoleKeys } = require('./roles');
 const { SQL_CHINA_LOCAL_NOW_EXPR } = require('./china-datetime');
+const { PARAM_TYPES, normalizeConstraints, normalizeDefault } = require('./bi-params');
 
 const QUERY_KEY_RE = /^[a-z][a-z0-9_-]{0,63}$/;
 const PARAM_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 const COLUMN_RE = /^[^\s[\]"'`;]{1,128}$/;
-const PARAM_TYPES = new Set(['string', 'number', 'date', 'bool']);
 const MAX_PARAMS = 20;
 const MAX_DIMENSIONS = 30;
 const MAX_COLUMNS = 100;
@@ -242,7 +242,7 @@ function normalizeParamDefs(input) {
     seen.add(k);
     const type = String(raw.type || 'string').trim().toLowerCase();
     if (!PARAM_TYPES.has(type)) {
-      return { ok: false, error: `参数「${name}」类型须为 string / number / date / bool` };
+      return { ok: false, error: `参数「${name}」类型须为 ${[...PARAM_TYPES].join(' / ')}` };
     }
     const def = {
       name,
@@ -250,10 +250,13 @@ function normalizeParamDefs(input) {
       label: String(raw.label || '').trim().slice(0, 64),
       required: !!raw.required,
     };
-    if (raw.default !== undefined && raw.default !== null && raw.default !== '') {
-      if (typeof raw.default === 'object') return { ok: false, error: `参数「${name}」默认值须为简单值` };
-      def.default = raw.default;
-    }
+    // 取值约束（可选值 / 来自查询 / 范围）先于默认值：默认值要按约束校验
+    const c = normalizeConstraints(raw, def);
+    if (!c.ok) return c;
+    Object.assign(def, c.value);
+    const dv = normalizeDefault(raw, def);
+    if (!dv.ok) return dv;
+    if (dv.value !== undefined) def.default = dv.value;
     out.push(def);
   }
   return { ok: true, value: out };
@@ -340,6 +343,8 @@ function validateQueryInput(input) {
   const params = normalizeParamDefs(input?.params);
   if (!params.ok) return params;
   const declared = new Set(params.value.map((p) => p.name.toLowerCase()));
+  const selfRef = params.value.find((p) => p.optionsQuery?.queryKey === queryKey);
+  if (selfRef) return { ok: false, error: `参数「${selfRef.name}」的选项不能来自本查询` };
   const undeclared = ro.params.filter((p) => !declared.has(p.toLowerCase()));
   if (undeclared.length > 0) {
     return { ok: false, error: `SQL 引用了未声明的参数：${undeclared.map((p) => '@' + p).join('、')}` };

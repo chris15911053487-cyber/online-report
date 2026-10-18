@@ -7,7 +7,7 @@
  *
  * 字段与服务端 server/src/bi-context.js 的白名单一致（网关会再规范化、限长）。
  */
-import { formatValue, type BiCard, type BiDashboard, type BiFilterValues, type BiScalar } from './bi'
+import { formatValue, joinValues, type BiCard, type BiDashboard, type BiFilterValues, type BiScalar, type BiValue } from './bi'
 import { columnLabel, valueColumns, type BiRow } from './biOption'
 import { rowCaption, type DrillFrame, type LevelView } from './biDrill'
 
@@ -37,8 +37,8 @@ export interface BiContextPayload {
   caliberNote?: string
   path: string[]
   point: Record<string, BiScalar>
-  filters: Record<string, BiScalar>
-  params: Record<string, BiScalar>
+  filters: Record<string, BiValue>
+  params: Record<string, BiValue>
   intent: BiIntent
   /** 仅前端展示用（上下文胶囊文案），网关会丢弃 */
   caption: string
@@ -96,14 +96,14 @@ export function buildBiContext(
   intent: BiIntent,
 ): BiContextPayload {
   const meta = dashboard.queries[pick.view.queryKey]
-  const filterLabels: Record<string, BiScalar> = {}
+  const filterLabels: Record<string, BiValue> = {}
   for (const f of dashboard.filters) {
     const v = filters[f.name]
-    if (v == null || v === '') continue
-    const opt = f.type === 'select' ? f.options?.find((o) => o.value === v) : undefined
-    filterLabels[f.label || f.name] = opt ? opt.label : v
+    if (v == null || v === '' || (Array.isArray(v) && v.length === 0)) continue
+    const label = (x: string | number | boolean) => (f.type === 'select' ? f.options?.find((o) => String(o.value) === String(x))?.label : undefined)
+    filterLabels[f.label || f.name] = Array.isArray(v) ? joinValues(v.map((x) => label(x) ?? String(x))) : (label(v) ?? v)
   }
-  const params: Record<string, BiScalar> = {}
+  const params: Record<string, BiValue> = {}
   for (const [k, v] of Object.entries(pick.view.params)) if (v != null && v !== '') params[k] = v
   return {
     dashboardKey: dashboard.dashboardKey,

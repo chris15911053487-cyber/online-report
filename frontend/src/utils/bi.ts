@@ -6,6 +6,8 @@
 export type BiCardType = 'kpi' | 'bar' | 'line' | 'pie' | 'table'
 export type BiFormat = 'number' | 'money' | 'percent' | 'integer'
 export type BiScalar = string | number | boolean | null
+/** 参数 / 筛选值：多选参数与多选筛选是一组值 */
+export type BiValue = BiScalar | (string | number)[]
 
 export interface BiColumnDef {
   column: string
@@ -43,7 +45,7 @@ export interface BiDrillLevel {
   queryKey: string
   label: string
   bind: Record<string, string>
-  params: Record<string, BiScalar>
+  params: Record<string, BiValue>
   type: Exclude<BiCardType, 'kpi'>
   encoding: BiEncoding
 }
@@ -59,7 +61,7 @@ export interface BiCard {
   title: string
   subtitle?: string
   queryKey: string
-  params: Record<string, BiScalar>
+  params: Record<string, BiValue>
   encoding: BiEncoding
   drill: BiDrillLevel[]
   layout: { w: number; h: number }
@@ -73,7 +75,7 @@ export interface BiChartDef {
   description?: string
   type: BiCardType
   queryKey: string
-  params: Record<string, BiScalar>
+  params: Record<string, BiValue>
   encoding: BiEncoding
   drill: BiDrillLevel[]
   size: { w: number; h: number }
@@ -85,24 +87,52 @@ export interface BiCardRef {
   id: string
   chartKey: string
   title?: string
-  params?: Record<string, BiScalar>
+  params?: Record<string, BiValue>
   layout?: { w: number; h: number }
+}
+
+export interface BiOption {
+  value: string | number | boolean
+  label: string
+}
+
+/** 选项来自另一条命名查询（POST /bi/options 按取值 / 显示列去重） */
+export interface BiOptionsQuery {
+  queryKey: string
+  valueColumn: string
+  labelColumn?: string
 }
 
 export interface BiFilter {
   name: string
   label: string
   type: 'month' | 'year' | 'date' | 'string' | 'select'
-  default?: BiScalar
-  options?: { value: string | number | boolean; label: string }[]
+  /** 多选（仅下拉）：值为数组，只能传给多选参数；不选 = 全部 */
+  multiple?: boolean
+  default?: BiValue
+  options?: BiOption[]
+  /** 下拉选项来自查询（与 options 二选一） */
+  optionsQuery?: BiOptionsQuery
 }
 
+/**
+ * 查询参数（与后端 bi-params.js 一致）：
+ * month = 'YYYY-MM' 文本；list = 多个值（绑定为 JSON 数组文本，SQL 里 IN (SELECT value FROM OPENJSON(@x))）
+ */
+export type BiParamType = 'string' | 'number' | 'date' | 'bool' | 'month' | 'list'
 export interface BiParamDef {
   name: string
-  type: 'string' | 'number' | 'date' | 'bool'
+  type: BiParamType
   label?: string
   required?: boolean
-  default?: BiScalar
+  default?: BiValue
+  /** 固定可选值（文本 / 数字 / 多选）：传入其它值会被拒绝 */
+  options?: BiOption[]
+  /** 可选值来自查询（与 options 二选一） */
+  optionsQuery?: BiOptionsQuery
+  /** 数字的取值范围 */
+  min?: number
+  max?: number
 }
 
 /** 查询输出列的语义（查询库登记）：维度 / 度量 / 时间 / 属性，以及默认展示格式 */
@@ -151,7 +181,7 @@ export interface BiQueryResult {
   params: Record<string, unknown>
 }
 
-export type BiFilterValues = Record<string, BiScalar>
+export type BiFilterValues = Record<string, BiValue>
 
 /** 卡片高度档位（layout.h 1~4）对应的图表内容高度（px） */
 export const BI_CARD_HEIGHT: Record<number, number> = { 1: 170, 2: 260, 3: 360, 4: 460 }
@@ -199,8 +229,13 @@ export function resolveDefaultToken(value: BiScalar | undefined, now: Date = new
 export function initialFilterValues(filters: BiFilter[], now: Date = new Date()): BiFilterValues {
   const out: BiFilterValues = {}
   for (const f of filters) {
+    if (Array.isArray(f.default)) {
+      out[f.name] = f.multiple ? f.default : null
+      continue
+    }
     let v = resolveDefaultToken(f.default, now)
-    if (v == null && f.type === 'select' && f.options?.length) v = f.options[0].value
+    // 单选下拉没写默认值时选第一项；多选不写 = 全部；来自查询的选项此时还没取到，先为空（= 全部）
+    if (v == null && f.type === 'select' && !f.multiple && f.options?.length) v = f.options[0].value
     out[f.name] = v ?? null
   }
   return out
@@ -208,10 +243,10 @@ export function initialFilterValues(filters: BiFilter[], now: Date = new Date())
 
 /** 卡片 / 下钻的参数映射：'$filter.x' 取筛选值，其余原样 */
 export function resolveCardParams(
-  params: Record<string, BiScalar> | undefined,
+  params: Record<string, BiValue> | undefined,
   filters: BiFilterValues,
-): Record<string, BiScalar> {
-  const out: Record<string, BiScalar> = {}
+): Record<string, BiValue> {
+  const out: Record<string, BiValue> = {}
   for (const [k, v] of Object.entries(params || {})) {
     out[k] = typeof v === 'string' && v.startsWith('$filter.') ? (filters[v.slice(8)] ?? null) : v
   }
@@ -255,18 +290,25 @@ export function withColumnSemantics(enc: BiEncoding, semantics?: BiColumnSemanti
 // ─── 标题 / 列名占位符 ────────────────────────────────────────────────────────
 
 /**
- * 筛选当前值的显示文字：select 取选项文字（如 yoy → 去年同期），其余原样。
+ * 筛选当前值的显示文字：select 取选项文字（如 yoy → 去年同期），多选列前 3 项，其余原样；
+ * loaded：来自查询的选项（筛选条取到后传入）。
  * 供标题 / 列名里的 {筛选名} 占位符；与后端 bi-tokens.js 的 filterDisplayText 一致。
  */
-export function filterDisplayText(filters: BiFilter[], values: BiFilterValues): Record<string, string> {
+export function filterDisplayText(filters: BiFilter[], values: BiFilterValues, loaded: Record<string, BiOption[]> = {}): Record<string, string> {
   const out: Record<string, string> = {}
   for (const f of filters) {
     const v = values[f.name]
-    if (v == null || v === '') continue
-    const opt = f.type === 'select' ? f.options?.find((o) => String(o.value) === String(v)) : undefined
-    out[f.name] = opt ? opt.label : String(v)
+    if (v == null || v === '' || (Array.isArray(v) && v.length === 0)) continue
+    const options = f.options ?? loaded[f.name]
+    const text = (x: string | number | boolean) => (f.type === 'select' ? options?.find((o) => String(o.value) === String(x))?.label : undefined) ?? String(x)
+    out[f.name] = Array.isArray(v) ? joinValues(v.map(text)) : text(v)
   }
   return out
+}
+
+/** 多选的显示：最多列 3 项，其余写「等 N 项」（与后端 bi-tokens.js 一致） */
+export function joinValues(items: string[]): string {
+  return items.length <= 3 ? items.join('、') : `${items.slice(0, 3).join('、')} 等 ${items.length} 项`
 }
 
 /** 把文本里的 {名称} 换成 vars 里的值（名称大小写不敏感）；没有对应值的原样保留 */
