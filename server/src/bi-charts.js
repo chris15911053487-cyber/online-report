@@ -452,10 +452,11 @@ function rowToChart(row) {
     size: normalizeSize(safeParseJson(row.size_json, null), type),
     enabled: !!row.enabled,
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+    updatedBy: row.updated_by_name || row.updated_by || null,
   };
 }
 
-const COLS = 'id, chart_key, label, subtitle, description, chart_type, query_key, params_json, encoding_json, drill_json, size_json, enabled, updated_at';
+const COLS = 'id, chart_key, label, subtitle, description, chart_type, query_key, params_json, encoding_json, drill_json, size_json, enabled, updated_at, updated_by, updated_by_name';
 
 async function listAllCharts(pool) {
   try {
@@ -480,7 +481,8 @@ async function getChart(pool, chartKey) {
   }
 }
 
-async function upsertChart(pool, value) {
+/** @param {{ code: string, name: string } | null} [by] 操作人 */
+async function upsertChart(pool, value, by = null) {
   await pool
     .request()
     .input('chart_key', sql.NVarChar(64), value.chartKey)
@@ -494,16 +496,19 @@ async function upsertChart(pool, value) {
     .input('drill_json', sql.NVarChar(sql.MAX), JSON.stringify(value.drill))
     .input('size_json', sql.NVarChar(64), JSON.stringify(value.size))
     .input('enabled', sql.Bit, value.enabled)
+    .input('updated_by', sql.NVarChar(64), by?.code || null)
+    .input('updated_by_name', sql.NVarChar(128), by?.name || null)
     .query(`
       MERGE dbo.bi_charts AS t
       USING (SELECT @chart_key AS chart_key) AS s ON t.chart_key = s.chart_key
       WHEN MATCHED THEN UPDATE SET
         label = @label, subtitle = @subtitle, description = @description, chart_type = @chart_type,
         query_key = @query_key, params_json = @params_json, encoding_json = @encoding_json,
-        drill_json = @drill_json, size_json = @size_json, enabled = @enabled, updated_at = ${SQL_CHINA_LOCAL_NOW_EXPR}
+        drill_json = @drill_json, size_json = @size_json, enabled = @enabled, updated_at = ${SQL_CHINA_LOCAL_NOW_EXPR},
+        updated_by = @updated_by, updated_by_name = @updated_by_name
       WHEN NOT MATCHED THEN
-        INSERT (chart_key, label, subtitle, description, chart_type, query_key, params_json, encoding_json, drill_json, size_json, enabled)
-        VALUES (@chart_key, @label, @subtitle, @description, @chart_type, @query_key, @params_json, @encoding_json, @drill_json, @size_json, @enabled);
+        INSERT (chart_key, label, subtitle, description, chart_type, query_key, params_json, encoding_json, drill_json, size_json, enabled, updated_by, updated_by_name)
+        VALUES (@chart_key, @label, @subtitle, @description, @chart_type, @query_key, @params_json, @encoding_json, @drill_json, @size_json, @enabled, @updated_by, @updated_by_name);
     `);
   return getChart(pool, value.chartKey);
 }

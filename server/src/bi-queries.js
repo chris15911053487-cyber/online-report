@@ -410,11 +410,12 @@ function rowToQuery(row) {
     roles: normalizeRoleKeys(safeParseJson(row.roles_json, [])),
     enabled: !!row.enabled,
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+    updatedBy: row.updated_by_name || row.updated_by || null,
   };
 }
 
 const QUERY_COLS = `id, query_key, label, description, sql_text, params_json, dimensions_json,
-  columns_json, sample_questions_json, caliber_note, cache_secs, roles_json, enabled, updated_at`;
+  columns_json, sample_questions_json, caliber_note, cache_secs, roles_json, enabled, updated_at, updated_by, updated_by_name`;
 
 // ---- 进程内缓存全量定义（看板每张卡片都要取定义，不能每次查库）----
 let listCache = null; // { at, items }
@@ -476,7 +477,8 @@ async function getQuery(pool, queryKey) {
   return all.find((q) => q.queryKey === k) || null;
 }
 
-async function upsertQuery(pool, value) {
+/** @param {{ code: string, name: string } | null} [by] 操作人 */
+async function upsertQuery(pool, value, by = null) {
   await pool
     .request()
     .input('query_key', sql.NVarChar(64), value.queryKey)
@@ -491,6 +493,8 @@ async function upsertQuery(pool, value) {
     .input('cache_secs', sql.Int, value.cacheSecs)
     .input('roles_json', sql.NVarChar(sql.MAX), JSON.stringify(value.roles))
     .input('enabled', sql.Bit, value.enabled)
+    .input('updated_by', sql.NVarChar(64), by?.code || null)
+    .input('updated_by_name', sql.NVarChar(128), by?.name || null)
     .query(`
       MERGE dbo.bi_queries AS t
       USING (SELECT @query_key AS query_key) AS s ON t.query_key = s.query_key
@@ -500,12 +504,14 @@ async function upsertQuery(pool, value) {
         columns_json = @columns_json, sample_questions_json = @sample_questions_json,
         caliber_note = @caliber_note, cache_secs = @cache_secs,
         roles_json = @roles_json, enabled = @enabled,
-        updated_at = ${SQL_CHINA_LOCAL_NOW_EXPR}
+        updated_at = ${SQL_CHINA_LOCAL_NOW_EXPR}, updated_by = @updated_by, updated_by_name = @updated_by_name
       WHEN NOT MATCHED THEN
         INSERT (query_key, label, description, sql_text, params_json, dimensions_json,
-                columns_json, sample_questions_json, caliber_note, cache_secs, roles_json, enabled)
+                columns_json, sample_questions_json, caliber_note, cache_secs, roles_json, enabled,
+                updated_by, updated_by_name)
         VALUES (@query_key, @label, @description, @sql_text, @params_json, @dimensions_json,
-                @columns_json, @sample_questions_json, @caliber_note, @cache_secs, @roles_json, @enabled);
+                @columns_json, @sample_questions_json, @caliber_note, @cache_secs, @roles_json, @enabled,
+                @updated_by, @updated_by_name);
     `);
   invalidateQueryDefs(value.queryKey);
   return getQuery(pool, value.queryKey);

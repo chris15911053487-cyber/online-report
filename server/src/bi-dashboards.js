@@ -205,10 +205,11 @@ function rowToDashboard(row) {
     cards: safeParseJson(row.cards_json, []),
     enabled: !!row.enabled,
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
+    updatedBy: row.updated_by_name || row.updated_by || null,
   };
 }
 
-const COLS = 'id, dashboard_key, label, description, filters_json, cards_json, enabled, updated_at';
+const COLS = 'id, dashboard_key, label, description, filters_json, cards_json, enabled, updated_at, updated_by, updated_by_name';
 
 async function listAllDashboards(pool) {
   try {
@@ -236,7 +237,8 @@ async function getDashboard(pool, dashboardKey) {
   }
 }
 
-async function upsertDashboard(pool, value) {
+/** @param {{ code: string, name: string } | null} [by] 操作人 */
+async function upsertDashboard(pool, value, by = null) {
   await pool
     .request()
     .input('dashboard_key', sql.NVarChar(64), value.dashboardKey)
@@ -245,15 +247,18 @@ async function upsertDashboard(pool, value) {
     .input('filters_json', sql.NVarChar(sql.MAX), JSON.stringify(value.filters))
     .input('cards_json', sql.NVarChar(sql.MAX), JSON.stringify(value.cards))
     .input('enabled', sql.Bit, value.enabled)
+    .input('updated_by', sql.NVarChar(64), by?.code || null)
+    .input('updated_by_name', sql.NVarChar(128), by?.name || null)
     .query(`
       MERGE dbo.bi_dashboards AS t
       USING (SELECT @dashboard_key AS dashboard_key) AS s ON t.dashboard_key = s.dashboard_key
       WHEN MATCHED THEN UPDATE SET
         label = @label, description = @description, filters_json = @filters_json,
-        cards_json = @cards_json, enabled = @enabled, updated_at = ${SQL_CHINA_LOCAL_NOW_EXPR}
+        cards_json = @cards_json, enabled = @enabled, updated_at = ${SQL_CHINA_LOCAL_NOW_EXPR},
+        updated_by = @updated_by, updated_by_name = @updated_by_name
       WHEN NOT MATCHED THEN
-        INSERT (dashboard_key, label, description, filters_json, cards_json, enabled)
-        VALUES (@dashboard_key, @label, @description, @filters_json, @cards_json, @enabled);
+        INSERT (dashboard_key, label, description, filters_json, cards_json, enabled, updated_by, updated_by_name)
+        VALUES (@dashboard_key, @label, @description, @filters_json, @cards_json, @enabled, @updated_by, @updated_by_name);
     `);
   return getDashboard(pool, value.dashboardKey);
 }

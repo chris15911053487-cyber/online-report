@@ -71,6 +71,13 @@ function sendQueryError(request, reply, err, roles) {
 }
 
 /** 用到某查询的图表（主查询或下钻） */
+/** 保存时记录的操作人（JWT 里的 OUSR 用户代码与显示名） */
+function operatorOf(request) {
+  const code = String(request.user?.username || '').trim();
+  if (!code) return null;
+  return { code, name: String(request.user?.displayName || '').trim() || code };
+}
+
 function findQueryReferences(charts, queryKey) {
   return charts.filter((c) => chartUsesQuery(c, queryKey)).map((c) => c.label);
 }
@@ -182,7 +189,7 @@ async function biRoutes(fastify) {
     }
     const oqProblems = optionsQueryProblems(parsed.value.params, new Map((await listAllQueries(pool)).map((q) => [q.queryKey, q])));
     if (oqProblems.length > 0) return reply.code(400).send({ error: oqProblems.slice(0, 3).join('；') });
-    const saved = await upsertQuery(pool, parsed.value);
+    const saved = await upsertQuery(pool, parsed.value, operatorOf(request));
     // 影响分析：改了参数 / 输出列后，用到它的图表、引用这些图表的看板是否还对得上
     const using = (await listAllCharts(pool)).filter((c) => chartUsesQuery(c, saved.queryKey));
     const warnings = await impactWarnings(pool, new Set(using.map((c) => c.chartKey)));
@@ -233,7 +240,7 @@ async function biRoutes(fastify) {
     const queries = await listAllQueries(pool);
     const parsed = validateChartInput(request.body || {}, new Map(queries.map((q) => [q.queryKey, q])));
     if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
-    const saved = await upsertChart(pool, parsed.value);
+    const saved = await upsertChart(pool, parsed.value, operatorOf(request));
     // 看板里的同名筛选 / 必填参数来源可能因此对不上：只提示
     const warnings = (await impactWarnings(pool, new Set([saved.chartKey]))).filter((w) => w.startsWith('看板'));
     return { chart: saved, warnings };
@@ -339,7 +346,7 @@ async function biRoutes(fastify) {
       queries: new Map(queries.map((q) => [q.queryKey, q])),
     });
     if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
-    return { dashboard: await upsertDashboard(pool, parsed.value) };
+    return { dashboard: await upsertDashboard(pool, parsed.value, operatorOf(request)) };
   });
 
   fastify.delete('/admin/bi/dashboards/:dashboardKey', { preHandler: [fastify.requireAdmin] }, async (request, reply) => {

@@ -8,10 +8,10 @@
  * 编辑器在 components/bi/admin/。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BookOpen, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react'
+import { BookOpen, Pencil, Plus, Search, Sparkles, Trash2 } from 'lucide-react'
 import { useStore } from '../store'
 import { apiFetch } from '../utils/api'
-import { AdminPage, Badge, Button, Card, Code, EmptyState, IconButton, Notice, RecordRow, Skeleton, Tabs } from '../ui'
+import { AdminPage, Badge, Button, Card, Code, EmptyState, IconButton, Input, Notice, RecordRow, Select, Skeleton, Tabs } from '../ui'
 import { useRoleLabels } from '../hooks/useAppRoles'
 import { confirmDelete } from '../ui/confirm'
 import QueryEditor from '../components/bi/admin/QueryEditor'
@@ -23,6 +23,7 @@ import { EMPTY_DASHBOARD, EMPTY_QUERY, errMsg, type BiChartAdmin, type BiDashboa
 import { newChart } from '../utils/biAdmin'
 import HelpDocPanel from '../components/HelpDocPanel'
 import { clearPendingPin, readPendingPin } from '../utils/biPin'
+import { DEFAULT_LIST_FILTER, NO_OPERATOR, filterAdminList, formatUpdatedAt, operatorsOf, type AdminListItem, type ListFilter } from '../utils/biAdminList'
 
 type Tab = 'queries' | 'charts' | 'dashboards'
 const TYPE_LABEL: Record<string, string> = { kpi: 'KPI', bar: '柱状', line: '折线', pie: '饼图', table: '表格' }
@@ -30,6 +31,60 @@ const TYPE_LABEL: Record<string, string> = { kpi: 'KPI', bar: '柱状', line: '�
 /** 查询被哪些图表用到（主查询或下钻） */
 function usedBy(charts: BiChartAdmin[], queryKey: string): string[] {
   return charts.filter((c) => c.queryKey === queryKey || (c.drill || []).some((x) => x.queryKey === queryKey)).map((c) => c.label)
+}
+
+/** 列表行里的「最后修改」：时间 + 操作人 */
+function UpdatedMeta({ item }: { item: AdminListItem }) {
+  const at = formatUpdatedAt(item.updatedAt)
+  if (!at && !item.updatedBy) return null
+  return (
+    <span>
+      最后修改：<span className="num">{at || '—'}</span>
+      {item.updatedBy ? ` · ${item.updatedBy}` : ''}
+    </span>
+  )
+}
+
+/** 列表上方的筛选条：关键字、状态、操作人、排序 */
+function ListToolbar({ value, onChange, operators, total, shown }: { value: ListFilter; onChange: (v: ListFilter) => void; operators: string[]; total: number; shown: number }) {
+  const set = (patch: Partial<ListFilter>) => onChange({ ...value, ...patch })
+  const filtered = value.keyword.trim() !== '' || value.status !== 'all' || value.operator !== ''
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <div className="relative flex-1 min-w-[14rem] max-w-sm">
+        <Search className="w-4 h-4 text-subtle absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+        <Input className="pl-8" value={value.keyword} onChange={(e) => set({ keyword: e.target.value })} placeholder="搜索名称 / 标识 / 描述" aria-label="搜索" />
+      </div>
+      <Select className="!w-auto" value={value.status} onChange={(e) => set({ status: e.target.value as ListFilter['status'] })} aria-label="状态">
+        <option value="all">全部状态</option>
+        <option value="enabled">启用</option>
+        <option value="disabled">已停用</option>
+      </Select>
+      <Select className="!w-auto" value={value.operator} onChange={(e) => set({ operator: e.target.value })} aria-label="操作人">
+        <option value="">全部操作人</option>
+        {operators.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+        <option value={NO_OPERATOR}>未记录</option>
+      </Select>
+      <Select className="!w-auto" value={value.sort} onChange={(e) => set({ sort: e.target.value as ListFilter['sort'] })} aria-label="排序">
+        <option value="updated">最近修改在前</option>
+        <option value="key">按标识排序</option>
+      </Select>
+      {filtered && (
+        <>
+          <span className="text-xs text-muted">
+            显示 {shown} / {total}
+          </span>
+          <Button variant="ghost" size="sm" onClick={() => onChange({ ...DEFAULT_LIST_FILTER, sort: value.sort })}>
+            清除筛选
+          </Button>
+        </>
+      )}
+    </div>
+  )
 }
 
 export default function BiAdminView() {
@@ -53,6 +108,7 @@ export default function BiAdminView() {
   const closeHelp = useCallback(() => setHelpOpen(false), [])
   useEffect(() => clearPendingPin(), [])
   const [editDashboard, setEditDashboard] = useState<{ draft: BiDashboardAdmin; isNew: boolean } | null>(null)
+  const [listFilter, setListFilter] = useState<ListFilter>(DEFAULT_LIST_FILTER)
 
   // 递增即重新加载（保存/删除后在事件里调用 load()）；effect 内只在 Promise 回调里 setState
   const [reloadTick, setReloadTick] = useState(0)
@@ -85,6 +141,18 @@ export default function BiAdminView() {
   }, [reloadTick])
 
   const refs = useMemo(() => new Map(queries.map((q) => [q.queryKey, usedBy(charts, q.queryKey)])), [queries, charts])
+  const queryLabel = useMemo(() => new Map(queries.map((q) => [q.queryKey, q.label])), [queries])
+  const shownQueries = useMemo(() => filterAdminList(queries, listFilter, (q) => q.queryKey, (q) => `${q.description}\n${q.caliberNote}`), [queries, listFilter])
+  const shownCharts = useMemo(
+    () => filterAdminList(charts, listFilter, (c) => c.chartKey, (c) => `${c.description}\n${c.queryKey}\n${queryLabel.get(c.queryKey) || ''}`),
+    [charts, listFilter, queryLabel],
+  )
+  const shownDashboards = useMemo(
+    () => filterAdminList(dashboards, listFilter, (d) => d.dashboardKey, (d) => `${d.description}\n${d.filters.map((f) => f.label).join('\n')}`),
+    [dashboards, listFilter],
+  )
+  const tabItems: AdminListItem[] = tab === 'queries' ? queries : tab === 'charts' ? charts : dashboards
+  const shownCount = tab === 'queries' ? shownQueries.length : tab === 'charts' ? shownCharts.length : shownDashboards.length
 
   const remove = async (url: string, label: string) => {
     if (!(await confirmDelete(`「${label}」`))) return
@@ -227,13 +295,18 @@ export default function BiAdminView() {
         ]}
       />
 
+      {!loading && !error && tabItems.length > 0 && (
+        <ListToolbar value={listFilter} onChange={setListFilter} operators={operatorsOf(tabItems)} total={tabItems.length} shown={shownCount} />
+      )}
+
       {loading && <Skeleton className="h-40" />}
       {!loading && error && <Notice tone="danger">{error}</Notice>}
 
       {!loading && !error && tab === 'queries' && (
         <Card className="overflow-hidden">
           {queries.length === 0 && <EmptyState title="暂无查询" description="点「新增查询」登记第一条：写 SQL、试运行、标注输出列" />}
-          {queries.map((q) => {
+          {queries.length > 0 && shownQueries.length === 0 && <EmptyState title="没有符合条件的查询" description="换个关键字，或点「清除筛选」" />}
+          {shownQueries.map((q) => {
             const used = refs.get(q.queryKey) || []
             return (
               <RecordRow
@@ -253,6 +326,7 @@ export default function BiAdminView() {
                     {q.description && <span className="truncate max-w-[32rem]">{q.description}</span>}
                     <span>可见角色：{formatRoles(q.roles, '仅管理员')}</span>
                     <span>{used.length ? `被图表使用：${used.join('、')}` : '未被图表使用'}</span>
+                    <UpdatedMeta item={q} />
                   </>
                 }
                 actions={
@@ -274,7 +348,8 @@ export default function BiAdminView() {
       {!loading && !error && tab === 'charts' && (
         <Card className="overflow-hidden">
           {charts.length === 0 && <EmptyState title="暂无图表" description={queries.length ? '点「新增图表」：选查询、选类型和列，实时预览' : '请先在「查询库」登记查询'} />}
-          {charts.map((c) => {
+          {charts.length > 0 && shownCharts.length === 0 && <EmptyState title="没有符合条件的图表" description="换个关键字，或点「清除筛选」" />}
+          {shownCharts.map((c) => {
             const q = queries.find((x) => x.queryKey === c.queryKey)
             return (
               <RecordRow
@@ -293,6 +368,7 @@ export default function BiAdminView() {
                   <>
                     <span>查询：{q ? q.label : <span className="text-danger">{c.queryKey}（不存在）</span>}</span>
                     <span>{c.usedByDashboards?.length ? `用于看板：${c.usedByDashboards.join('、')}` : '未放进看板'}</span>
+                    <UpdatedMeta item={c} />
                   </>
                 }
                 actions={
@@ -314,7 +390,8 @@ export default function BiAdminView() {
       {!loading && !error && tab === 'dashboards' && (
         <Card className="overflow-hidden">
           {dashboards.length === 0 && <EmptyState title="暂无看板" description={charts.length ? '点「新增看板」创建' : '请先在「图表」里做好图表'} />}
-          {dashboards.map((d) => (
+          {dashboards.length > 0 && shownDashboards.length === 0 && <EmptyState title="没有符合条件的看板" description="换个关键字，或点「清除筛选」" />}
+          {shownDashboards.map((d) => (
             <RecordRow
               key={d.dashboardKey}
               onClick={() => openDashboard(d)}
@@ -329,12 +406,13 @@ export default function BiAdminView() {
               meta={
                 <>
                   <span>
-                    {d.cards.length} 张卡片 · {d.filters.length} 个筛选
+                    {d.cards.length} 张卡片 · {d.filters.length ? `筛选：${d.filters.map((f) => f.label || f.name).join('、')}` : '无筛选'}
                   </span>
                   <span>
                     关联 Agent：
                     {d.usedByAgents?.length ? d.usedByAgents.join('、') : <span className="text-warning">未关联（在「Agent 配置」里选择）</span>}
                   </span>
+                  <UpdatedMeta item={d} />
                 </>
               }
               actions={

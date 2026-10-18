@@ -105,3 +105,19 @@ BEGIN
   );
   CREATE UNIQUE INDEX ux_bi_charts_key ON dbo.bi_charts (chart_key);
 END;
+
+-- 最后操作人（管理页列表显示「谁、何时改的」）：updated_by = OUSR.USER_CODE，updated_by_name = 当时的显示名
+IF OBJECT_ID(N'dbo.bi_queries', N'U') IS NOT NULL AND COL_LENGTH(N'dbo.bi_queries', N'updated_by') IS NULL
+BEGIN
+  ALTER TABLE dbo.bi_queries ADD updated_by NVARCHAR(64) NULL, updated_by_name NVARCHAR(128) NULL;
+END;
+
+IF OBJECT_ID(N'dbo.bi_charts', N'U') IS NOT NULL AND COL_LENGTH(N'dbo.bi_charts', N'updated_by') IS NULL
+BEGIN
+  ALTER TABLE dbo.bi_charts ADD updated_by NVARCHAR(64) NULL, updated_by_name NVARCHAR(128) NULL;
+END;
+
+IF OBJECT_ID(N'dbo.bi_dashboards', N'U') IS NOT NULL AND COL_LENGTH(N'dbo.bi_dashboards', N'updated_by') IS NULL
+BEGIN
+  ALTER TABLE dbo.bi_dashboards ADD updated_by NVARCHAR(64) NULL, updated_by_name NVARCHAR(128) NULL;
+END;

@@ -15,11 +15,14 @@ export interface BiQueryAdmin {
   roles: string[]
   enabled: boolean
   updatedAt?: string | null
+  /** 最后操作人（显示名）；旧数据为空 */
+  updatedBy?: string | null
 }
 
 export interface BiChartAdmin extends BiChartDef {
   usedByDashboards?: string[]
   updatedAt?: string | null
+  updatedBy?: string | null
 }
 
 export interface BiDashboardAdmin {
@@ -31,6 +34,8 @@ export interface BiDashboardAdmin {
   cards: BiCardRef[]
   enabled: boolean
   usedByAgents?: string[]
+  updatedAt?: string | null
+  updatedBy?: string | null
 }
 
 /** 图表 / 看板编辑器可引用的查询（公开元数据，不含 SQL） */
