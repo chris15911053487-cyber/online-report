@@ -266,7 +266,9 @@ function startDingtalkStream() {
     return;
   }
 
-  _client = new DWClient({ clientId, clientSecret, debug: false });
+  // keepAlive：每 8 秒 ping，收不到 pong 即断开并自动重连。
+  // 不开时，长时间空闲后连接可能被网络静默断掉而本地无感知，钉钉消息就不再投递到本实例。
+  _client = new DWClient({ clientId, clientSecret, debug: false, keepAlive: true });
 
   _client.registerCallbackListener(TOPIC_ROBOT, async (res) => {
     try {
