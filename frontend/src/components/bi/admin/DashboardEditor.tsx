@@ -15,6 +15,7 @@ import { parseJsonField, toJsonText, type BiCard, type BiCardRef, type BiCardTyp
 import { effectiveSource, filterFromParam, nextRefId, optionsToText, paramDefsOfCards, paramOptionsFor, refProblems, renameFilterRefs, resolveCard, suggestFilterParams, textToOptions, type QueryRef } from '../../../utils/biAdmin'
 import { AdminPage, Badge, Button, Card, Checkbox, EditorActions, EmptyState, Field, IconButton, Input, JsonField, Notice, Section, Segmented, Textarea } from '../../../ui'
 import { cn, compactInputClass, tableClass, tdClass, thClass } from '../../../ui/classes'
+import AddChartModal from './AddChartModal'
 import DashboardCanvas from './DashboardCanvas'
 import ParamValueInput from './ParamValueInput'
 import { errMsg, type BiDashboardAdmin, type QueryOption } from './types'
@@ -463,6 +464,7 @@ export default function DashboardEditor({
   const [saving, setSaving] = useState(false)
   const [mode, setMode] = useState<'form' | 'json'>('form')
   const [json, setJson] = useState({ filters: '', cards: '' })
+  const [adding, setAdding] = useState(false)
   const patch = (p: Partial<BiDashboardAdmin>) => setD((cur) => ({ ...cur, ...p }))
 
   const queryMap = useMemo(() => new Map<string, QueryRef>(availableQueries.map((q) => [q.queryKey, q])), [availableQueries])
@@ -477,6 +479,12 @@ export default function DashboardEditor({
   const paramDefs = useMemo(() => paramDefsOfCards(expanded.filter((c): c is BiCard => !!c), queryMap), [expanded, queryMap])
   const ref = d.cards[selected]
   const refChart = ref ? chartMap.get(ref.chartKey) : undefined
+
+  const usedKeys = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const r of d.cards) m.set(r.chartKey, (m.get(r.chartKey) || 0) + 1)
+    return m
+  }, [d.cards])
 
   const previewQueries = useMemo(() => {
     const out: Record<string, BiQueryMeta> = {}
@@ -665,14 +673,14 @@ export default function DashboardEditor({
           }
           hint="与 Agent 里看到的一致（真实数据）。拖 ⠿ 换位置，拖右边缘改宽度、下边缘改高度，点卡片在右侧设置。"
           actions={
-            <div className="w-64">
-              <ChartSelect ariaLabel="添加图表" charts={availableCharts} value="" placeholder="＋ 添加图表…" onChange={addChart} />
-            </div>
+            <Button size="sm" icon={<Plus className="w-4 h-4" />} onClick={() => setAdding(true)}>
+              添加图表
+            </Button>
           }
         >
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem] items-start">
             {d.cards.length === 0 ? (
-              <EmptyState title="还没有卡片" description={availableCharts.length ? '从右上角「添加图表」选图表放进来' : '图表库为空：请先到「② 图表」新增'} />
+              <EmptyState title="还没有卡片" description={availableCharts.length ? '点右上角「添加图表」，预览后选图表放进来' : '图表库为空：请先到「② 图表」新增'} />
             ) : (
               <div className="min-w-0 pt-3">
                 <DashboardCanvas
@@ -729,6 +737,17 @@ export default function DashboardEditor({
           </div>
         </Section>
       )}
+
+      <AddChartModal
+        open={adding}
+        onClose={() => setAdding(false)}
+        charts={availableCharts}
+        usedKeys={usedKeys}
+        filters={d.filters}
+        queryMap={queryMap}
+        queries={previewQueries}
+        onAdd={addChart}
+      />
 
       <EditorActions
         onCancel={() => onDone(false)}

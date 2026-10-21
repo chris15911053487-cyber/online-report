@@ -3,7 +3,8 @@
  * 图表不认识看板：没写固定值的参数，放进看板后由同名筛选自动提供。
  * 格式 / 单位 / 缩放不填时继承查询列语义（占位符里显示继承值）。
  */
-import { ArrowDown, ArrowUp, Plus, Trash2 } from 'lucide-react'
+import { useState } from 'react'
+import { ArrowDown, ArrowUp, Plus, Search, Trash2 } from 'lucide-react'
 import { defaultChartSize, type BiCardType, type BiChartDef, type BiColumnRole, type BiColumnSemantic, type BiDrillLevel, type BiEncoding, type BiFormat, type BiLabelMode, type BiValue, type BiTrend } from '../../../utils/bi'
 import {
   COLUMN_ROLE_LABEL,
@@ -17,9 +18,10 @@ import {
   suggestRightAxis,
 } from '../../../utils/biAdmin'
 import { Button, ChipSelect, Field, IconButton, Input, Notice, Segmented } from '../../../ui'
-import { compactInputClass } from '../../../ui/classes'
+import { cn, compactInputClass } from '../../../ui/classes'
 import type { QueryOption } from './types'
 import ParamValueInput from './ParamValueInput'
+import QueryPickerModal from './QueryPickerModal'
 
 const CARD_TYPES: { value: BiCardType; label: string }[] = [
   { value: 'kpi', label: 'KPI' },
@@ -363,18 +365,30 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
 
 // ─── 卡片编辑 ────────────────────────────────────────────────────────────────
 
-function QuerySelect({ queries, value, onChange, ariaLabel }: { queries: QueryOption[]; value: string; onChange: (k: string) => void; ariaLabel: string }) {
+/** 选查询：显示当前查询，点击打开弹窗（搜索 + 说明 / 输出列 + 数据预览） */
+function QuerySelect({ queries, value, onChange, ariaLabel, chartType }: { queries: QueryOption[]; value: string; onChange: (k: string) => void; ariaLabel: string; chartType: BiCardType }) {
+  const [open, setOpen] = useState(false)
+  const q = queries.find((x) => x.queryKey === value)
   return (
-    <select className={compactInputClass} aria-label={ariaLabel} value={value} onChange={(e) => onChange(e.target.value)}>
-      <option value="">请选择查询…</option>
-      {value && !queries.some((q) => q.queryKey === value) && <option value={value}>{value}（不存在）</option>}
-      {queries.map((q) => (
-        <option key={q.queryKey} value={q.queryKey}>
-          {q.label}（{q.queryKey}）{q.enabled ? '' : ' · 已停用'}
-          {q.columns.length === 0 ? ' · 未登记输出列' : ''}
-        </option>
-      ))}
-    </select>
+    <>
+      <button type="button" aria-label={ariaLabel} className={cn(compactInputClass, 'flex items-center gap-2 text-left')} onClick={() => setOpen(true)}>
+        <span className="flex-1 min-w-0 truncate">
+          {q ? (
+            <>
+              {q.label || q.queryKey}
+              <span className="text-subtle font-mono">（{q.queryKey}）</span>
+              {!q.enabled && <span className="text-warning"> · 已停用</span>}
+            </>
+          ) : value ? (
+            <span className="text-danger">{value}（不存在）</span>
+          ) : (
+            <span className="text-subtle">请选择查询…</span>
+          )}
+        </span>
+        <Search className="w-3.5 h-3.5 text-subtle shrink-0" />
+      </button>
+      {open && <QueryPickerModal open onClose={() => setOpen(false)} title={ariaLabel === '图表查询' ? '选择查询' : `选择查询 · ${ariaLabel}`} queries={queries} value={value} chartType={chartType} onPick={(k) => k !== value && onChange(k)} />}
+    </>
   )
 }
 
@@ -444,7 +458,7 @@ export default function ChartForm({
       <div className="flex flex-col gap-2">
         <SubHeading>数据</SubHeading>
         <Row label="查询">
-          <QuerySelect ariaLabel="图表查询" queries={queries} value={chart.queryKey} onChange={changeQuery} />
+          <QuerySelect ariaLabel="图表查询" queries={queries} value={chart.queryKey} chartType={chart.type} onChange={changeQuery} />
         </Row>
         {query?.description && <p className="text-[11.5px] text-subtle pl-[7.5rem] -mt-1">{query.description}</p>}
         {query && (
@@ -519,7 +533,7 @@ export default function ChartForm({
                 <input className={compactInputClass} value={d.label} placeholder="如 单据" onChange={(e) => setLevel(i, { label: e.target.value })} />
               </Row>
               <Row label="查询">
-                <QuerySelect ariaLabel={`第 ${i + 1} 级下钻查询`} queries={queries} value={d.queryKey} onChange={(k) => changeLevelQuery(i, k)} />
+                <QuerySelect ariaLabel={`第 ${i + 1} 级下钻查询`} queries={queries} value={d.queryKey} chartType={d.type} onChange={(k) => changeLevelQuery(i, k)} />
               </Row>
               {q && (
                 <ParamBindings
