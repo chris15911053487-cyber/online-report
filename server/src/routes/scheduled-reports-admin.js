@@ -1,10 +1,12 @@
 /**
- * 定时报告管理 API（仅管理员）
+ * 定时报告管理 API（仅管理员）；另含 POST /admin/cron/ai（一句话生成 cron，预警规则也用）
  */
 const cron = require('node-cron');
 const { getPool, sql } = require('../db');
 const { loadAndSchedule, executeReport, buildDigest } = require('../scheduled-reports');
 const { getAgent } = require('../agents');
+const { aiService } = require('../ai');
+const { draftCron, CronDraftError } = require('../cron-draft');
 
 /** 看板要点：agent_key 须为存在、启用且关联了看板的 Agent */
 async function checkDigestAgent(pool, agentKey) {
@@ -16,6 +18,22 @@ async function checkDigestAgent(pool, agentKey) {
 }
 
 async function scheduledReportsAdminRoutes(fastify) {
+  // 一句话生成 cron 表达式（定时报告、预警规则共用），只返回草稿
+  fastify.post('/admin/cron/ai', { preHandler: [fastify.requireAdmin] }, async (request, reply) => {
+    const llm = async (messages) => {
+      const r = await aiService.generateChat(messages, { maxTokens: 1000, temperature: 0 });
+      if (!r.success) throw new CronDraftError(r.fallback || r.error || 'AI 服务不可用');
+      return r.content;
+    };
+    try {
+      return await draftCron(llm, request.body?.instruction);
+    } catch (err) {
+      if (err instanceof CronDraftError) return reply.code(400).send({ error: err.message, code: 'CRON_DRAFT_FAILED' });
+      request.log.error({ err: err.message }, '[cron] AI 生成失败');
+      return reply.code(500).send({ error: `AI 处理失败：${err.message}`, code: 'AI_ERROR' });
+    }
+  });
+
   // 列表
   fastify.get('/admin/scheduled-reports', { preHandler: [fastify.requireAdmin] }, async () => {
     const pool = await getPool();

@@ -6,6 +6,13 @@ import { rolePickKeys, splitRoles, useRoleLabels } from '../hooks/useAppRoles'
 import ChatMarkdown from '../components/ChatMarkdown'
 import { tableClass, tdClass, thClass } from '../ui/classes'
 import { confirmDelete } from '../ui/confirm'
+import CronField from '../components/CronField'
+import { describeCron } from '../utils/cron'
+
+function cronText(expr: string) {
+  const d = describeCron(expr)
+  return d.ok ? d.text : expr
+}
 
 interface ScheduledReport {
   id: number
@@ -43,6 +50,12 @@ interface DashboardAgent {
   roles: string[]
 }
 
+interface SkillOption {
+  name: string
+  description: string
+  enabled: boolean
+}
+
 const EMPTY_FORM = {
   /** prompt：让 Agent 按指令写报告；digest：把关联看板的数据写成 3~5 条要点 */
   kind: 'prompt' as 'prompt' | 'digest',
@@ -70,12 +83,16 @@ export default function ScheduledReportsView() {
   const [msg, setMsg] = useState('')
   const [saving, setSaving] = useState(false)
   const [agents, setAgents] = useState<DashboardAgent[]>([])
+  const [skills, setSkills] = useState<SkillOption[]>([])
 
-  // 关联了看板的 Agent（看板要点用）；进入表单时取一次
-  const loadAgents = () => {
+  // 进入表单时取一次：关联了看板的 Agent（看板要点用）、Skill 列表（按指令写报告用）
+  const loadOptions = () => {
     apiFetch('/admin/agents')
       .then((d) => setAgents((Array.isArray(d?.items) ? d.items : []).filter((a: DashboardAgent) => a.dashboardKey)))
       .catch(() => setAgents([]))
+    apiFetch('/ai/agent/skills-admin')
+      .then((d) => setSkills(Array.isArray(d?.items) ? d.items : []))
+      .catch(() => setSkills([]))
   }
 
   const load = async () => {
@@ -93,7 +110,7 @@ export default function ScheduledReportsView() {
   useEffect(() => { load() }, [])
 
   const openCreate = () => {
-    loadAgents()
+    loadOptions()
     setEditId(null)
     setForm(EMPTY_FORM)
     setError('')
@@ -101,7 +118,7 @@ export default function ScheduledReportsView() {
   }
 
   const openEdit = (r: ScheduledReport) => {
-    loadAgents()
+    loadOptions()
     setEditId(r.id)
     const roles = safeJsonParse(r.target_roles_json)
     const users = safeJsonParse(r.target_users_json)
@@ -208,8 +225,8 @@ export default function ScheduledReportsView() {
                 />
               </Field>
               <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Cron 表达式 *" hint="分 时 日 月 周，如 0 8 * * 1-5 = 工作日 8 点">
-                  <Input className="font-mono" value={form.cron_expr} onChange={(e) => setForm({ ...form, cron_expr: e.target.value })} placeholder="0 8 * * 1-5" />
+                <Field label="Cron 表达式 *" hint="分 时 日 月 周（中国时间）；看不懂可点「AI 生成」用一句话描述">
+                  <CronField value={form.cron_expr} onChange={(v) => setForm({ ...form, cron_expr: v })} placeholder="0 8 * * 1-5" />
                 </Field>
                 {form.kind === 'digest' ? (
                   <Field label="看板（关联看板的 Agent）*">
@@ -224,8 +241,19 @@ export default function ScheduledReportsView() {
                     </Select>
                   </Field>
                 ) : (
-                  <Field label="关联 Skill（可选）">
-                    <Input value={form.skill_name} onChange={(e) => setForm({ ...form, skill_name: e.target.value })} placeholder="skill 名称" />
+                  <Field
+                    label="关联 Skill（可选）"
+                    hint={skills.find((s) => s.name === form.skill_name)?.description || '告诉 AI 该查哪些表、按什么口径算；在「AI Skill」管理页维护'}
+                  >
+                    <Select value={form.skill_name} onChange={(e) => setForm({ ...form, skill_name: e.target.value })}>
+                      <option value="">不关联（按全局规则）</option>
+                      {skills.map((s) => (
+                        <option key={s.name} value={s.name}>
+                          {s.name}{s.enabled ? '' : '（已停用）'}
+                        </option>
+                      ))}
+                      {form.skill_name && !skills.some((s) => s.name === form.skill_name) && <option value={form.skill_name}>{form.skill_name}（不存在）</option>}
+                    </Select>
                   </Field>
                 )}
               </div>
@@ -360,9 +388,9 @@ export default function ScheduledReportsView() {
               }
               meta={
                 <span className="flex items-center gap-3 flex-wrap">
-                  <span className="inline-flex items-center gap-1 font-mono">
+                  <span className="inline-flex items-center gap-1" title={r.cron_expr}>
                     <Clock className="w-3 h-3" />
-                    {r.cron_expr}
+                    {cronText(r.cron_expr)}
                   </span>
                   <span>{safeJsonParse(r.channels_json)?.join(', ')}</span>
                   {r.skill_name && <span>Skill：{r.skill_name}</span>}

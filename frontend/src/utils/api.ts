@@ -35,13 +35,10 @@ export interface ApiError extends Error {
 }
 
 export async function apiFetch(path: string, options: RequestInit = {}) {
-  const config: RequestInit = {
-    ...options,
-    headers: {
-      ...authHeaders(),
-      ...(options.headers as Record<string, string>),
-    },
-  }
+  const headers: Record<string, string> = { ...authHeaders(), ...(options.headers as Record<string, string>) }
+  // 无 body 的 POST / DELETE 不能带 JSON Content-Type，否则 Fastify 报 FST_ERR_CTP_EMPTY_JSON_BODY
+  if (options.body == null) delete headers['Content-Type']
+  const config: RequestInit = { ...options, headers }
 
   const response = await fetch(apiUrl(path), config)
   const text = await response.text()

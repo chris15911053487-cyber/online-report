@@ -6,6 +6,8 @@ import { rolePickKeys, splitRoles, useRoleLabels } from '../hooks/useAppRoles'
 import { tableClass, tdClass, thClass } from '../ui/classes'
 import { confirmDelete } from '../ui/confirm'
 import AlertAiModal from '../components/alert/AlertAiModal'
+import CronField from '../components/CronField'
+import { describeCron } from '../utils/cron'
 import BiCheckPreview, { type BiCheckPreviewData } from '../components/alert/BiCheckPreview'
 
 // ==================== Types ====================
@@ -97,11 +99,16 @@ export default function AlertPushView() {
   )
 }
 
+function cronText(expr: string) {
+  const d = describeCron(expr)
+  return d.ok ? d.text : expr
+}
+
 function TriggerLabel({ type, cron, event }: { type: string; cron?: string | null; event?: string | null }) {
   return type === 'cron' ? (
     <span className="inline-flex items-center gap-1">
       <Clock className="w-3 h-3" />
-      {cron || '定时'}
+      {cron ? <span title={cron}>{cronText(cron)}</span> : '定时'}
     </span>
   ) : (
     <span className="inline-flex items-center gap-1">
@@ -466,7 +473,7 @@ function RuleForm({ form, setForm, knownEvents, error, editId, saving, onSave, o
                   label={isTask ? 'Cron 表达式（可选）' : 'Cron 表达式 *'}
                   hint={isTask ? '留空：只在每天早上汇总、下午复查前同步；填了则另外按此频率同步（不推送）' : undefined}
                 >
-                  <Input className="font-mono" value={form.cron_expr} onChange={(e) => set({ cron_expr: e.target.value })} placeholder={isTask ? '如：0 */2 * * *（每 2 小时）' : '如：*/5 * * * *（每5分钟）'} />
+                  <CronField value={form.cron_expr} onChange={(v) => set({ cron_expr: v })} placeholder={isTask ? '如：0 */2 * * *（每 2 小时）' : '如：*/5 * * * *（每5分钟）'} />
                 </Field>
               ) : (
                 <Field
