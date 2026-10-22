@@ -57,6 +57,39 @@ function intOrNull(v) {
   return v == null || v === '' ? null : Number(v);
 }
 
+/**
+ * 一次警报推送的收件人：alert_logs 不记通知 id，按「同一规则、本次执行时间窗内」找 notify() 写的那条通知
+ * （同一规则的两次执行不会重叠在同一窗口内）。收件箱表不存在等情况返回空数组。
+ */
+async function loadLogRecipients(pool, logId, logger) {
+  try {
+    const rs = await pool.request().input('id', sql.Int, logId).query(
+      `SELECT r.user_code, u.[U_NAME] AS user_name, r.read_at, r.im_status_json
+       FROM dbo.notification_recipients r
+       LEFT JOIN dbo.OUSR u ON u.[USER_CODE] = r.user_code
+       WHERE r.notification_id = (
+         SELECT TOP (1) n.id
+         FROM dbo.alert_logs l
+         JOIN dbo.notifications n
+           ON n.source_type = 'alert' AND n.source_id = l.rule_id
+          AND n.created_at >= l.triggered_at
+          AND n.created_at <= DATEADD(MINUTE, 5, ISNULL(l.finished_at, l.triggered_at))
+         WHERE l.id = @id
+         ORDER BY n.id
+       )
+       ORDER BY r.user_code`
+    );
+    return (rs.recordset || []).map((r) => {
+      let im = null;
+      try { im = r.im_status_json ? JSON.parse(r.im_status_json) : null; } catch { /* ignore */ }
+      return { userCode: r.user_code, userName: r.user_name || null, readAt: r.read_at, im };
+    });
+  } catch (err) {
+    logger?.warn?.({ err: err.message, logId }, '[alert] 读取推送收件人失败');
+    return [];
+  }
+}
+
 async function alertAdminRoutes(fastify) {
   // ==================== 警报规则 CRUD ====================
 
@@ -450,14 +483,15 @@ async function alertAdminRoutes(fastify) {
     };
   });
 
-  // 单条日志详情（含 data_snapshot 和 card_body）
+  // 单条日志详情：卡片正文、数据快照，以及这次推送的收件人（已读、钉钉结果）
   fastify.get('/admin/alert-logs/:id', { preHandler: [fastify.requireAdmin] }, async (request, reply) => {
     const pool = await getPool();
-    const rs = await pool.request().input('id', sql.Int, Number(request.params.id))
+    const id = Number(request.params.id);
+    const rs = await pool.request().input('id', sql.Int, id)
       .query('SELECT * FROM dbo.alert_logs WHERE id=@id');
     const row = rs.recordset?.[0];
     if (!row) return reply.code(404).send({ error: '日志不存在' });
-    return row;
+    return { ...row, recipients: await loadLogRecipients(pool, id, request.log) };
   });
 }
 

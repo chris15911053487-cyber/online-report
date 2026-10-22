@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { BarChart3, Clock, ListTodo, Pencil, Play, Plus, Send, Sparkles, Trash2, Zap } from 'lucide-react'
 import { apiFetch } from '../utils/api'
-import { AdminPage, Badge, Button, Card, Checkbox, ChipSelect, EditorActions, EmptyState, Field, IconButton, Input, JsonField, Notice, Pager, RecordRow, Section, Segmented, Skeleton, Tabs, Textarea, TableWrap } from '../ui'
+import { AdminPage, Badge, Button, Card, Checkbox, ChipSelect, EditorActions, EmptyState, Field, IconButton, Input, JsonField, Modal, Notice, Pager, RecordRow, ResultTable, Section, Segmented, Select, Skeleton, Tabs, Textarea, TableWrap } from '../ui'
+import ChatMarkdown from '../components/ChatMarkdown'
 import { rolePickKeys, splitRoles, useRoleLabels } from '../hooks/useAppRoles'
 import { tableClass, tdClass, thClass } from '../ui/classes'
 import { confirmDelete } from '../ui/confirm'
@@ -804,12 +805,19 @@ function LogsTab() {
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
+  const [rules, setRules] = useState<{ id: number; name: string }[]>([])
+  const [ruleId, setRuleId] = useState('')
+  const [status, setStatus] = useState('')
+  const [detailId, setDetailId] = useState<number | null>(null)
   const pageSize = 20
 
-  const load = async (p = page) => {
+  const load = async (p = page, f = { ruleId, status }) => {
     setLoading(true)
     try {
-      const data = await apiFetch(`/admin/alert-logs?page=${p}&pageSize=${pageSize}`)
+      const q = new URLSearchParams({ page: String(p), pageSize: String(pageSize) })
+      if (f.ruleId) q.set('rule_id', f.ruleId)
+      if (f.status) q.set('status', f.status)
+      const data = await apiFetch(`/admin/alert-logs?${q}`)
       setItems(data.items || [])
       setTotal(data.total || 0)
     } catch {
@@ -819,51 +827,199 @@ function LogsTab() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    apiFetch('/admin/alert-rules')
+      .then((d) => setRules((d.items || []).map((r: AlertRule) => ({ id: r.id, name: r.name }))))
+      .catch(() => setRules([]))
+  }, [])
 
   const goPage = (p: number) => {
     setPage(p)
     load(p)
   }
 
+  const setFilter = (f: { ruleId: string; status: string }) => {
+    setRuleId(f.ruleId)
+    setStatus(f.status)
+    setPage(1)
+    load(1, f)
+  }
+
   const totalPages = Math.ceil(total / pageSize)
 
-  if (loading && items.length === 0) return <Skeleton className="h-40" />
-  if (items.length === 0) return <Card><EmptyState title="暂无推送记录" /></Card>
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="w-56">
+          <Select value={ruleId} onChange={(e) => setFilter({ ruleId: e.target.value, status })}>
+            <option value="">全部规则</option>
+            {rules.map((r) => (
+              <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
+          </Select>
+        </div>
+        <div className="w-36">
+          <Select value={status} onChange={(e) => setFilter({ ruleId, status: e.target.value })}>
+            <option value="">全部状态</option>
+            {Object.entries(LOG_STATUS).map(([k, v]) => (
+              <option key={k} value={k}>{v.label}</option>
+            ))}
+          </Select>
+        </div>
+        <span className="text-xs text-subtle">点一行查看推送内容、收件人与当时的数据</span>
+      </div>
+
+      {loading && items.length === 0 ? (
+        <Skeleton className="h-40" />
+      ) : items.length === 0 ? (
+        <Card><EmptyState title={ruleId || status ? '没有符合条件的记录' : '暂无推送记录'} /></Card>
+      ) : (
+        <TableWrap>
+          <table className={tableClass}>
+            <thead>
+              <tr>
+                <th className={thClass}>时间</th>
+                <th className={thClass}>规则</th>
+                <th className={thClass}>触发</th>
+                <th className={thClass}>状态</th>
+                <th className={thClass} title="进消息收件箱的人数 / 其中钉钉发送成功的人数 / 群 Webhook 数；待办规则为新增待办数">消息 / 钉钉 / 群</th>
+                <th className={thClass}>卡片标题 / 同步结果 / 错误</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((l) => (
+                <tr key={l.id} className="cursor-pointer hover:bg-surface-2" onClick={() => setDetailId(l.id)}>
+                  <td className={tdClass + ' num whitespace-nowrap'}>{fmtTime(l.triggered_at)}</td>
+                  <td className={tdClass}>{l.rule_name || `规则#${l.rule_id}`}</td>
+                  <td className={tdClass + ' text-xs text-muted whitespace-nowrap'}>
+                    <TriggerLabel type={l.trigger_type} event={l.event_name} />
+                  </td>
+                  <td className={tdClass}><StatusBadge status={l.status} /></td>
+                  <td className={tdClass + ' num'}>{l.target_count} / {l.sent_count} / {l.webhook_count}</td>
+                  <td className={tdClass + ' text-xs max-w-[28rem]'}>
+                    {l.card_title && <div className="truncate">{l.card_title}</div>}
+                    {l.error_message && <div className="text-danger truncate" title={l.error_message}>{l.error_message}</div>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <Pager page={page} totalPages={totalPages} onChange={goPage} disabled={loading} summary={`共 ${total} 条`} />
+        </TableWrap>
+      )}
+      {detailId != null && <LogDetailModal key={detailId} id={detailId} onClose={() => setDetailId(null)} />}
+    </div>
+  )
+}
+
+interface AlertLogDetail extends AlertLog {
+  card_body: string | null
+  data_snapshot: string | null
+  recipients: { userCode: string; userName: string | null; readAt: string | null; im: Record<string, string> | null }[]
+}
+
+const IM_STATUS: Record<string, { label: string; tone: 'success' | 'danger' | 'neutral' }> = {
+  sent: { label: '已送达', tone: 'success' },
+  failed: { label: '失败', tone: 'danger' },
+  unbound: { label: '未绑定', tone: 'neutral' },
+}
+
+function parseSnapshot(s: string | null): Record<string, unknown>[] {
+  if (!s) return []
+  try {
+    const v = JSON.parse(s)
+    return Array.isArray(v) ? v.filter((r) => r && typeof r === 'object') : []
+  } catch {
+    return []
+  }
+}
+
+/** 每条记录单独挂载（key = id），不复用上一条的状态 */
+function LogDetailModal({ id, onClose }: { id: number; onClose: () => void }) {
+  const [data, setData] = useState<AlertLogDetail | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let alive = true
+    apiFetch(`/admin/alert-logs/${id}`)
+      .then((d) => { if (alive) setData(d as AlertLogDetail) })
+      .catch((e) => { if (alive) setError(e instanceof Error ? e.message : '加载失败') })
+    return () => { alive = false }
+  }, [id])
+
+  const rows = parseSnapshot(data?.data_snapshot ?? null)
+  const cols = rows.length ? Object.keys(rows[0]) : []
 
   return (
-    <TableWrap>
-      <table className={tableClass}>
-        <thead>
-          <tr>
-            <th className={thClass}>时间</th>
-            <th className={thClass}>规则</th>
-            <th className={thClass}>触发</th>
-            <th className={thClass}>状态</th>
-            <th className={thClass} title="进消息收件箱的人数 / 其中钉钉发送成功的人数 / 群 Webhook 数；待办规则为新增待办数">消息 / 钉钉 / 群</th>
-            <th className={thClass}>卡片标题 / 同步结果 / 错误</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((l) => (
-            <tr key={l.id}>
-              <td className={tdClass + ' num whitespace-nowrap'}>{fmtTime(l.triggered_at)}</td>
-              <td className={tdClass}>{l.rule_name || `规则#${l.rule_id}`}</td>
-              <td className={tdClass + ' text-xs text-muted whitespace-nowrap'}>
-                <TriggerLabel type={l.trigger_type} event={l.event_name} />
-              </td>
-              <td className={tdClass}><StatusBadge status={l.status} /></td>
-              <td className={tdClass + ' num'}>{l.target_count} / {l.sent_count} / {l.webhook_count}</td>
-              <td className={tdClass + ' text-xs max-w-[28rem]'}>
-                {l.card_title && <div className="truncate">{l.card_title}</div>}
-                {l.error_message && <div className="text-danger truncate" title={l.error_message}>{l.error_message}</div>}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <Pager page={page} totalPages={totalPages} onChange={goPage} disabled={loading} summary={`共 ${total} 条`} />
-    </TableWrap>
+    <Modal open onClose={onClose} size="lg" title={data ? `${data.rule_name || `规则#${data.rule_id}`} · ${fmtTime(data.triggered_at)}` : '推送记录'}>
+      {error ? (
+        <Notice tone="danger">{error}</Notice>
+      ) : !data ? (
+        <Skeleton className="h-40" />
+      ) : (
+        <div className="space-y-4 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge status={data.status} />
+            <span className="text-xs text-muted inline-flex items-center gap-1">
+              <TriggerLabel type={data.trigger_type} event={data.event_name} />
+            </span>
+            <span className="text-xs text-muted num">收件箱 {data.target_count} 人 · 钉钉送达 {data.sent_count} 人 · 群 {data.webhook_count} 个</span>
+          </div>
+          {data.error_message && <Notice tone={data.status === 'failed' ? 'danger' : 'warning'}>{data.error_message}</Notice>}
+
+          {(data.card_title || data.card_body) && (
+            <section>
+              <h4 className="text-[13px] font-medium text-fg-2 mb-1">推送内容</h4>
+              <div className="rounded-lg border border-line p-3">
+                {data.card_title && <div className="font-medium mb-1">{data.card_title}</div>}
+                {data.card_body && <ChatMarkdown content={data.card_body} />}
+              </div>
+            </section>
+          )}
+
+          <section>
+            <h4 className="text-[13px] font-medium text-fg-2 mb-1">收件人（{data.recipients.length}）</h4>
+            {data.recipients.length === 0 ? (
+              <p className="text-xs text-subtle">
+                {data.status === 'synced' || data.status === 'skipped' ? '这次没有推送给个人（跳过，或待办规则只同步不推送；待办见「消息 → 待办」）' : '没有个人收件人记录'}
+              </p>
+            ) : (
+              <div className="overflow-auto max-h-60 border border-line rounded-lg">
+                <table className={tableClass}>
+                  <thead>
+                    <tr>
+                      <th className={thClass}>用户</th>
+                      <th className={thClass}>已读</th>
+                      <th className={thClass}>钉钉</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.recipients.map((r) => {
+                      const ding = r.im?.dingtalk ? IM_STATUS[r.im.dingtalk] : null
+                      return (
+                        <tr key={r.userCode}>
+                          <td className={tdClass}>{r.userName ? `${r.userName}（${r.userCode}）` : r.userCode}</td>
+                          <td className={tdClass + ' num text-xs'}>{r.readAt ? fmtTime(r.readAt) : <span className="text-subtle">未读</span>}</td>
+                          <td className={tdClass}>{ding ? <Badge tone={ding.tone}>{ding.label}</Badge> : <span className="text-subtle text-xs">-</span>}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          {rows.length > 0 && (
+            <section>
+              <h4 className="text-[13px] font-medium text-fg-2 mb-1">当时查到的数据（最多前 5 行）</h4>
+              <ResultTable columns={cols} rows={rows} maxHeight="max-h-56" />
+            </section>
+          )}
+        </div>
+      )}
+    </Modal>
   )
 }
 
@@ -972,15 +1128,16 @@ function StatsTab() {
 
 // ==================== Shared Components ====================
 
+const LOG_STATUS: Record<string, { label: string; tone: 'success' | 'danger' | 'warning' | 'primary' }> = {
+  sent: { label: '已发送', tone: 'success' },
+  failed: { label: '失败', tone: 'danger' },
+  skipped: { label: '跳过', tone: 'warning' },
+  synced: { label: '已同步', tone: 'success' },
+  pending: { label: '进行中', tone: 'primary' },
+}
+
 function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, { label: string; tone: 'success' | 'danger' | 'warning' | 'primary' }> = {
-    sent: { label: '已发送', tone: 'success' },
-    failed: { label: '失败', tone: 'danger' },
-    skipped: { label: '跳过', tone: 'warning' },
-    synced: { label: '已同步', tone: 'success' },
-    pending: { label: '进行中', tone: 'primary' },
-  }
-  const s = map[status]
+  const s = LOG_STATUS[status]
   return s ? <Badge tone={s.tone}>{s.label}</Badge> : <Badge>{status}</Badge>
 }
 

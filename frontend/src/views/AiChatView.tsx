@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { History, Plus, Trash2 } from 'lucide-react'
 import AgentStatusBadge from '../components/AgentStatusBadge'
 import AgentLiveTrace from '../components/AgentLiveTrace'
 import PinToDashboard from '../components/bi/PinToDashboard'
@@ -475,42 +476,57 @@ export default function AiChatView() {
 
   return (
     <div className="flex flex-col bg-surface-2 min-h-[calc(100dvh-7.5rem)] max-w-2xl mx-auto md:max-w-none relative">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-line bg-surface/80">
-        <button
-          type="button"
-          onClick={() => {
-            setShowHistory((v) => !v)
-            void refreshConversations()
-          }}
-          className="text-xs text-primary"
-        >
-          ☰ 历史对话
-        </button>
-        {skills.length > 0 ? (
+      {/* 工具条：吸顶在应用顶栏（h-14）下方，对话滚动时始终可点 */}
+      <div className="sticky top-14 z-30 bg-surface border-b border-line">
+        <div className="flex items-center gap-1 px-2 py-1.5">
           <button
             type="button"
-            onClick={() => setShowSkills((v) => !v)}
-            className="text-xs text-muted"
+            onClick={() => {
+              setShowHistory((v) => !v)
+              void refreshConversations()
+            }}
+            className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg text-xs font-medium text-primary hover:bg-primary-soft"
           >
-            AI 智能助手
-            <span className="ml-1 text-accent">· {skills.length} 个 Skill</span>
+            <History className="w-4 h-4" />
+            历史对话
           </button>
-        ) : (
-          <p className="text-xs text-muted">AI 智能助手</p>
-        )}
-        <button type="button" onClick={startNewChat} disabled={loading} className="text-xs text-primary disabled:text-subtle">
-          + 新对话
-        </button>
-        <button type="button" onClick={clearChat} disabled={loading || messages.length === 0} className="text-xs text-danger disabled:text-subtle">
-          清空
-        </button>
+          <div className="flex-1 min-w-0 text-center">
+            {skills.length > 0 ? (
+              <button type="button" onClick={() => setShowSkills((v) => !v)} className="h-8 px-2 rounded-lg text-xs text-muted hover:bg-surface-2 truncate max-w-full">
+                AI 智能助手
+                <span className="ml-1 text-accent">· {skills.length} 个 Skill</span>
+              </button>
+            ) : (
+              <span className="text-xs text-muted">AI 智能助手</span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={startNewChat}
+            disabled={loading}
+            className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg text-xs font-medium text-primary hover:bg-primary-soft disabled:text-subtle disabled:hover:bg-transparent"
+          >
+            <Plus className="w-4 h-4" />
+            新对话
+          </button>
+          <button
+            type="button"
+            onClick={clearChat}
+            disabled={loading || messages.length === 0}
+            aria-label="清空"
+            title="清空当前对话"
+            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-subtle hover:text-danger hover:bg-surface-2 disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-subtle"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
+        <AgentStatusBadge variant="compact" />
       </div>
-      <AgentStatusBadge variant="compact" />
 
       {showSkills && skills.length > 0 && (
-        <div className="absolute inset-0 z-30 bg-black/20" onClick={() => setShowSkills(false)}>
+        <div className="fixed inset-0 lg:left-[var(--sidebar-w)] z-50 bg-black/20" onClick={() => setShowSkills(false)}>
           <div
-            className="absolute left-3 right-3 top-12 max-h-[70vh] bg-surface shadow-xl rounded-xl p-3 overflow-y-auto"
+            className="absolute left-3 right-3 top-[6.5rem] max-h-[70vh] max-w-2xl mx-auto bg-surface shadow-xl rounded-xl p-3 overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-2">
@@ -549,9 +565,9 @@ export default function AiChatView() {
       )}
 
       {showHistory && (
-        <div className="absolute inset-0 z-30 bg-black/20" onClick={() => setShowHistory(false)}>
+        <div className="fixed inset-0 lg:left-[var(--sidebar-w)] z-50 bg-black/20" onClick={() => setShowHistory(false)}>
           <div
-            className="absolute left-0 top-0 bottom-0 w-72 bg-surface shadow-xl p-3 overflow-y-auto"
+            className="absolute left-0 top-0 bottom-0 w-72 max-w-[85vw] bg-surface shadow-xl p-3 pt-[max(0.75rem,env(safe-area-inset-top))] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-2">
