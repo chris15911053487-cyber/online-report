@@ -69,7 +69,7 @@ export default function MessageDetailView() {
         <header className="space-y-2">
           <h1 className="text-lg font-semibold text-fg leading-snug">{item.title}</h1>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-            <Badge tone={item.sourceType === 'alert' ? 'warning' : 'primary'}>{SOURCE_LABELS[item.sourceType] || '通知'}</Badge>
+            <Badge tone={item.sourceType === 'alert' ? 'warning' : item.sourceType === 'task' ? 'info' : 'primary'}>{SOURCE_LABELS[item.sourceType] || '通知'}</Badge>
             {item.sourceName && item.sourceName !== item.title && <span>{item.sourceName}</span>}
             <span className="num">{fmtWallClock(item.createdAt)}</span>
           </div>

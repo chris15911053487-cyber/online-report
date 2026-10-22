@@ -17,7 +17,6 @@ export const ADMIN_SEGMENTS: Record<string, ViewName> = {
   agents: 'agents-admin',
   bi: 'bi-admin',
   skills: 'ai-skills',
-  alerts: 'message-alert-settings',
   'alert-push': 'alert-push',
   'scheduled-reports': 'scheduled-reports',
 }
@@ -55,6 +54,7 @@ export type Navigation =
   | { kind: 'agent'; agentKey: string }
   | { kind: 'help'; slug: string }
   | { kind: 'message'; id: number }
+  | { kind: 'tasks'; id: number | null }
 
 const enc = encodeURIComponent
 
@@ -119,6 +119,9 @@ export function parsePath(pathname: string): Navigation {
   if (head === 'agents' && a && parts.length === 2) return { kind: 'agent', agentKey: a }
   if (head === 'help' && a && parts.length === 2) return { kind: 'help', slug: a }
   if (head === 'messages' && int(a) != null && parts.length === 2) return { kind: 'message', id: int(a)! }
+  // 待办（钉钉汇总里的链接）：打开「消息 → 待办」，地址随后显示为 /messages
+  if (head === 'tasks' && parts.length === 1) return { kind: 'tasks', id: null }
+  if (head === 'tasks' && int(a) != null && parts.length === 2) return { kind: 'tasks', id: int(a)! }
   if (head === 'report' && a) {
     if (b === 'order' && c) return { kind: 'proSignOrder', routeKey: a, orderNo: c }
     if (b === 'batch' && int(c) != null) return { kind: 'workReg', routeKey: a, batchId: int(c)! }
@@ -139,6 +142,7 @@ interface RouterStore {
     openAgent: (key: string) => void
     openHelpDoc: (slug: string) => void
     openMessage: (id: number) => void
+    openTasks: (id?: number | null) => void
     openProSignOrderDetail: (orderNo: string) => void
     openWorkRegistration: (batchId: number, menu: NavMenuItem | null) => void
     showToast: (msg: string) => void
@@ -163,6 +167,9 @@ export function applyNavigation(store: RouterStore, nav: Navigation) {
       return
     case 'message':
       s.openMessage(nav.id)
+      return
+    case 'tasks':
+      s.openTasks(nav.id)
       return
     case 'report':
     case 'proSignOrder':

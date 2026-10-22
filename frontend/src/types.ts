@@ -81,32 +81,20 @@ export interface ReportResult {
   pageSize?: number
 }
 
-export interface MessageAlertRuleSummary {
-  id: number
-  name: string
-  total: number
-  unread: number
-  refreshSeconds: number
-  fetchedAt: string | null
-  error: string | null
-}
-
 export interface MessageSummary {
-  /** 通知 + 待办 */
+  /** 通知未读 + 我的待处理待办 */
   totalUnread: number
   /** 通知（收件箱）未读 */
   inboxUnread: number
-  /** 待办（按 SQL 现查的提醒）未读 */
-  todoUnread: number
+  /** 我的待处理待办（含延后已到期） */
+  todoOpen: number
   refreshSeconds: number
-  rules: MessageAlertRuleSummary[]
-  refreshedAt: string | null
 }
 
-/** 通知（警报 / 定时报告推送到收件箱的一条） */
+/** 通知（警报 / 定时报告 / 待办汇总推送到收件箱的一条） */
 export interface InboxItem {
   id: number
-  sourceType: 'alert' | 'report'
+  sourceType: 'alert' | 'report' | 'task'
   sourceName: string
   title: string
   preview: string
@@ -121,23 +109,49 @@ export interface InboxDetail extends Omit<InboxItem, 'preview'> {
   linkUrl: string
 }
 
-export interface MessageAlertItem {
-  key: string
+export type TaskStatus = 'open' | 'snoozed' | 'done' | 'closed'
+
+/** 待办（规则按数据生成，每条一个负责人；GET /tasks） */
+export interface TaskItem {
+  id: number
+  ruleId: number | null
+  ruleName: string
+  itemKey: string
   title: string
-  unread: boolean
-  row: Record<string, unknown>
+  linkUrl: string
+  /** null = 数据里没有可识别的负责人，待主管转交 */
+  ownerCode: string | null
+  ownerLocked: boolean
+  status: TaskStatus
+  /** 'YYYY-MM-DD'（中国日期） */
+  dueDate: string | null
+  snoozeUntil: string | null
+  note: string
+  reopenCount: number
+  firstSeenAt: string
+  doneAt: string | null
+  doneBy: string | null
+  closedAt: string | null
 }
 
-export interface MessageAlertRule {
+export interface TaskDetail extends TaskItem {
+  body: string
+  data: Record<string, unknown>
+}
+
+export interface TaskEvent {
   id: number
-  name: string
-  sqlTemplate: string
-  keyColumn: string
-  titleTemplate: string
-  roles: string[]
-  refreshSeconds: number
-  enabled: boolean
-  sortOrder: number
+  action: string
+  userCode: string | null
+  detail: string
+  createdAt: string
+}
+
+export interface TaskListResult {
+  items: TaskItem[]
+  canTeam: boolean
+  today: string
+  counts: { open: number; snoozed: number; overdue: number; unassigned: number }
 }
 
 export type ViewName =
@@ -155,7 +169,6 @@ export type ViewName =
   | 'help-doc'
   | 'menu-settings'
   | 'ai-skills'
-  | 'message-alert-settings'
   | 'dynamic-report'
   | 'report-row-detail'
   | 'pro-sign-receive'

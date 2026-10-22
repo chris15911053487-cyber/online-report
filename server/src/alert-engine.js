@@ -10,10 +10,15 @@
  * 支持两种触发方式：
  * - cron: 定时执行 SQL，有结果即触发
  * - event: 外部调用 triggerEvent()，传入事件数据
+ *
+ * 两种输出（alert_rules.output_mode）：
+ * - notify: 上面的推通知流程（去重 + 冷却 + 卡片）
+ * - task: 每行生成 / 同步一条待办（tasks.js），定时 = 全量同步（查不到的关闭），事件 = 只增改并通知新负责人
  */
 const { getPool, sql } = require('./db');
 const { buildCardFromRule, resolveTargetWebhooks, sendCardToWebhook } = require('./alert-dingtalk');
 const { notify, resolveRecipientCodes } = require('./notify');
+const { isTaskRule, syncRuleTasks, notifyNewTasks, describeSync } = require('./tasks');
 
 const pino = require('pino');
 const log = pino({ name: 'alert-engine' });
@@ -241,6 +246,7 @@ function deliveryStatus(result) {
  */
 async function executeRule(rule) {
   const logId = await createAlertLog(rule.id, rule.name, 'cron', null);
+  if (isTaskRule(rule)) return executeTaskRule(rule, logId, () => evaluateRuleSql(rule), { full: true });
 
   try {
     // 1. 执行 SQL 获取数据
@@ -292,6 +298,43 @@ async function executeRule(rule) {
 }
 
 /**
+ * 待办规则：查数据 → 同步待办（不走冷却 / 卡片）；事件触发的再通知新待办的负责人。
+ * @returns {Promise<{triggered: boolean, sentCount: number, sync?: object}>}
+ */
+async function executeTaskRule(rule, logId, loadRows, { full }) {
+  try {
+    const pool = await getPool();
+    const rows = (await loadRows()) || [];
+    const r = await syncRuleTasks(pool, rule, rows, { full });
+    let note = null;
+    if (!full && r.newTasks.length > 0) {
+      const n = await notifyNewTasks(pool, rule, r.newTasks);
+      if (n.errors.length) note = n.errors.join('; ').slice(0, 1000);
+    }
+    const changed = r.created + r.reopened + r.closed > 0;
+    await updateAlertLog(
+      logId, changed ? 'synced' : 'skipped', r.created, 0, 0,
+      describeSync(r), null, JSON.stringify(rows.slice(0, 5)).slice(0, 4000), note
+    );
+    return { triggered: changed, sentCount: 0, sync: r };
+  } catch (err) {
+    await updateAlertLog(logId, 'failed', 0, 0, 0, null, null, null, String(err.message).slice(0, 1000));
+    log.error({ err: err.message, ruleId: rule.id }, '待办规则执行失败');
+    return { triggered: false, sentCount: 0, error: err.message };
+  }
+}
+
+/** 事件触发的待办规则要用的数据：命名查询条件 > 检查 SQL > 事件数据本身 */
+async function loadEventTaskRows(rule, dataRows) {
+  if (rule.bi_check_json) {
+    const { evaluateRuleBiCheck } = require('./alert-bi');
+    return evaluateRuleBiCheck(await getPool(), rule, dataRows);
+  }
+  if (rule.sql_template) return evaluateRuleSql(rule);
+  return dataRows;
+}
+
+/**
  * 事件触发入口：外部业务逻辑调用此方法触发警报
  * @param {string} eventName - 事件名称（如 'pro-sign-complete', 'order-create'）
  * @param {object|object[]} eventData - 事件关联的数据（传入模板渲染）
@@ -308,6 +351,12 @@ async function triggerEvent(eventName, eventData) {
 
   for (const rule of rules) {
     const logId = await createAlertLog(rule.id, rule.name, 'event', eventName);
+
+    if (isTaskRule(rule)) {
+      const r = await executeTaskRule(rule, logId, () => loadEventTaskRows(rule, dataRows), { full: false });
+      if (r.triggered) rulesTriggered++;
+      continue;
+    }
 
     try {
       // 命名查询 + 条件：事件数据代入参数（$event.字段）后按条件判断，只对命中行去重、推送
@@ -398,6 +447,7 @@ async function cleanupSentKeys(maxAgeDays = 7) {
 }
 
 module.exports = {
+  executeTaskRule,
   loadCronRules,
   loadEventRules,
   loadRuleById,

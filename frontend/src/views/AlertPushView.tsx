@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { BarChart3, Clock, Pencil, Play, Plus, Sparkles, Trash2, Zap } from 'lucide-react'
+import { BarChart3, Clock, ListTodo, Pencil, Play, Plus, Send, Sparkles, Trash2, Zap } from 'lucide-react'
 import { apiFetch } from '../utils/api'
 import { AdminPage, Badge, Button, Card, Checkbox, ChipSelect, EditorActions, EmptyState, Field, IconButton, Input, JsonField, Notice, Pager, RecordRow, Section, Segmented, Skeleton, Tabs, Textarea, TableWrap } from '../ui'
 import { rolePickKeys, splitRoles, useRoleLabels } from '../hooks/useAppRoles'
@@ -33,6 +33,12 @@ interface AlertRule {
   /** 基于 BI 命名查询的规则（与 sql_template 二选一） */
   bi_check_json?: string | null
   bi_summary?: string
+  /** notify 推送通知 | task 生成待办 */
+  output_mode?: 'notify' | 'task'
+  owner_column?: string | null
+  due_column?: string | null
+  due_days?: number | null
+  escalate_days?: number | null
 }
 
 interface AlertWebhook {
@@ -61,7 +67,7 @@ interface AlertLog {
   finished_at: string | null
 }
 
-type Tab = 'rules' | 'webhooks' | 'logs'
+type Tab = 'rules' | 'webhooks' | 'logs' | 'stats'
 
 /** 已接入的业务事件（后端 alert-bi.KNOWN_EVENTS） */
 type KnownEvents = Record<string, { label: string; fields: string[] }>
@@ -72,19 +78,21 @@ export default function AlertPushView() {
   const [tab, setTab] = useState<Tab>('rules')
 
   return (
-    <AdminPage title="警报推送" description="按规则检查业务数据或响应事件，推送给个人与钉钉群">
+    <AdminPage title="预警与待办" description="按规则检查业务数据或响应事件：推送通知给个人与钉钉群，或按行生成每人的待办">
       <Tabs
         value={tab}
         onChange={setTab}
         options={[
           { value: 'rules', label: '警报规则' },
           { value: 'webhooks', label: '群 Webhook' },
-          { value: 'logs', label: '推送日志' },
+          { value: 'logs', label: '运行日志' },
+          { value: 'stats', label: '待办统计' },
         ]}
       />
       {tab === 'rules' && <RulesTab />}
       {tab === 'webhooks' && <WebhooksTab />}
       {tab === 'logs' && <LogsTab />}
+      {tab === 'stats' && <StatsTab />}
     </AdminPage>
   )
 }
@@ -160,6 +168,11 @@ function RulesTab() {
       enabled: !!r.enabled,
       source: r.bi_check_json ? 'bi' : 'sql',
       bi_check: r.bi_check_json ? JSON.stringify(JSON.parse(r.bi_check_json), null, 2) : '',
+      output_mode: r.output_mode === 'task' ? 'task' : 'notify',
+      owner_column: r.owner_column || '',
+      due_column: r.due_column || '',
+      due_days: r.due_days == null ? '' : String(r.due_days),
+      escalate_days: r.escalate_days == null ? '' : String(r.escalate_days),
     })
     setError('')
     setMode('form')
@@ -168,8 +181,15 @@ function RulesTab() {
   const handleSave = async () => {
     if (!form.name) { setError('名称必填'); return }
     const useBi = form.source === 'bi'
-    if (form.trigger_type === 'cron' && (!form.cron_expr || (!useBi && !form.sql_template))) {
-      setError('定时规则须填写 cron 表达式和检查 SQL'); return
+    const isTask = form.output_mode === 'task'
+    if (form.trigger_type === 'cron' && !form.cron_expr && !isTask) {
+      setError('定时规则须填写 cron 表达式'); return
+    }
+    if (form.trigger_type === 'cron' && !useBi && !form.sql_template) {
+      setError('定时规则须填写检查 SQL'); return
+    }
+    if (isTask && (!form.key_column.trim() || !form.owner_column.trim())) {
+      setError('待办规则须填写单据键列和负责人列'); return
     }
     let biCheck: unknown = null
     if (useBi) {
@@ -201,6 +221,16 @@ function RulesTab() {
       card_btn_url: form.card_btn_url || null,
       cooldown_minutes: Number(form.cooldown_minutes) || 60,
       enabled: form.enabled,
+      output_mode: form.output_mode,
+    }
+    if (isTask) {
+      Object.assign(body, {
+        owner_column: form.owner_column.trim(),
+        due_column: form.due_column.trim() || null,
+        due_days: form.due_days === '' ? null : Number(form.due_days),
+        escalate_days: form.escalate_days === '' ? null : Number(form.escalate_days),
+        target_webhooks_json: [],
+      })
     }
     setSaving(true)
     try {
@@ -219,7 +249,7 @@ function RulesTab() {
   }
 
   const handleDelete = async (r: AlertRule) => {
-    if (!(await confirmDelete(`警报规则「${r.name}」`))) return
+    if (!(await confirmDelete(`规则「${r.name}」${r.output_mode === 'task' ? '（未处理的待办会一并关闭）' : ''}`))) return
     try {
       await apiFetch(`/admin/alert-rules/${r.id}`, { method: 'DELETE' })
       load()
@@ -229,12 +259,24 @@ function RulesTab() {
   }
 
   const handleTest = async (id: number) => {
+    setError('')
     try {
-      await apiFetch(`/admin/alert-rules/${id}/test`, { method: 'POST' })
-      setMsg('已触发测试')
-      setTimeout(() => setMsg(''), 2000)
+      const r = await apiFetch(`/admin/alert-rules/${id}/test`, { method: 'POST' })
+      setMsg(r?.message || '已触发测试')
+      setTimeout(() => setMsg(''), 5000)
     } catch (e) {
       setError(e instanceof Error ? e.message : '触发失败')
+    }
+  }
+
+  const handleDigest = async () => {
+    setError('')
+    try {
+      const r = await apiFetch('/admin/tasks/digest', { method: 'POST', body: JSON.stringify({ kind: 'morning' }) })
+      setMsg(r?.message || '已开始推送')
+      setTimeout(() => setMsg(''), 5000)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '推送失败')
     }
   }
 
@@ -245,8 +287,9 @@ function RulesTab() {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex justify-end gap-2">
+        <Button variant="secondary" icon={<Send className="w-4 h-4" />} onClick={() => void handleDigest()}>立即推送待办汇总</Button>
         <Button variant="soft" icon={<Sparkles className="w-4 h-4" />} onClick={() => setAiOpen(true)}>一句话设预警</Button>
-        <Button icon={<Plus className="w-4 h-4" />} onClick={openCreate}>新增警报规则</Button>
+        <Button icon={<Plus className="w-4 h-4" />} onClick={openCreate}>新增规则</Button>
       </div>
       <AlertAiModal
         open={aiOpen}
@@ -278,7 +321,7 @@ function RulesTab() {
         <Skeleton className="h-32" />
       ) : (
         <Card className="overflow-hidden">
-          {items.length === 0 && <EmptyState title="暂无警报规则" />}
+          {items.length === 0 && <EmptyState title="暂无规则" />}
           {items.map((r) => (
             <RecordRow
               key={r.id}
@@ -287,18 +330,27 @@ function RulesTab() {
               badges={
                 <>
                   <Badge tone={r.enabled ? 'success' : 'neutral'}>{r.enabled ? '启用' : '停用'}</Badge>
+                  {r.output_mode === 'task' ? <Badge tone="accent">生成待办</Badge> : <Badge tone="warning">推送通知</Badge>}
                   {r.bi_check_json && <Badge tone="info">命名查询</Badge>}
                 </>
               }
               meta={
                 <span className="flex items-center gap-2 flex-wrap">
-                  <TriggerLabel type={r.trigger_type} cron={r.cron_expr} event={r.event_name} />
+                  {r.output_mode === 'task' && r.trigger_type === 'cron' && !r.cron_expr ? (
+                    <span className="inline-flex items-center gap-1">
+                      <ListTodo className="w-3 h-3" />
+                      随每日汇总同步
+                    </span>
+                  ) : (
+                    <TriggerLabel type={r.trigger_type} cron={r.cron_expr} event={r.event_name} />
+                  )}
+                  {r.output_mode === 'task' && r.owner_column && <span className="text-subtle">· 负责人列 {r.owner_column}</span>}
                   {r.bi_summary ? <span className="text-subtle">· {r.bi_summary}</span> : r.description && <span className="text-subtle">· {r.description}</span>}
                 </span>
               }
               actions={
                 <>
-                  <IconButton label="测试触发" onClick={() => void handleTest(r.id)}>
+                  <IconButton label={r.output_mode === 'task' ? '立即同步待办' : '测试触发'} onClick={() => void handleTest(r.id)}>
                     <Play className="w-4 h-4" />
                   </IconButton>
                   <IconButton label="编辑" onClick={() => openEdit(r)}>
@@ -339,6 +391,12 @@ const EMPTY_RULE_FORM = {
   /** 定时规则的数据来源：自写 SQL，或 BI 命名查询 + 条件 */
   source: 'sql' as 'sql' | 'bi',
   bi_check: '',
+  /** 输出：推送通知（警报），或每行生成一条待办 */
+  output_mode: 'notify' as 'notify' | 'task',
+  owner_column: '',
+  due_column: '',
+  due_days: '',
+  escalate_days: '',
 }
 
 const BI_CHECK_PLACEHOLDER = `{
@@ -364,10 +422,11 @@ function RuleForm({ form, setForm, knownEvents, error, editId, saving, onSave, o
   const { appRoles, roleOptions } = useRoleLabels()
   const set = (p: Partial<RuleFormData>) => setForm({ ...form, ...p })
   const isCron = form.trigger_type === 'cron'
+  const isTask = form.output_mode === 'task'
   const ev = knownEvents[form.event_name]
   return (
     <div className="flex flex-col gap-4 pb-20">
-      <h3 className="font-display text-base font-semibold text-fg">{editId ? '编辑' : '新增'}警报规则</h3>
+      <h3 className="font-display text-base font-semibold text-fg">{editId ? '编辑' : '新增'}规则</h3>
       {error && <Notice tone="danger">{error}</Notice>}
       <div className="grid gap-4 lg:grid-cols-2 items-start">
         <div className="flex flex-col gap-4">
@@ -378,6 +437,19 @@ function RuleForm({ form, setForm, knownEvents, error, editId, saving, onSave, o
               </Field>
               <Field label="描述">
                 <Input value={form.description} onChange={(e) => set({ description: e.target.value })} placeholder="规则用途说明" />
+              </Field>
+              <Field
+                label="查到数据后"
+                hint={isTask ? '每行一条待办，归到负责人；每天早上汇总推送，处理掉（数据查不到了）自动关闭' : '把查到的数据做成一张卡片，推送给下面的推送对象'}
+              >
+                <Segmented
+                  value={form.output_mode}
+                  onChange={(v) => set({ output_mode: v })}
+                  options={[
+                    { value: 'notify', label: '推送通知' },
+                    { value: 'task', label: '生成待办' },
+                  ]}
+                />
               </Field>
               <Field label="触发方式 *">
                 <Segmented
@@ -390,8 +462,11 @@ function RuleForm({ form, setForm, knownEvents, error, editId, saving, onSave, o
                 />
               </Field>
               {isCron ? (
-                <Field label="Cron 表达式 *">
-                  <Input className="font-mono" value={form.cron_expr} onChange={(e) => set({ cron_expr: e.target.value })} placeholder="如：*/5 * * * *（每5分钟）" />
+                <Field
+                  label={isTask ? 'Cron 表达式（可选）' : 'Cron 表达式 *'}
+                  hint={isTask ? '留空：只在每天早上汇总、下午复查前同步；填了则另外按此频率同步（不推送）' : undefined}
+                >
+                  <Input className="font-mono" value={form.cron_expr} onChange={(e) => set({ cron_expr: e.target.value })} placeholder={isTask ? '如：0 */2 * * *（每 2 小时）' : '如：*/5 * * * *（每5分钟）'} />
                 </Field>
               ) : (
                 <Field
@@ -419,25 +494,54 @@ function RuleForm({ form, setForm, knownEvents, error, editId, saving, onSave, o
               {form.source === 'bi' ? (
                 <BiCheckField value={form.bi_check} onChange={(v) => set({ bi_check: v })} eventFields={isCron ? undefined : ev?.fields || []} />
               ) : isCron ? (
-                <Field label="检查 SQL *" hint="返回行数 > 0 即触发">
-                  <Textarea mono rows={8} value={form.sql_template} onChange={(e) => set({ sql_template: e.target.value })} placeholder="SELECT * FROM ... WHERE ..." spellCheck={false} />
+                <Field label="检查 SQL *" hint={isTask ? '每行一条待办；须带单据键列和负责人列' : '返回行数 > 0 即触发'}>
+                  <Textarea mono rows={8} value={form.sql_template} onChange={(e) => set({ sql_template: e.target.value })} placeholder={isTask ? 'SELECT DocNum, ItemCode, DueDate, Planner FROM ... WHERE ...' : 'SELECT * FROM ... WHERE ...'} spellCheck={false} />
                 </Field>
               ) : null}
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="去重键列名" hint="避免同一行重复告警">
-                  <Input value={form.key_column} onChange={(e) => set({ key_column: e.target.value })} placeholder="如：DocEntry" />
+              {isTask ? (
+                <Field label="单据键列 *" hint="同一单据只生成一条待办；数据里查不到了就自动关闭">
+                  <Input value={form.key_column} onChange={(e) => set({ key_column: e.target.value })} placeholder="如：DocNum" />
                 </Field>
-                <Field label="冷却时间（分钟）">
-                  <Input type="number" value={form.cooldown_minutes} onChange={(e) => set({ cooldown_minutes: e.target.value })} placeholder="60" />
-                </Field>
-              </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="去重键列名" hint="避免同一行重复告警">
+                    <Input value={form.key_column} onChange={(e) => set({ key_column: e.target.value })} placeholder="如：DocEntry" />
+                  </Field>
+                  <Field label="冷却时间（分钟）">
+                    <Input type="number" value={form.cooldown_minutes} onChange={(e) => set({ cooldown_minutes: e.target.value })} placeholder="60" />
+                  </Field>
+                </div>
+              )}
               <Checkbox label="启用" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} />
             </div>
           </Section>
         </div>
 
         <div className="flex flex-col gap-4">
-          <Section title="推送目标" hint="用户优先于角色；目标用户多个值用逗号分隔">
+          {isTask && (
+            <Section title="待办设置">
+              <div className="flex flex-col gap-3">
+                <Field label="负责人列 *" hint="列的值须是系统用户编码（USER_CODE）；识别不了的待办归为「未分配」，由主管转交">
+                  <Input value={form.owner_column} onChange={(e) => set({ owner_column: e.target.value })} placeholder="如：Planner" />
+                </Field>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="到期日列" hint="留空则按右边天数推算">
+                    <Input value={form.due_column} onChange={(e) => set({ due_column: e.target.value })} placeholder="如：DueDate" />
+                  </Field>
+                  <Field label="出现后几天内处理" hint="没有到期日列时用；0 = 当天">
+                    <Input type="number" min={0} max={365} value={form.due_days} onChange={(e) => set({ due_days: e.target.value })} placeholder="0" />
+                  </Field>
+                </div>
+                <Field label="超期几天告知主管" hint="留空不升级；0 = 一超期就告知（在早上的团队汇总里）">
+                  <Input type="number" min={0} max={365} value={form.escalate_days} onChange={(e) => set({ escalate_days: e.target.value })} placeholder="如：2" />
+                </Field>
+              </div>
+            </Section>
+          )}
+          <Section
+            title={isTask ? '主管' : '推送目标'}
+            hint={isTask ? '收团队汇总、超期升级和无负责人的待办，可在「消息 → 待办 → 团队」查看与转交；用户优先于角色' : '用户优先于角色；目标用户多个值用逗号分隔'}
+          >
             <div className="flex flex-col gap-3">
               <Field label="目标用户">
                 <Input value={form.target_users_json} onChange={(e) => set({ target_users_json: e.target.value })} placeholder="U001, U002" />
@@ -450,21 +554,23 @@ function RuleForm({ form, setForm, knownEvents, error, editId, saving, onSave, o
                   empty="暂无角色定义"
                 />
               </Field>
-              <Field label="群 Webhook ID" hint="见「群 Webhook」页签">
-                <Input value={form.target_webhooks_json} onChange={(e) => set({ target_webhooks_json: e.target.value })} placeholder="1, 2" />
-              </Field>
+              {!isTask && (
+                <Field label="群 Webhook ID" hint="见「群 Webhook」页签">
+                  <Input value={form.target_webhooks_json} onChange={(e) => set({ target_webhooks_json: e.target.value })} placeholder="1, 2" />
+                </Field>
+              )}
             </div>
           </Section>
 
           <Section
-            title="卡片消息模板"
+            title={isTask ? '待办内容' : '卡片消息模板'}
             hint={<>支持 {'{列名}'} 占位符{form.source === 'bi' ? <>；较上期比较时另有 {'{列名_prev}'}、{'{列名_change}'}、{'{列名_change_pct}'}</> : null}</>}
           >
             <div className="flex flex-col gap-3">
-              <Field label="卡片标题">
-                <Input value={form.card_title_template} onChange={(e) => set({ card_title_template: e.target.value })} placeholder="{ItemName} 库存不足" />
+              <Field label={isTask ? '待办标题' : '卡片标题'}>
+                <Input value={form.card_title_template} onChange={(e) => set({ card_title_template: e.target.value })} placeholder={isTask ? '工单 {DocNum} 已超期' : '{ItemName} 库存不足'} />
               </Field>
-              <Field label="卡片正文（Markdown）">
+              <Field label={isTask ? '待办说明（Markdown）' : '卡片正文（Markdown）'}>
                 <Textarea
                   rows={5}
                   value={form.card_body_template}
@@ -472,14 +578,20 @@ function RuleForm({ form, setForm, knownEvents, error, editId, saving, onSave, o
                   placeholder={'- 物料：{ItemName}\n- 当前库存：{OnHand}\n- 安全库存：{MinLevel}'}
                 />
               </Field>
-              <div className="grid gap-3 sm:grid-cols-[10rem_1fr]">
-                <Field label="按钮文字">
-                  <Input value={form.card_btn_title} onChange={(e) => set({ card_btn_title: e.target.value })} placeholder="查看详情" />
+              {isTask ? (
+                <Field label="单据链接" hint="待办里的「打开单据」，支持 {列名}，可写站内地址如 /report/xxx">
+                  <Input value={form.card_btn_url} onChange={(e) => set({ card_btn_url: e.target.value })} placeholder="/report/work-orders" />
                 </Field>
-                <Field label="按钮链接">
-                  <Input value={form.card_btn_url} onChange={(e) => set({ card_btn_url: e.target.value })} placeholder="https://your-domain.com/" />
-                </Field>
-              </div>
+              ) : (
+                <div className="grid gap-3 sm:grid-cols-[10rem_1fr]">
+                  <Field label="按钮文字">
+                    <Input value={form.card_btn_title} onChange={(e) => set({ card_btn_title: e.target.value })} placeholder="查看详情" />
+                  </Field>
+                  <Field label="按钮链接">
+                    <Input value={form.card_btn_url} onChange={(e) => set({ card_btn_url: e.target.value })} placeholder="https://your-domain.com/" />
+                  </Field>
+                </div>
+              )}
             </div>
           </Section>
         </div>
@@ -721,8 +833,8 @@ function LogsTab() {
             <th className={thClass}>规则</th>
             <th className={thClass}>触发</th>
             <th className={thClass}>状态</th>
-            <th className={thClass} title="进消息收件箱的人数 / 其中钉钉发送成功的人数 / 群 Webhook 数">消息 / 钉钉 / 群</th>
-            <th className={thClass}>卡片标题 / 错误</th>
+            <th className={thClass} title="进消息收件箱的人数 / 其中钉钉发送成功的人数 / 群 Webhook 数；待办规则为新增待办数">消息 / 钉钉 / 群</th>
+            <th className={thClass}>卡片标题 / 同步结果 / 错误</th>
           </tr>
         </thead>
         <tbody>
@@ -748,6 +860,109 @@ function LogsTab() {
   )
 }
 
+// ==================== Stats Tab ====================
+
+interface StatRow {
+  key: string | null
+  ruleName: string
+  created: number
+  completed: number
+  overdue: number
+  open: number
+}
+
+function pct(a: number, b: number) {
+  return b > 0 ? `${Math.round((a / b) * 100)}%` : '-'
+}
+
+/** 待办完成率 / 超期率：区间内新增的待办，按负责人、按规则 */
+function StatsTab() {
+  const [days, setDays] = useState<'7' | '30' | '90'>('7')
+  const [data, setData] = useState<{ from: string; to: string; byOwner: StatRow[]; byRule: StatRow[] } | null>(null)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    apiFetch(`/admin/tasks/stats?days=${days}`)
+      .then((r) => {
+        if (!cancelled) {
+          setData(r)
+          setError('')
+        }
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setError(e instanceof Error ? e.message : '加载失败')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [days])
+
+  const table = (title: string, rows: StatRow[], label: (r: StatRow) => string) => (
+    <Section title={title}>
+      {rows.length === 0 ? (
+        <EmptyState title="这段时间没有新增待办" />
+      ) : (
+        <TableWrap>
+          <table className={tableClass}>
+            <thead>
+              <tr>
+                <th className={thClass}>{title.replace('按', '')}</th>
+                <th className={thClass}>新增</th>
+                <th className={thClass}>完成</th>
+                <th className={thClass}>完成率</th>
+                <th className={thClass}>超期</th>
+                <th className={thClass}>超期率</th>
+                <th className={thClass}>未完成</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.key ?? '-'}>
+                  <td className={tdClass}>{label(r)}</td>
+                  <td className={tdClass + ' num'}>{r.created}</td>
+                  <td className={tdClass + ' num'}>{r.completed}</td>
+                  <td className={tdClass + ' num'}>{pct(r.completed, r.created)}</td>
+                  <td className={tdClass + ' num'}>{r.overdue}</td>
+                  <td className={tdClass + ' num'}>{pct(r.overdue, r.created)}</td>
+                  <td className={tdClass + ' num'}>{r.open}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TableWrap>
+      )}
+    </Section>
+  )
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <Segmented
+          value={days}
+          onChange={setDays}
+          options={[
+            { value: '7', label: '近 7 天' },
+            { value: '30', label: '近 30 天' },
+            { value: '90', label: '近 90 天' },
+          ]}
+        />
+        {data && <span className="text-xs text-muted num">{data.from} ~ {data.to} 新增的待办</span>}
+      </div>
+      <p className="text-xs text-subtle">完成 = 标为已处理或数据里已查不到；超期 = 完成晚于到期日，或至今未完成且已过到期日。每周一早上的团队汇总会附上周数据。</p>
+      {error && <Notice tone="danger">{error}</Notice>}
+      {!data && !error ? (
+        <Skeleton className="h-40" />
+      ) : data ? (
+        <div className="grid gap-4 lg:grid-cols-2 items-start">
+          {table('按负责人', data.byOwner, (r) => r.key || '未分配')}
+          {table('按规则', data.byRule, (r) => r.ruleName || (r.key ? `规则#${r.key}` : '-'))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 // ==================== Shared Components ====================
 
 function StatusBadge({ status }: { status: string }) {
@@ -755,6 +970,7 @@ function StatusBadge({ status }: { status: string }) {
     sent: { label: '已发送', tone: 'success' },
     failed: { label: '失败', tone: 'danger' },
     skipped: { label: '跳过', tone: 'warning' },
+    synced: { label: '已同步', tone: 'success' },
     pending: { label: '进行中', tone: 'primary' },
   }
   const s = map[status]

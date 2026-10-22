@@ -16,4 +16,5 @@ export function fmtWallClock(s: string | null | undefined, now: Date = new Date(
 export const SOURCE_LABELS: Record<string, string> = {
   alert: '警报',
   report: '报告',
+  task: '待办',
 }

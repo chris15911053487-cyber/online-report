@@ -5,7 +5,7 @@ IF OBJECT_ID(N'dbo.notifications', N'U') IS NULL
 BEGIN
   CREATE TABLE dbo.notifications (
     id INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
-    source_type VARCHAR(16) NOT NULL,           -- 'alert' 警报 | 'report' 定时报告 / 看板要点
+    source_type VARCHAR(16) NOT NULL,           -- 'alert' 警报 | 'report' 定时报告 / 看板要点 | 'task' 待办汇总 / 新待办 / 转交
     source_id INT NULL,                         -- alert_rules.id / scheduled_reports.id
     source_name NVARCHAR(128) NULL,             -- 规则 / 报告名称（冗余，规则删了也能看）
     title NVARCHAR(256) NOT NULL,

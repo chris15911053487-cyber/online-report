@@ -33,6 +33,7 @@ const botWecomRoutes = require('./routes/bot-wecom');
 const botFeishuRoutes = require('./routes/bot-feishu');
 const scheduledReportsAdminRoutes = require('./routes/scheduled-reports-admin');
 const alertAdminRoutes = require('./routes/alert-admin');
+const tasksRoutes = require('./routes/tasks');
 const { loadAndSchedule: startScheduledReports } = require('./scheduled-reports');
 const { loadAndScheduleAlerts: startAlertScheduler } = require('./alert-scheduler');
 const { getPool } = require('./db');
@@ -135,6 +136,7 @@ async function build() {
   await fastify.register(botFeishuRoutes);
   await fastify.register(scheduledReportsAdminRoutes);
   await fastify.register(alertAdminRoutes);
+  await fastify.register(tasksRoutes);
   await fastify.register(filesRoutes);
   await fastify.register(uiSettingsRoutes);
   await fastify.register(helpRoutes);

@@ -425,3 +425,4 @@ async function fetchOusrRowExists(pool, userCode) {
 }
 
 module.exports = rolesAdminRoutes;
+module.exports.searchOusrUsers = searchOusrUsers;

@@ -1,11 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Bell, FileText } from 'lucide-react'
+import { Bell, ListTodo, FileText } from 'lucide-react'
 import { useStore } from '../../store'
 import { apiFetch } from '../../utils/api'
 import { fmtWallClock, SOURCE_LABELS } from '../../utils/messages'
 import { Badge, Button, EmptyState, Segmented, Skeleton } from '../../ui'
 import { cn } from '../../ui/classes'
 import type { InboxItem } from '../../types'
+
+const SOURCE_STYLE: Record<string, string> = {
+  alert: 'bg-warning-soft text-warning',
+  task: 'bg-info-soft text-info',
+  report: 'bg-primary-soft text-primary',
+}
 
 const PAGE_SIZE = 30
 
@@ -131,10 +137,10 @@ export default function InboxList({ reloadKey }: { reloadKey: number }) {
               <span
                 className={cn(
                   'mt-0.5 w-8 h-8 rounded-lg flex items-center justify-center shrink-0',
-                  item.sourceType === 'alert' ? 'bg-warning-soft text-warning' : 'bg-primary-soft text-primary',
+                  SOURCE_STYLE[item.sourceType] || SOURCE_STYLE.report,
                 )}
               >
-                {item.sourceType === 'alert' ? <Bell className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
+                {item.sourceType === 'alert' ? <Bell className="w-4 h-4" /> : item.sourceType === 'task' ? <ListTodo className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
               </span>
               <span className="flex-1 min-w-0">
                 <span className="flex items-center gap-2">
@@ -143,7 +149,7 @@ export default function InboxList({ reloadKey }: { reloadKey: number }) {
                 </span>
                 {item.preview && <span className="block text-xs text-muted truncate mt-0.5">{item.preview}</span>}
                 <span className="flex items-center gap-2 mt-1 text-[11px] text-subtle">
-                  <Badge tone={item.sourceType === 'alert' ? 'warning' : 'primary'}>{SOURCE_LABELS[item.sourceType] || '通知'}</Badge>
+                  <Badge tone={item.sourceType === 'alert' ? 'warning' : item.sourceType === 'task' ? 'info' : 'primary'}>{SOURCE_LABELS[item.sourceType] || '通知'}</Badge>
                   {item.sourceName && item.sourceName !== item.title && <span className="truncate">{item.sourceName}</span>}
                   <span className="num shrink-0 ml-auto">{fmtWallClock(item.createdAt)}</span>
                 </span>

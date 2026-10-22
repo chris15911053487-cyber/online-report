@@ -46,7 +46,7 @@ frontend/src/
 - 菜单管理后台（CRUD、AI Prompt 生成器、**角色定义与用户角色分配**）
 - 行详情、批次报工登记
 - 底部导航（工作台 / AI 助手 / Agent / 消息 / 设置）+ 语音控制（`voice.js`）
-- 消息：「通知」收件箱（警报、定时报告主动推送的内容，同时发钉钉）+「待办」（按 SQL 现查的提醒），见下文「消息：通知与待办」
+- 消息：「通知」收件箱（警报、定时报告、待办汇总主动推送的内容，同时发钉钉）+「待办」（规则按数据生成、每条归一个负责人，有状态流转，每天早上推送每人汇总），见下文「消息：通知与待办」
 
 ## 常用命令
 
@@ -109,6 +109,7 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 | `/agents`、`/agents/<agentKey>` | Agent 列表、某个 Agent |
 | `/ai`、`/messages`、`/settings` | AI 助手、消息、设置 |
 | `/messages/<id>` | 一条通知的全文（钉钉消息「在系统中查看」链接到这里） |
+| `/tasks`、`/tasks/<id>` | 打开「消息 → 待办」（并展开某一条）；钉钉待办汇总、转交通知的链接，打开后地址显示为 `/messages` |
 | `/admin`、`/admin/bi`、`/admin/agents`、`/admin/menus` … | 管理后台及各管理页 |
 
 - 浏览器后退、安卓返回键与页面左上角返回一致；合并报工确认、行详情这类依赖当前选择的页面，刷新后回到所在报表。
@@ -281,7 +282,7 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 
 **📌 对话结果收藏到看板**（仅管理员）：Agent 页结果卡片、AI 助手回答下方，凡本轮用 `run_sql` 临时查出的数，都显示「收藏到看板」。点击后**新标签页**打开「BI 看板管理」（对话页不动），弹窗展示原问题与 SQL →「AI 整理成查询」：保持口径，把写死的月份 / 日期 / 编码改成参数（如 GETDATE 推算的上月 → `@period`，`TOP 5` → `TOP (@top)` 默认 5），补名称、口径、列语义、示例问法（第一条用原问法），推荐 1~3 张图表 → 试运行与自我修正同 AI 起草 → 之后同样是确认查询 → 确认图表。SQL 经 `localStorage`（`bi_pending_pin`，10 分钟内有效，读到即清除）传给新标签页。接口 `POST /admin/bi/ai/draft-from-sql`（`{ sql, question }`）。
 
-**🔔 一句话设预警**（管理后台 →「警报推送」→ 一句话设预警）：说「本月有客户销售额比上月下降超过 30%，每天 9 点提醒」→ AI 从查询库选命名查询（看语义层目录）、写判断条件 / 检查频率 / 去重列 / 冷却 / 卡片模板 → 服务端校验（参数、列、cron，错误交回 AI ≤3 轮）并**按当前数据试算**（现在会命中哪些行）→「采用」填进规则表单，人补推送对象（用户 / 角色 / 群 Webhook）后保存。规则存在 `alert_rules.bi_check_json`（与 `sql_template` 二选一，表单「数据来源」切换，可手改 JSON 并「按当前数据试算」），运行时由 `alert-engine` 执行命名查询并按条件确定性判断，不调 AI；去重、冷却、推送、日志沿用原有警报。
+**🔔 一句话设预警**（管理后台 →「预警与待办」→ 一句话设预警）：说「本月有客户销售额比上月下降超过 30%，每天 9 点提醒」→ AI 从查询库选命名查询（看语义层目录）、写判断条件 / 检查频率 / 去重列 / 冷却 / 卡片模板 → 服务端校验（参数、列、cron，错误交回 AI ≤3 轮）并**按当前数据试算**（现在会命中哪些行）→「采用」填进规则表单，人补推送对象（用户 / 角色 / 群 Webhook）后保存。规则存在 `alert_rules.bi_check_json`（与 `sql_template` 二选一，表单「数据来源」切换，可手改 JSON 并「按当前数据试算」），运行时由 `alert-engine` 执行命名查询并按条件确定性判断，不调 AI；去重、冷却、推送、日志沿用原有警报。
 
 ```json
 { "queryKey": "ar_invoice_sales_by_customer_top", "params": { "period": "$thisMonth", "top": 10 },
@@ -385,29 +386,58 @@ module.exports = {
 
 ## 消息：通知与待办
 
-主动推送（警报、定时报告、看板每日要点）统一走 `server/src/notify.js` 的 `notify()`：**先写收件箱，再发 IM**。没绑定 IM 的人也能在系统「消息 → 通知」看到。
+主动推送（警报、待办汇总 / 新待办 / 转交、定时报告、看板每日要点）统一走 `server/src/notify.js` 的 `notify()`：**先写收件箱，再发 IM**。没绑定 IM 的人也能在系统「消息 → 通知」看到。
 
 ```
 警报规则（cron / 事件，alert-engine） ─┐
+待办汇总 / 新待办 / 转交（tasks.js）   ─┤
 定时报告 / 看板每日要点（scheduled-reports） ─┴→ notify() ─┬→ notifications + notification_recipients（「消息 → 通知」）
                                                              └→ 钉钉个人消息 / 企微 / 飞书（结果记 im_status_json）
 警报的群 Webhook 不是「人」，不进收件箱，由 alert-engine 另发
 ```
 
-- **数据表**（`server/sql/migrate-notifications.sql`，启动自动执行）：`notifications`（来源 `alert` / `report` + 来源 id/名称、标题、Markdown 正文、按钮）一次推送一行；`notification_recipients`（`notification_id` + `user_code` 主键、`read_at`、`im_status_json` 如 `{"dingtalk":"sent"}`，取值 `sent` / `failed` / `unbound`）每个接收人一行。
+- **数据表**（`server/sql/migrate-notifications.sql`，启动自动执行）：`notifications`（来源 `alert` / `report` / `task` + 来源 id/名称、标题、Markdown 正文、按钮）一次推送一行；`notification_recipients`（`notification_id` + `user_code` 主键、`read_at`、`im_status_json` 如 `{"dingtalk":"sent"}`，取值 `sent` / `failed` / `unbound`）每个接收人一行。
 - **接收人**：`resolveRecipientCodes()`——指定用户优先，否则按 `user_roles` 展开角色（警报与定时报告同一规则）。
 - **IM 账号**：钉钉先查 `bot_user_bindings`（platform=`dingtalk`），再回退 `OUSR.U_DDUserId`；企微 / 飞书查 `bot_user_bindings`。钉钉用机器人单聊 `oToMessages/batchSend`（每批 20 人，失败只标那一批）。警报只发钉钉；定时报告按 `channels_json`。
 - **钉钉按钮**：调用方给了按钮（警报的 `card_btn_title` / `card_btn_url`）就用它；否则配置了 `PUBLIC_BASE_URL` 时显示「在系统中查看」→ `{PUBLIC_BASE_URL}/messages/{id}`。
 - **日志口径**：警报日志 `target_count` = 进收件箱人数、`sent_count` = 其中钉钉成功人数、`webhook_count` = 群数；有人收到（收件箱或群）即 `sent`。定时报告日志 `target_count` = 进收件箱人数、`sent_count` = IM 成功人数，IM 失败原因写 `error_message`。
-- **待办**：原「消息提醒」规则（`message_alert_rules`，管理后台 →「消息提醒」）保留为「消息 → 待办」页签，打开时按 SQL 现查、逐条已读，与通知并列。
-- **前端**：`views/MessagesView.tsx`（页签：通知 `components/messages/InboxList.tsx` / 待办）、`views/MessageDetailView.tsx`（`/messages/:id`，store `openMessage`）。时间按墙钟字符串显示（`utils/messages.ts` 的 `fmtWallClock`）。入口红点 = 通知未读 + 待办未读。
+- **前端**：`views/MessagesView.tsx`（页签：通知 `components/messages/InboxList.tsx` / 待办 `components/messages/TaskList.tsx`，页签记在 store `messagesTab`）、`views/MessageDetailView.tsx`（`/messages/:id`，store `openMessage`）。时间按墙钟字符串显示（`utils/messages.ts` 的 `fmtWallClock`）。入口红点 = 通知未读 + 我的待处理待办。
 
 | 接口 | 说明 |
 |------|------|
-| `GET /messages/summary` | 未读摘要：`totalUnread`（合计）、`inboxUnread`、`todoUnread`、待办规则列表 |
+| `GET /messages/summary` | 红点：`totalUnread`（合计）、`inboxUnread`（通知未读）、`todoOpen`（我的待处理待办） |
 | `GET /messages/inbox?limit=&before=&unread=1` | 我的通知（按 id 倒序，`before` 为上一页最后一条 id） |
 | `GET /messages/inbox/:id` | 通知全文；只有接收人能看（否则 404），打开即已读 |
 | `POST /messages/inbox/read` | 标为已读：`{ ids: [1,2] }` 或 `{ all: true }` |
+
+### 待办（规则生成 → 每人每日推送 → 跟进）
+
+取代原「消息提醒」（`message_alert_rules` 与其管理页已删除，旧表留在库里不再使用）。规则仍在 `alert_rules`（管理后台「预警与待办」），多一个输出方式：`output_mode = 'notify'` 推通知（原警报），`'task'` 每行生成一条待办。以后人工派发、AI 建议 + 主管拍板也进同一张 `tasks` 表（`source_type` 已预留 `manual` / `ai`）。
+
+```
+规则 SQL / 命名查询 + 条件 ──→ syncRuleTasks（规则 + 单据键去重）──→ tasks（open / snoozed / done / closed）+ task_events
+   定时：全量同步（查不到的关闭）     事件：只增改，并立刻通知新待办的负责人
+每天 07:30 runTaskDigest：先同步全部定时待办规则 → 每人一条汇总 + 主管团队汇总（超期升级、未分配、周一附上周完成率）→ notify()
+每天 15:00 复查：再同步一次，今天到期 / 超期还没处理的再提醒负责人
+```
+
+- **规则字段**（`server/sql/migrate-tasks.sql`）：`key_column` 单据键（必填）、`owner_column` 负责人列（必填，值须是 `OUSR.USER_CODE`，不区分大小写；识别不了 → 未分配，主管在「团队」里转交）、`due_column` 到期日列（可选）或 `due_days` 出现后 N 天内（默认 0 = 当天）、`escalate_days` 超期 N 天升级（空 = 不升级）。主管 = 规则的推送对象（用户优先，否则角色），收团队汇总、能看「团队」待办。标题 / 说明 / 单据链接沿用卡片模板字段（`{列名}` 占位）。定时待办规则 `cron_expr` 可空（只随每日汇总、复查同步）；冷却、群 Webhook 不适用
+- **状态**：`open` 待处理 → `done` 已处理（**以数据为准**：第二天同步时还查得到就重新打开，查不到了就 `closed`）/ `snoozed` 延后到某天（到期恢复）/ `closed` 数据里查不到了（再出现会重新打开）。转交后 `owner_locked = 1`，不再随数据改负责人，并通知新负责人。每次变化写 `task_events`（系统动作 `user_code` 为空）
+- **安全阀**：一次最多处理 2000 行（`MAX_TASK_ROWS`），超出时只增改不关闭；同一规则的同步排队执行（进程内）；规则停用 / 删除 / 改回推通知时未处理的待办一并关闭（`closeRuleTasks`）
+- **权限**：负责人、规则主管、管理员可看可操作；后端 `loadTaskForUser` 校验
+- **推送时间**：`TASK_DIGEST_CRON`（默认 `30 7 * * *`）、`TASK_RECHECK_CRON`（默认 `0 15 * * *`），设为 `off` 关闭；没有待办的人不推。链接需配置 `PUBLIC_BASE_URL`
+- **统计**：区间内新增的待办按负责人 / 规则算完成率（已处理或已关闭）、超期率（完成晚于到期日，或至今未完成且已过期）；管理页「待办统计」页签
+- **实现**：`server/src/tasks.js`（纯函数 `planSync` / `buildOwnerDigest` / `buildTeamDigest` 有单测 `test/tasks.test.js`）、`alert-engine.js` 的 `executeTaskRule`、`alert-scheduler.js`（汇总定时任务）、`routes/tasks.js`；前端 `components/messages/TaskList.tsx`、`utils/tasks.ts`、`views/AlertPushView.tsx`
+
+| 接口 | 说明 |
+|------|------|
+| `GET /tasks?scope=mine\|team&status=open\|snoozed\|done` | 我的 / 团队待办（`done` = 最近 30 天已处理或已关闭），附 `counts`、`canTeam`、`today` |
+| `GET /tasks/:id` | 详情（正文、数据行）+ 处理记录 |
+| `POST /tasks/:id/done\|snooze\|transfer\|note\|reopen` | 处理；`snooze` 带 `{ until: 'YYYY-MM-DD' }`（最多 90 天），`transfer` 带 `{ to: 用户编码 }`，都可带 `note` |
+| `GET /tasks/users?q=` | 转交时搜索用户（仅自己有待办或是主管的人可用） |
+| `GET /admin/tasks/stats?days=7` | 完成率 / 超期率（按负责人、按规则） |
+| `POST /admin/tasks/digest` | 立即同步并推送一次汇总（`{ kind: 'morning'\|'afternoon' }`） |
+| `POST /admin/alert-rules/:id/test` | 待办规则：立即同步并返回「新增 / 更新 / 关闭 …」 |
 
 ## 定时 AI 报告推送
 
@@ -939,6 +969,7 @@ docker compose -f docker-compose.deploy.yml up -d --build
 | `VOICE_ENABLED` | 语音功能开关（默认开） |
 | `IMAGES_DIR` | 图片静态目录 |
 | `ADMIN_USER_CODES` | 管理员用户编码（逗号分隔，对应 OUSR `USER_CODE`） |
+| `TASK_DIGEST_CRON` / `TASK_RECHECK_CRON` | 待办早上汇总（默认 `30 7 * * *`）/ 下午复查（默认 `0 15 * * *`），`off` 关闭 |
 
 ---
 

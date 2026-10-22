@@ -6,7 +6,7 @@
  * - POST   /admin/alert-rules           新增规则
  * - PATCH  /admin/alert-rules/:id       修改规则
  * - DELETE /admin/alert-rules/:id       删除规则
- * - POST   /admin/alert-rules/:id/test  手动触发一次
+ * - POST   /admin/alert-rules/:id/test  手动触发一次（待办规则：立即同步并返回结果）
  * - POST   /admin/alert-rules/ai/draft  一句话设预警：AI 选命名查询 + 写条件 → 试算，只返回草稿
  * - POST   /admin/alert-rules/preview   按当前数据试算 BI 规则会命中哪些行（不推送；事件规则带 test_event）
  * - GET    /admin/alert-webhooks        Webhook 列表
@@ -18,6 +18,7 @@
 const cron = require('node-cron');
 const { getPool, sql } = require('../db');
 const { executeRule, triggerEvent, loadRuleById } = require('../alert-engine');
+const { describeSync, closeRuleTasks } = require('../tasks');
 const { loadAndScheduleAlerts } = require('../alert-scheduler');
 const { aiService } = require('../ai');
 const { getQuery, listAllQueries } = require('../bi-queries');
@@ -37,6 +38,25 @@ async function parseBiCheck(pool, raw) {
   return { value: JSON.stringify(cv.value), query, check: cv.value };
 }
 
+/** 输出方式 + 待办字段校验；返回错误文字或 null。r = 合并后的规则（新增时即请求体） */
+function taskRuleProblem(r) {
+  const mode = r.output_mode || 'notify';
+  if (!['notify', 'task'].includes(mode)) return 'output_mode 须为 notify 或 task';
+  if (mode !== 'task') return null;
+  if (!String(r.key_column || '').trim()) return '待办规则须填写单据键列（同一单据只生成一条待办）';
+  if (!String(r.owner_column || '').trim()) return '待办规则须填写负责人列（值为系统用户编码 USER_CODE）';
+  for (const k of ['due_days', 'escalate_days']) {
+    const v = r[k];
+    if (v != null && v !== '' && !(Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 365)) return `${k} 须为 0~365 的整数`;
+  }
+  return null;
+}
+
+/** 空串 / undefined → null，其余转整数 */
+function intOrNull(v) {
+  return v == null || v === '' ? null : Number(v);
+}
+
 async function alertAdminRoutes(fastify) {
   // ==================== 警报规则 CRUD ====================
 
@@ -47,7 +67,8 @@ async function alertAdminRoutes(fastify) {
       `SELECT id, name, description, trigger_type, cron_expr, sql_template, key_column,
               event_name, target_users_json, target_roles_json, target_webhooks_json,
               card_title_template, card_body_template, card_btn_title, card_btn_url,
-              cooldown_minutes, enabled, sort_order, created_by, created_at, updated_at, bi_check_json
+              cooldown_minutes, enabled, sort_order, created_by, created_at, updated_at, bi_check_json,
+              output_mode, owner_column, due_column, due_days, escalate_days
        FROM dbo.alert_rules ORDER BY sort_order, id DESC`
     );
     // BI 规则附上中文描述
@@ -79,9 +100,13 @@ async function alertAdminRoutes(fastify) {
     if (b.trigger_type === 'cron' && bi.check && usesEventRefs(bi.check)) {
       return reply.code(400).send({ error: '定时规则的参数不能用 $event.字段（只有事件触发规则有事件数据）' });
     }
+    const taskErr = taskRuleProblem(b);
+    if (taskErr) return reply.code(400).send({ error: taskErr });
+    const isTask = b.output_mode === 'task';
     if (b.trigger_type === 'cron') {
-      if (!b.cron_expr) return reply.code(400).send({ error: '定时规则须配置 cron_expr' });
-      if (!cron.validate(b.cron_expr)) return reply.code(400).send({ error: 'cron 表达式无效' });
+      // 待办规则可不填 cron：只在每天汇总、复查前同步
+      if (!b.cron_expr && !isTask) return reply.code(400).send({ error: '定时规则须配置 cron_expr' });
+      if (b.cron_expr && !cron.validate(b.cron_expr)) return reply.code(400).send({ error: 'cron 表达式无效' });
       if (!b.sql_template && !bi.value) return reply.code(400).send({ error: '定时规则须配置检查 SQL 或命名查询条件' });
     }
     if (b.trigger_type === 'event' && !b.event_name) {
@@ -108,16 +133,23 @@ async function alertAdminRoutes(fastify) {
       .input('so', sql.Int, b.sort_order || 0)
       .input('by', sql.NVarChar(64), request.user?.username || null)
       .input('bic', sql.NVarChar(sql.MAX), bi.value || null)
+      .input('om', sql.VarChar(16), isTask ? 'task' : 'notify')
+      .input('oc', sql.NVarChar(128), isTask ? String(b.owner_column).trim() : null)
+      .input('dc', sql.NVarChar(128), isTask ? String(b.due_column || '').trim() || null : null)
+      .input('dd', sql.Int, isTask ? intOrNull(b.due_days) : null)
+      .input('ed', sql.Int, isTask ? intOrNull(b.escalate_days) : null)
       .query(
         `INSERT INTO dbo.alert_rules
          (name, description, trigger_type, cron_expr, sql_template, key_column,
           event_name, target_users_json, target_roles_json, target_webhooks_json,
           card_title_template, card_body_template, card_btn_title, card_btn_url,
-          cooldown_minutes, enabled, sort_order, created_by, bi_check_json)
+          cooldown_minutes, enabled, sort_order, created_by, bi_check_json,
+          output_mode, owner_column, due_column, due_days, escalate_days)
          VALUES (@name, @desc, @tt, @cron, @sqlt, @kc,
                  @ev, @tu, @tr, @tw,
                  @ct, @cb, @cbt, @cbu,
-                 @cd, @en, @so, @by, @bic);
+                 @cd, @en, @so, @by, @bic,
+                 @om, @oc, @dc, @dd, @ed);
          SELECT SCOPE_IDENTITY() AS id`
       );
 
@@ -135,8 +167,20 @@ async function alertAdminRoutes(fastify) {
       return reply.code(400).send({ error: 'cron 表达式无效' });
     }
 
-    const fields = [];
     const pool = await getPool();
+    const existing = await loadRuleById(id);
+    if (!existing) return reply.code(404).send({ error: '规则不存在' });
+    const merged = { ...existing };
+    for (const k of ['output_mode', 'key_column', 'owner_column', 'due_days', 'escalate_days', 'trigger_type', 'cron_expr']) {
+      if (b[k] !== undefined) merged[k] = b[k];
+    }
+    const taskErr = taskRuleProblem(merged);
+    if (taskErr) return reply.code(400).send({ error: taskErr });
+    if (merged.trigger_type === 'cron' && !merged.cron_expr && merged.output_mode !== 'task') {
+      return reply.code(400).send({ error: '定时规则须配置 cron_expr' });
+    }
+
+    const fields = [];
     const req = pool.request().input('id', sql.Int, id);
 
     const map = {
@@ -154,12 +198,19 @@ async function alertAdminRoutes(fastify) {
       cooldown_minutes: ['cd', sql.Int],
       enabled: ['en', sql.Bit],
       sort_order: ['so', sql.Int],
+      output_mode: ['om', sql.VarChar(16)],
+      owner_column: ['oc', sql.NVarChar(128)],
+      due_column: ['dc', sql.NVarChar(128)],
+      due_days: ['dd', sql.Int],
+      escalate_days: ['ed', sql.Int],
     };
 
     for (const [col, [param, type]] of Object.entries(map)) {
       if (b[col] !== undefined) {
         let val = b[col];
         if (col === 'enabled') val = val ? 1 : 0;
+        if (col === 'due_days' || col === 'escalate_days') val = intOrNull(val);
+        if (col === 'due_column' || col === 'owner_column' || col === 'cron_expr') val = String(val ?? '').trim() || null;
         fields.push(`${col}=@${param}`);
         req.input(param, type, val ?? null);
       }
@@ -192,6 +243,12 @@ async function alertAdminRoutes(fastify) {
     const rs = await req.query(`UPDATE dbo.alert_rules SET ${fields.join(',')} WHERE id=@id; SELECT @@ROWCOUNT AS cnt`);
     if (!rs.recordset[0].cnt) return reply.code(404).send({ error: '规则不存在' });
 
+    // 不再生成待办（停用或改回推通知）：关掉它留下的未处理待办，免得没人同步、主管也看不到
+    const enabledAfter = b.enabled !== undefined ? !!b.enabled : !!existing.enabled;
+    if (existing.output_mode === 'task' && (merged.output_mode !== 'task' || !enabledAfter)) {
+      await closeRuleTasks(pool, id, merged.output_mode !== 'task' ? '规则改为推送通知' : '规则已停用');
+    }
+
     await loadAndScheduleAlerts(fastify.log);
     return { success: true };
   });
@@ -204,9 +261,10 @@ async function alertAdminRoutes(fastify) {
       .query('DELETE FROM dbo.alert_rules WHERE id=@id; SELECT @@ROWCOUNT AS cnt');
     if (!rs.recordset[0].cnt) return reply.code(404).send({ error: '规则不存在' });
 
-    // 清理相关 sent_keys
+    // 清理相关 sent_keys；规则生成的待办里还没处理的一并关闭（处理记录保留）
     await pool.request().input('rid', sql.Int, id)
       .query('DELETE FROM dbo.alert_sent_keys WHERE rule_id=@rid');
+    await closeRuleTasks(pool, id, '规则已删除');
 
     await loadAndScheduleAlerts(fastify.log);
     return { success: true };
@@ -217,6 +275,12 @@ async function alertAdminRoutes(fastify) {
     const rule = await loadRuleById(Number(request.params.id));
     if (!rule) return reply.code(404).send({ error: '规则不存在' });
 
+    if (rule.output_mode === 'task' && rule.trigger_type === 'cron') {
+      // 待办规则：同步完再返回，管理员马上能看到生成了多少条
+      const r = await executeRule(rule);
+      if (r.error) return reply.code(400).send({ error: `执行失败：${r.error}` });
+      return { success: true, message: describeSync(r.sync) };
+    }
     if (rule.trigger_type === 'cron') {
       // 直接执行（忽略 cooldown，用于测试）
       executeRule(rule).catch((e) => fastify.log.error(e, 'alert manual trigger error'));

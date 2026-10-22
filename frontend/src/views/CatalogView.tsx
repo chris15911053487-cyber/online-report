@@ -61,12 +61,13 @@ function MenuLink({ menu, onOpen, className, children, ...rest }: { menu: NavMen
 }
 
 export default function CatalogView() {
-  const { navMenus, user, messageSummary, openMenuItem, setView } = useStore()
+  const { navMenus, user, messageSummary, openMenuItem, setView, openTasks } = useStore()
   const [keyword, setKeyword] = useState('')
 
   const name = user?.displayName || user?.username || ''
   const unread = messageSummary?.totalUnread || 0
-  const unreadRules = (messageSummary?.rules || []).filter((r) => r.unread > 0)
+  const todoOpen = messageSummary?.todoOpen || 0
+  const inboxUnread = messageSummary?.inboxUnread || 0
 
   const recent = useMemo(
     () =>
@@ -95,24 +96,24 @@ export default function CatalogView() {
         </Button>
       </div>
 
-      {/* 待处理：有未读提醒才显示 */}
+      {/* 待处理：有待办或未读通知才显示；有待办时直接进待办 */}
       {unread > 0 && (
         <button
           type="button"
-          onClick={() => setView('messages')}
+          onClick={() => (todoOpen > 0 ? openTasks() : setView('messages'))}
           className="w-full mb-5 flex items-center gap-3 rounded-xl border border-warning/30 bg-warning-soft px-3.5 py-2.5 text-left transition-colors hover:border-warning/50"
         >
           <Bell className="w-4 h-4 text-warning flex-shrink-0" />
           <span className="flex-1 min-w-0 text-[13px] text-fg truncate">
-            <b className="num font-semibold">{unread > 99 ? '99+' : unread}</b> 条未读提醒
-            {unreadRules.length > 0 && (
-              <span className="text-muted">
-                {' · '}
-                {unreadRules
-                  .slice(0, 3)
-                  .map((r) => `${r.name} ${r.unread}`)
-                  .join('、')}
-              </span>
+            {todoOpen > 0 ? (
+              <>
+                <b className="num font-semibold">{todoOpen > 99 ? '99+' : todoOpen}</b> 条待办
+                {inboxUnread > 0 && <span className="text-muted"> · {inboxUnread} 条未读通知</span>}
+              </>
+            ) : (
+              <>
+                <b className="num font-semibold">{inboxUnread > 99 ? '99+' : inboxUnread}</b> 条未读通知
+              </>
             )}
           </span>
           <ChevronRight className="w-4 h-4 text-muted flex-shrink-0" />

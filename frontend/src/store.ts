@@ -73,6 +73,10 @@ interface AppState {
   helpDocTitle: string | null
   /** 正在看的通知（message-detail 页使用，notifications.id） */
   messageId: number | null
+  /** 「消息」页签：通知 / 待办（本标签页内记住） */
+  messagesTab: MessagesTab
+  /** 待办页要展开的那条（钉钉里的「查看待办」/tasks/:id） */
+  focusTaskId: number | null
 
   // Actions
   initialize: () => Promise<void>
@@ -110,6 +114,10 @@ interface AppState {
   openHelpDoc: (slug: string) => void
   /** 打开一条通知（「消息」→ 通知列表、钉钉消息里的链接 /messages/:id） */
   openMessage: (id: number) => void
+  setMessagesTab: (tab: MessagesTab) => void
+  /** 打开「消息 → 待办」，可指定展开哪一条（/tasks、/tasks/:id） */
+  openTasks: (id?: number | null) => void
+  clearFocusTask: () => void
   setHelpDocTitle: (title: string | null) => void
   /** 进入某个 Agent 的运行页 */
   openAgent: (agentKey: string) => void
@@ -118,6 +126,18 @@ interface AppState {
 }
 
 /** 切到这些一级页面时，记住正在看的报表，点「工作台」可回来 */
+export type MessagesTab = 'inbox' | 'todo'
+const MESSAGES_TAB_KEY = 'online_report_messages_tab'
+
+function readMessagesTab(): MessagesTab {
+  try {
+    const v = sessionStorage.getItem(MESSAGES_TAB_KEY)
+    return v === 'todo' ? 'todo' : 'inbox'
+  } catch {
+    return 'inbox'
+  }
+}
+
 const ROOT_TAB_VIEWS = new Set<ViewName>(['ai', 'agent-hub', 'agent-run', 'messages', 'settings', 'help', 'admin'])
 
 export const useStore = create<AppState>((set, get) => ({
@@ -153,6 +173,8 @@ export const useStore = create<AppState>((set, get) => ({
   helpDocSlug: null,
   helpDocTitle: null,
   messageId: null,
+  messagesTab: readMessagesTab(),
+  focusTaskId: null,
 
   clearProSignListRefreshFlag: () => set({ shouldRefreshProSignListAfterReceive: false }),
 
@@ -184,6 +206,26 @@ export const useStore = create<AppState>((set, get) => ({
       viewHistory: s.currentView === 'message-detail' ? s.viewHistory : [...s.viewHistory, s.currentView],
     }))
   },
+
+  setMessagesTab: (tab: MessagesTab) => {
+    set({ messagesTab: tab })
+    try {
+      sessionStorage.setItem(MESSAGES_TAB_KEY, tab)
+    } catch {
+      /* 不可写时只是不记住页签 */
+    }
+  },
+
+  openTasks: (id?: number | null) => {
+    get().setMessagesTab('todo')
+    set((s) => ({
+      focusTaskId: id ?? null,
+      currentView: 'messages',
+      viewHistory: s.currentView === 'messages' ? s.viewHistory : [...s.viewHistory, s.currentView],
+    }))
+  },
+
+  clearFocusTask: () => set({ focusTaskId: null }),
 
   openAgent: (agentKey: string) => {
     set((s) => ({
@@ -473,10 +515,8 @@ export const useStore = create<AppState>((set, get) => ({
         messageSummary: {
           totalUnread: Number(data?.totalUnread) || 0,
           inboxUnread: Number(data?.inboxUnread) || 0,
-          todoUnread: Number(data?.todoUnread) || 0,
+          todoOpen: Number(data?.todoOpen) || 0,
           refreshSeconds: Number(data?.refreshSeconds) || 60,
-          rules: Array.isArray(data?.rules) ? data.rules : [],
-          refreshedAt: data?.refreshedAt || null,
         },
       })
     } catch (err) {

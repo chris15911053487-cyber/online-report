@@ -20,7 +20,6 @@ import BiAdminView from '../views/BiAdminView'
 import AgentRunView from '../views/AgentRunView'
 import MessagesView from '../views/MessagesView'
 import MessageDetailView from '../views/MessageDetailView'
-import MessageAlertSettingsView from '../views/MessageAlertSettingsView'
 import ScheduledReportsView from '../views/ScheduledReportsView'
 import AlertPushView from '../views/AlertPushView'
 import AdminHubView from '../views/AdminHubView'
@@ -46,7 +45,6 @@ const viewComponents: Record<string, React.ComponentType> = {
   'dynamic-report': DynamicReportView,
   'menu-settings': MenuSettingsView,
   'ai-skills': AiSkillsView,
-  'message-alert-settings': MessageAlertSettingsView,
   'scheduled-reports': ScheduledReportsView,
   'alert-push': AlertPushView,
   admin: AdminHubView,
@@ -79,9 +77,8 @@ function getPageTitle(
     'help-doc': '使用说明',
     'menu-settings': '菜单与角色',
     'ai-skills': 'AI Skill 管理',
-    'message-alert-settings': '消息提醒',
     'scheduled-reports': '定时报告',
-    'alert-push': '警报推送',
+    'alert-push': '预警与待办',
     'report-row-detail': '行详情',
     'work-registration': '报工登记',
     'pro-sign-order-detail': '订单详情',

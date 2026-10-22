@@ -1,5 +1,5 @@
 /**
- * 统一推送出口：警报、定时报告（含看板每日要点）等主动推送都走 notify()。
+ * 统一推送出口：警报、待办（每日汇总 / 新待办 / 转交）、定时报告（含看板每日要点）等主动推送都走 notify()。
  *
  * 一次推送 = 一条 notifications + 每个接收人一行 notification_recipients：
  *   1. 先写收件箱（「消息」菜单 →「通知」页签），没绑定 IM 的人也能在系统里看到；
@@ -19,7 +19,7 @@ const { sendWecom, sendFeishu } = require('./im-push');
 const pino = require('pino');
 const log = pino({ name: 'notify' });
 
-const SOURCE_TYPES = new Set(['alert', 'report']);
+const SOURCE_TYPES = new Set(['alert', 'report', 'task']);
 const IM_CHANNELS = ['dingtalk', 'wecom', 'feishu'];
 const MAX_TITLE = 256;
 const MAX_USER_CODE = 64;
@@ -64,7 +64,7 @@ function buildPlainText({ title, body, linkTitle, linkUrl }, detailUrl) {
  */
 function createNotifier({ store, senders, baseUrl = publicBaseUrl, logger = log } = {}) {
   /**
-   * @param {{ sourceType: 'alert'|'report', sourceId?: number, sourceName?: string, title: string, body?: string,
+   * @param {{ sourceType: 'alert'|'report'|'task', sourceId?: number, sourceName?: string, title: string, body?: string,
    *           linkTitle?: string, linkUrl?: string, recipients: string[], channels?: string[] }} msg
    * @returns {Promise<{ notificationId: number|null, recipients: number, imSent: number, unbound: number, errors: string[] }>}
    *   recipients：进了收件箱的人数（收件箱写入失败时为 0，IM 照发）
