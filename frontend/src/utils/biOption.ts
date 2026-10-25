@@ -234,7 +234,7 @@ export function buildChartModel(
     })
   }
   if (percent) {
-    const totals = categories.map((_, j) => series.reduce((sum, s, i) => (isRight(i) ? sum : sum + Math.abs(rawData[i][j] ?? 0)), 0))
+    const totals = categories.map((_, j) => series.reduce((sum, _s, i) => (isRight(i) ? sum : sum + Math.abs(rawData[i][j] ?? 0)), 0))
     series.forEach((s, i) => {
       if (!isRight(i)) s.data = rawData[i].map((v, j) => (v == null || !totals[j] ? v : v / totals[j]))
     })
