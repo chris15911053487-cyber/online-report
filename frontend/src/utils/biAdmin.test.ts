@@ -3,6 +3,7 @@ import {
   autoBindDrill,
   chartProblems,
   rightAxisProblem,
+  stackProblem,
   suggestRightAxis,
   effectiveSource,
   newChart,
@@ -267,6 +268,16 @@ describe('右轴 / 涨跌着色', () => {
     expect(rightAxisProblem({ ...enc, horizontal: true }, 'bar')).toMatch(/横向/)
     expect(rightAxisProblem({ ...enc, rightAxis: ['本期', '增长率'] }, 'line')).toMatch(/左轴/)
     expect(rightAxisProblem({ ...enc, values: ['本期'] }, 'bar')).toMatch(/须是数值列之一/)
+  })
+
+  it('stackProblem 与后端规则一致', () => {
+    const enc = { dimension: '月份', values: ['本期', '对比期'], stack: 'normal' as const }
+    expect(stackProblem(enc, 'bar')).toBe('')
+    expect(stackProblem(enc, 'line')).toMatch(/只有柱状图/)
+    expect(stackProblem({ ...enc, values: ['本期'] }, 'bar')).toMatch(/至少两个/)
+    expect(stackProblem({ ...enc, values: ['本期', '增长率'], rightAxis: ['增长率'] }, 'bar')).toMatch(/至少两个/)
+    expect(stackProblem({ dimension: '月份', value: '本期', series: '客户', stack: 'percent' }, 'bar')).toBe('')
+    expect(cleanEncoding('line', enc)).not.toHaveProperty('stack')
   })
 
   it('suggestRightAxis：新选的百分比列自动放右轴；保留已有；只剩一列或全是百分比时不设', () => {

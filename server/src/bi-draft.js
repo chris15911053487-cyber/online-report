@@ -190,7 +190,7 @@ ${SQL_RULES}
 ## 图表 charts（1~3 张，从不同角度展示同一条查询，不要重复）
 - 例如排名类查询：横向条形（排名）+ 饼图（占比）+ 表格（明细）；趋势类：折线 + 当期 KPI；单值类：KPI
 - type：kpi（单个数，取第一行）/ bar / line（时间趋势）/ pie（占比，类别 ≤ 8）/ table
-- encoding：kpi 用 {"value": 度量列}；bar/line/pie 用 {"dimension": 维度列, "value": 度量列}，可加 "horizontal": true（横向条形，适合排名）、"labels": "show"/"hide"（柱/线上是否标数值，不写 = 自动）、"topN"
+- encoding：kpi 用 {"value": 度量列}；bar/line/pie 用 {"dimension": 维度列, "value": 度量列}，可加 "horizontal": true（横向条形，适合排名）、"labels": "show"/"hide"（柱/线上是否标数值，不写 = 自动）、"stack": "normal"/"percent"（仅 bar 且有多个数值列或 series 时：看合计用 normal，看构成占比用 percent）、"topN"
 - 同比 / 环比查询：按月趋势用 bar {"dimension": "Month", "values": ["Cur", "Prev", "GrowthRate"], "rightAxis": ["GrowthRate"]}（增长率画折线走右轴）；按客户 / 产品用 table {"deltaColumns": ["GrowthRate"], "trend": "up-good"}（增长率涨绿跌红；成本类用 "up-bad"）；KPI 用 {"value": "Cur", "compare": "Prev", "trend": "up-good"}
 - 列名必须是 SQL 的输出列别名
 - params 只写固定值（一般留空 {}）；@period 等参数由看板上的同名筛选提供

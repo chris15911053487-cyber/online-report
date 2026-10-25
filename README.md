@@ -322,6 +322,8 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 
 柱 / 线上的数值标签：`encoding.labels` = `show` / `hide`，不写为自动（单系列柱形图 ≤12 根、横向条形 ≤20 根时标；多系列不标；单条折线只标最后一个点），规则在 `utils/biOption.ts` 的 `labelPlan()`。
 
+堆叠柱形图：`encoding.stack` = `normal`（数值堆叠）/ `percent`（百分比堆叠，每根柱子 = 100%，坐标轴 0~100%，tooltip 显示占比 + 原值），不写为并排。仅柱状图，须有 ≥2 个左轴数值列或 `series` 列（`rightAxis` 的折线不参与堆叠，可同用）；前后端同一校验：`bi-charts.js` 的 `stackProblem`、`utils/biAdmin.ts` 同名函数。堆叠时数值标签标在柱内。
+
 `encoding` 还支持 `values`（多系列）、`series`（长表透视）、`compare`（KPI 对比列，显示环比）、`columns`（表格列与格式）、`format`（`number` / `money` / `percent` / `integer`）。筛选类型 `month`（月份）/ `year`（年份，近 10 年下拉，值如 `2026`）/ `date` / `select`（可 `multiple`，选项 `options` 或 `optionsQuery`）/ `string`；默认值可用 `$today` `$yesterday` `$thisMonth` `$lastMonth` `$monthStart` `$yearStart` `$thisYear` `$lastYear`（前端 `resolveDefaultToken` 与服务端 `bi-tokens.js` 同一清单）。查询参数名为 `year` 时「一键建成筛选」生成年份筛选，默认今年。
 
 **安全与缓存**：

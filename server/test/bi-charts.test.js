@@ -137,6 +137,23 @@ test('图表校验：右轴（柱线组合）只能放数值列的一部分；�
   assert.match(run({ dimension: '月份', value: '本期', rightAxis: ['本期'] }, 'pie').error, /只有柱状/);
 });
 
+test('图表校验：堆叠只用于柱状图，且要有两个以上柱状数值列或系列列', () => {
+  const q = new Map([['yoy', {
+    queryKey: 'yoy', label: '同比', params: [],
+    columns: [{ column: '月份', role: 'time' }, { column: '本期', role: 'measure' }, { column: '对比期', role: 'measure' }, { column: '增长率', role: 'measure', format: 'percent' }],
+  }]]);
+  const base = { chartKey: 'yoy_stack', label: '堆叠', type: 'bar', queryKey: 'yoy', params: {} };
+  const run = (encoding, type = 'bar') => validateChartInput({ ...base, type, encoding }, q);
+  assert.equal(run({ dimension: '月份', values: ['本期', '对比期'], stack: 'normal' }).value.encoding.stack, 'normal');
+  assert.equal(run({ dimension: '月份', values: ['本期', '对比期'], stack: true }).value.encoding.stack, 'normal', 'true 视为 normal');
+  assert.equal(run({ dimension: '月份', value: '本期', series: '增长率', stack: 'percent' }).value.encoding.stack, 'percent', '系列列透视可堆叠');
+  assert.equal(run({ dimension: '月份', values: ['本期', '对比期'], stack: false }).value.encoding.stack, undefined);
+  assert.match(run({ dimension: '月份', values: ['本期', '对比期'], stack: 'up' }).error, /stack 须为/);
+  assert.match(run({ dimension: '月份', value: '本期', stack: 'normal' }).error, /至少两个/);
+  assert.match(run({ dimension: '月份', values: ['本期', '增长率'], rightAxis: ['增长率'], stack: 'normal' }).error, /至少两个/, '右轴的列不算');
+  assert.match(run({ dimension: '月份', values: ['本期', '对比期'], stack: 'normal' }, 'line').error, /只有柱状图/);
+});
+
 test('图表校验：涨跌着色列 / 涨跌颜色；引用检查包含这些列', () => {
   const t = validateChartInput({ ...chartInput, type: 'table', drill: [], encoding: { deltaColumns: ['Amount'], trend: 'up-bad' } }, queries);
   assert.equal(t.ok, true);

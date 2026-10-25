@@ -117,6 +117,37 @@ export function alignedAxisRanges(left: (number | null)[], right: (number | null
   return best?.ranges ?? null
 }
 
+interface TooltipParam {
+  axisValueLabel?: string
+  marker?: string
+  seriesName?: string
+  seriesIndex: number
+  dataIndex: number
+  value: unknown
+}
+
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
+
+function percentTooltip(
+  ps: TooltipParam[],
+  rawData: (number | null)[][],
+  isRight: (i: number) => boolean,
+  enc: BiEncoding,
+  rightFormat: BiEncoding['format'],
+): string {
+  const head = ps[0]?.axisValueLabel ?? ''
+  const lines = ps.map((p) => {
+    const raw = rawData[p.seriesIndex]?.[p.dataIndex]
+    const text = isRight(p.seriesIndex)
+      ? formatValue(raw, { format: rightFormat })
+      : raw == null
+        ? '—'
+        : `${formatValue(toNumber(p.value), { format: 'percent' })}（${formatValue(raw, enc)}）`
+    return `${p.marker ?? ''}${escapeHtml(p.seriesName ?? '')}&nbsp;&nbsp;<b>${escapeHtml(text)}</b>`
+  })
+  return [escapeHtml(head), ...lines].join('<br/>')
+}
+
 export function buildChartModel(
   type: BiChartType,
   enc: BiEncoding,
@@ -193,6 +224,23 @@ export function buildChartModel(
   const isRight = (i: number) => right.includes(cols[i])
   const leftCount = series.length - right.length
 
+  // 堆叠（仅柱状图）：左轴的柱子叠成一根；百分比堆叠把每个类目换算成占比（0~1），原值留给 tooltip
+  const stack = type === 'bar' && leftCount > 1 ? enc.stack : undefined
+  const percent = stack === 'percent'
+  const rawData = series.map((s) => s.data as (number | null)[])
+  if (stack) {
+    series.forEach((s, i) => {
+      if (!isRight(i)) s.stack = 'total'
+    })
+  }
+  if (percent) {
+    const totals = categories.map((_, j) => series.reduce((sum, s, i) => (isRight(i) ? sum : sum + Math.abs(rawData[i][j] ?? 0)), 0))
+    series.forEach((s, i) => {
+      if (!isRight(i)) s.data = rawData[i].map((v, j) => (v == null || !totals[j] ? v : v / totals[j]))
+    })
+  }
+  const leftFormatter = percent ? axisFormatter({ format: 'percent' }) : axisFormatter(enc)
+
   const plan = labelPlan(type, enc, leftCount, categories.length)
   // 右轴折线：自动时只标最新值（如本月增长率）
   const rightPlan = enc.labels === 'show' ? 'all' : enc.labels === 'hide' || categories.length === 0 ? 'none' : 'last'
@@ -206,7 +254,7 @@ export function buildChartModel(
       return n == null ? '' : fmt(n)
     },
   })
-  const label = makeLabel(axisFormatter(enc))
+  const label = { ...makeLabel(leftFormatter), ...(stack ? { position: 'inside' } : {}) }
   const rightLabel = makeLabel(axisFormatter({ format: rightFormat }))
 
   series.forEach((s, i) => {
@@ -245,9 +293,10 @@ export function buildChartModel(
   }
   const valueAxis = {
     type: 'value',
-    name: enc.unit && enc.format !== 'percent' ? enc.unit : '',
+    name: enc.unit && enc.format !== 'percent' && !percent ? enc.unit : '',
     nameTextStyle: { fontSize: 11 },
-    axisLabel: { fontSize: 11, formatter: axisFormatter(enc) },
+    axisLabel: { fontSize: 11, formatter: leftFormatter },
+    ...(percent ? { max: 1 } : {}),
     splitLine: { show: true },
   }
   const rightAxis = {
@@ -259,17 +308,22 @@ export function buildChartModel(
   if (right.length) {
     // 两轴的 0 对齐：0% 正好在柱子底边那条线上，线上为正增长、线下为负增长
     // 自动标数值时最后一个点已包成 { value, label }
+    const plain = (v: unknown) => (v != null && typeof v === 'object' ? (v as { value: number | null }).value : (v as number | null))
     const values = (onRight: boolean) =>
-      series
-        .filter((_, i) => isRight(i) === onRight)
-        .flatMap((s) => (s.data as unknown[]).map((v) => (v != null && typeof v === 'object' ? (v as { value: number | null }).value : (v as number | null))))
-    const aligned = alignedAxisRanges(values(false), values(true))
+      series.filter((_, i) => isRight(i) === onRight).flatMap((s) => (s.data as unknown[]).map(plain))
+    // 堆叠时左轴的范围看叠起来的高度（正数、负数分别累加）
+    const stackedLeft = () =>
+      categories.flatMap((_, j) => {
+        const vals = series.filter((_, i) => !isRight(i)).map((s) => plain((s.data as unknown[])[j]) ?? 0)
+        return [vals.filter((v) => v > 0).reduce((a, b) => a + b, 0), vals.filter((v) => v < 0).reduce((a, b) => a + b, 0)]
+      })
+    const aligned = alignedAxisRanges(stack ? stackedLeft() : values(false), values(true))
     if (aligned) {
       Object.assign(valueAxis, aligned[0])
       Object.assign(rightAxis, aligned[1])
       // 左轴本身没有负数（只是为对齐往下延伸）时，0 以下不标数字，免得出现「-2,000 万」
       if (!values(false).some((v) => v != null && v < 0)) {
-        const fmt = axisFormatter(enc)
+        const fmt = leftFormatter
         valueAxis.axisLabel.formatter = (v: number) => (v < 0 ? '' : fmt(v))
       }
     }
@@ -280,7 +334,13 @@ export function buildChartModel(
     rowAt,
     option: {
       grid: { left: 8, right: plan !== 'none' && horizontal ? 40 : 16, top: series.length > 1 ? 32 : plan !== 'none' && !horizontal ? 24 : 20, bottom: 8, containLabel: true },
-      tooltip: { trigger: 'axis', axisPointer: { type: type === 'bar' ? 'shadow' : 'line' }, valueFormatter: tooltipValue },
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: type === 'bar' ? 'shadow' : 'line' },
+        valueFormatter: tooltipValue,
+        // 百分比堆叠：占比 + 原值
+        ...(percent ? { formatter: (ps: TooltipParam[]) => percentTooltip(ps, rawData, isRight, enc, rightFormat) } : {}),
+      },
       legend: series.length > 1 ? { top: 0, type: 'scroll', textStyle: { fontSize: 11 } } : undefined,
       xAxis: horizontal ? valueAxis : categoryAxis,
       yAxis: horizontal ? categoryAxis : right.length ? [valueAxis, rightAxis] : valueAxis,

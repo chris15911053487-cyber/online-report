@@ -467,13 +467,16 @@ export function cleanEncoding(type: BiCardType, enc: BiEncoding): BiEncoding {
       ? ['value', 'compare', 'label', 'format', 'unit', 'scale', 'trend']
       : type === 'table'
         ? ['columns', 'dimension', 'deltaColumns', 'trend']
-        : ['dimension', 'value', 'values', 'series', 'format', 'unit', 'scale', 'topN', 'horizontal', 'labels', 'columns', 'rightAxis']
+        : ['dimension', 'value', 'values', 'series', 'format', 'unit', 'scale', 'topN', 'horizontal', 'stack', 'labels', 'columns', 'rightAxis']
   for (const k of keep) {
     const v = enc[k]
     if (v === undefined || v === '' || (Array.isArray(v) && v.length === 0)) continue
     ;(out as Record<string, unknown>)[k] = v
   }
-  if (type !== 'bar') delete out.horizontal
+  if (type !== 'bar') {
+    delete out.horizontal
+    delete out.stack
+  }
   if (type === 'pie' || out.labels === 'auto') delete out.labels
   if (type === 'pie') delete out.rightAxis
   return out
@@ -489,6 +492,17 @@ export function rightAxisProblem(enc: BiEncoding, type: BiCardType): string {
   const stray = enc.rightAxis.filter((c) => !values.includes(c))
   if (stray.length) return `右轴列「${stray.join('、')}」须是数值列之一`
   if (values.every((c) => enc.rightAxis!.includes(c))) return '至少留一个数值列在左轴'
+  return ''
+}
+
+/** 堆叠的结构问题（与后端 bi-charts.js 的 stackProblem 一致）；没有问题返回 '' */
+export function stackProblem(enc: BiEncoding, type: BiCardType): string {
+  if (!enc.stack) return ''
+  if (type !== 'bar') return '只有柱状图能堆叠'
+  if (enc.series) return ''
+  const values = enc.values?.length ? enc.values : enc.value ? [enc.value] : []
+  const left = values.filter((c) => !enc.rightAxis?.includes(c))
+  if (left.length < 2) return '堆叠需要至少两个柱状数值列，或设置系列列'
   return ''
 }
 
@@ -576,6 +590,8 @@ export function cardProblems(
     if ((type === 'bar' || type === 'line' || type === 'pie') && !enc.value && !enc.values?.length) problems.push(`${where}图表需要选择数值列`)
     const ra = rightAxisProblem(enc, type)
     if (ra) problems.push(`${where}${ra}`)
+    const sp = stackProblem(enc, type)
+    if (sp) problems.push(`${where}${sp}`)
   }
   checkLevel('', q, card.params, card.encoding, card.type, [])
   let source = q

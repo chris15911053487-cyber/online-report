@@ -5,7 +5,7 @@
  */
 import { useState } from 'react'
 import { ArrowDown, ArrowUp, Plus, Search, Trash2 } from 'lucide-react'
-import { defaultChartSize, type BiCardType, type BiChartDef, type BiColumnRole, type BiColumnSemantic, type BiDrillLevel, type BiEncoding, type BiFormat, type BiLabelMode, type BiValue, type BiTrend } from '../../../utils/bi'
+import { defaultChartSize, type BiCardType, type BiChartDef, type BiColumnRole, type BiColumnSemantic, type BiDrillLevel, type BiEncoding, type BiFormat, type BiLabelMode, type BiStackMode, type BiValue, type BiTrend } from '../../../utils/bi'
 import {
   COLUMN_ROLE_LABEL,
   FORMAT_LABEL,
@@ -30,6 +30,12 @@ const CARD_TYPES: { value: BiCardType; label: string }[] = [
   { value: 'pie', label: '饼图' },
   { value: 'table', label: '表格' },
 ]
+const STACK_MODES: { value: BiStackMode | 'none'; label: string }[] = [
+  { value: 'none', label: '并排' },
+  { value: 'normal', label: '堆叠' },
+  { value: 'percent', label: '百分比堆叠' },
+]
+
 const LABEL_MODES: { value: BiLabelMode; label: string }[] = [
   { value: 'auto', label: '自动' },
   { value: 'show', label: '显示' },
@@ -311,6 +317,7 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
                 set({
                   ...(sel.length > 1 ? { values: sel, value: undefined } : { value: sel[0], values: undefined }),
                   rightAxis: enc.series || enc.horizontal ? undefined : suggestRightAxis(sel, enc, columns),
+                  ...(!enc.series && sel.length < 2 ? { stack: undefined } : {}),
                 })
               }
               empty="查询没有度量列"
@@ -331,7 +338,7 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
       )}
       {type !== 'pie' && (
         <Row label="系列列" hint="长表透视：按这一列的值拆成多条系列（可选）">
-          <ColumnSelect ariaLabel="系列列" columns={columns} prefer={['dimension', 'attr']} optional value={enc.series} onChange={(v) => set({ series: v, rightAxis: v ? undefined : enc.rightAxis })} />
+          <ColumnSelect ariaLabel="系列列" columns={columns} prefer={['dimension', 'attr']} optional value={enc.series} onChange={(v) => set({ series: v, rightAxis: v ? undefined : enc.rightAxis, ...(!v && valueList.length < 2 ? { stack: undefined } : {}) })} />
         </Row>
       )}
       <Row label="只显示前">
@@ -353,6 +360,11 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
           )}
         </div>
       </Row>
+      {type === 'bar' && (enc.series || valueList.filter((c) => !enc.rightAxis?.includes(c)).length > 1) && (
+        <Row label="多系列" hint="堆叠：各系列叠成一根柱子看合计；百分比堆叠：每根柱子 = 100%，看构成占比">
+          <Segmented size="sm" options={STACK_MODES} value={enc.stack || 'none'} onChange={(v) => set({ stack: v === 'none' ? undefined : v })} />
+        </Row>
+      )}
       {type !== 'pie' && (
         <Row label="显示数值" hint={type === 'line' ? '自动：单条折线只标最新值' : '自动：单系列且柱子不多时标在柱上'}>
           <Segmented size="sm" options={LABEL_MODES} value={enc.labels || 'auto'} onChange={(v) => set({ labels: v === 'auto' ? undefined : v })} />

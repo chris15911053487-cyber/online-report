@@ -87,6 +87,20 @@ function rightAxisProblem(enc, type) {
   return '';
 }
 
+/** 堆叠：normal 数值堆叠、percent 百分比堆叠（每根柱子 = 100%） */
+const STACKS = new Set(['normal', 'percent']);
+
+/** 堆叠的结构问题（与前端 utils/biAdmin.ts 的 stackProblem 一致）；没有问题返回 '' */
+function stackProblem(enc, type) {
+  if (!enc.stack) return '';
+  if (type !== 'bar') return '只有柱状图能堆叠';
+  if (enc.series) return '';
+  const values = enc.values && enc.values.length ? enc.values : enc.value ? [enc.value] : [];
+  const left = values.filter((c) => !(enc.rightAxis || []).includes(c));
+  if (left.length < 2) return '堆叠需要至少两个柱状数值列，或设置系列列';
+  return '';
+}
+
 function normalizeEncoding(input, type, where) {
   const e = isPlainObject(input) ? input : {};
   const out = {};
@@ -138,6 +152,11 @@ function normalizeEncoding(input, type, where) {
     out.topN = n;
   }
   if (e.horizontal != null) out.horizontal = !!e.horizontal;
+  if (e.stack != null && e.stack !== '' && e.stack !== false) {
+    const v = e.stack === true ? 'normal' : e.stack;
+    if (!STACKS.has(v)) return fail(`${where} encoding.stack 须为 normal / percent`);
+    out.stack = v;
+  }
   // 右轴（柱 / 线组合）：values 里的一部分画成折线走右轴，如增长率与金额同图
   const listField = (field, max) => {
     if (e[field] == null) return { ok: true };
@@ -173,6 +192,8 @@ function normalizeEncoding(input, type, where) {
     const problem = rightAxisProblem(out, type);
     if (problem) return fail(`${where} ${problem}`);
   }
+  const sp = stackProblem(out, type);
+  if (sp) return fail(`${where} ${sp}`);
   return { ok: true, value: out };
 }
 

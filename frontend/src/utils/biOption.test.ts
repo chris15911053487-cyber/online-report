@@ -251,3 +251,55 @@ describe('柱线组合（右轴）', () => {
     expect(alignedAxisRanges([1, 2], [null, null])).toBeNull()
   })
 })
+
+describe('堆叠柱形图', () => {
+  const data = [
+    { 月份: '01', A: 30, B: 10, 增长率: 0.1 },
+    { 月份: '02', A: 20, B: 20, 增长率: -0.2 },
+  ]
+  type S = Series & { stack?: string; yAxisIndex?: number; label?: { position?: string } }
+  type Tip = { formatter?: (ps: unknown[]) => string }
+
+  it('堆叠：左轴柱子共用一个 stack，数值标签放在柱内', () => {
+    const o = buildChartModel('bar', { dimension: '月份', values: ['A', 'B'], stack: 'normal', labels: 'show' }, data).option as { series: S[]; tooltip: Tip }
+    expect(o.series.map((s) => s.stack)).toEqual(['total', 'total'])
+    expect(o.series[0].data).toEqual([30, 20])
+    expect(o.series[0].label?.position).toBe('inside')
+    expect(o.tooltip.formatter).toBeUndefined()
+  })
+
+  it('百分比堆叠：换算成占比，坐标轴 0~100%，tooltip 显示占比和原值', () => {
+    const o = buildChartModel('bar', { dimension: '月份', values: ['A', 'B'], stack: 'percent' }, data).option as { series: S[]; yAxis: Axis & { max?: number }; tooltip: Tip }
+    expect(o.series[0].data).toEqual([0.75, 0.5])
+    expect(o.series[1].data).toEqual([0.25, 0.5])
+    expect(o.yAxis.max).toBe(1)
+    expect(o.yAxis.axisLabel?.formatter?.(0.5)).toBe('50%')
+    const tip = o.tooltip.formatter!([
+      { axisValueLabel: '01', marker: '', seriesName: 'A', seriesIndex: 0, dataIndex: 0, value: 0.75 },
+      { axisValueLabel: '01', marker: '', seriesName: 'B', seriesIndex: 1, dataIndex: 0, value: 0.25 },
+    ])
+    expect(tip).toContain('75%（30）')
+    expect(tip).toContain('25%（10）')
+  })
+
+  it('右轴折线不参与堆叠；只有一根柱时不堆叠；折线忽略 stack', () => {
+    const enc = { dimension: '月份', values: ['A', 'B', '增长率'], rightAxis: ['增长率'], stack: 'normal' as const, columns: [{ column: '增长率', format: 'percent' as const }] }
+    const o = buildChartModel('bar', enc, data).option as { series: S[] }
+    expect(o.series.map((s) => [s.type, s.stack])).toEqual([['bar', 'total'], ['bar', 'total'], ['line', undefined]])
+    const one = buildChartModel('bar', { dimension: '月份', value: 'A', stack: 'normal' }, data).option as { series: S[] }
+    expect(one.series[0].stack).toBeUndefined()
+    const line = buildChartModel('line', { dimension: '月份', values: ['A', 'B'], stack: 'normal' }, data).option as { series: S[] }
+    expect(line.series[0].stack).toBeUndefined()
+  })
+
+  it('系列列透视也能堆叠，rowAt 不受影响', () => {
+    const long = [
+      { M: '01', Co: '甲', V: 1 },
+      { M: '01', Co: '乙', V: 3 },
+    ]
+    const m = buildChartModel('bar', { dimension: 'M', value: 'V', series: 'Co', stack: 'percent' }, long)
+    const o = m.option as { series: S[] }
+    expect(o.series.map((s) => [s.name, s.stack, s.data])).toEqual([['甲', 'total', [0.25]], ['乙', 'total', [0.75]]])
+    expect(m.rowAt(0, '乙')).toEqual({ M: '01', Co: '乙', V: 3 })
+  })
+})
