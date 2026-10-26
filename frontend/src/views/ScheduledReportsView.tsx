@@ -243,7 +243,7 @@ export default function ScheduledReportsView() {
                 ) : (
                   <Field
                     label="关联 Skill（可选）"
-                    hint={skills.find((s) => s.name === form.skill_name)?.description || '告诉 AI 该查哪些表、按什么口径算；在「AI Skill」管理页维护'}
+                    hint={skills.find((s) => s.name === form.skill_name)?.description || '告诉 AI 该查哪些表、按什么口径算，日报建议关联。例：sales-order-daily「只查 ORDR / OCRD，金额用 DocTotal，排除已取消」；在「AI Skill」管理页维护，完整示例见说明书《定时报告》'}
                   >
                     <Select value={form.skill_name} onChange={(e) => setForm({ ...form, skill_name: e.target.value })}>
                       <option value="">不关联（按全局规则）</option>

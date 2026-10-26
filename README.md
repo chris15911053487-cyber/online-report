@@ -472,7 +472,7 @@ node-cron 定时触发 → 加载 scheduled_reports 配置
 |------|------|
 | `name` | 任务名称，如「每日生产日报」 |
 | `cron_expr` | cron 表达式，如 `0 8 * * *`（每天 8 点）。表单输入框（`components/CronField.tsx`，预警规则共用）实时显示中文解读 + 接下来 3 次执行时间（`utils/cron.ts`，按 node-cron 语义：步长按整除取值、日与周同时满足）；「AI 生成」用一句话出表达式（`POST /admin/cron/ai` → `cron-draft.js`，`cron.validate` 不通过交回 AI ≤3 轮，只返回草稿） |
-| `skill_name` | 可选，关联的 AI Skill |
+| `skill_name` | 可选，关联的 AI Skill：执行时只注入这一个 Skill；执行账号（`SCHEDULED_REPORT_USER`）角色不够时临时带上该 Skill 的第一个角色；Skill 停用 / 不存在 / 未设角色则记失败日志 |
 | `prompt_template` | 给 Agent 的指令，如「请统计今日生产完工情况并生成日报」；看板要点时为可选的「关注点」 |
 | `agent_key` | 可选：关联了 BI 看板的 Agent。设了即为「看板每日要点」（见下） |
 | `target_roles_json` | 按角色推送，如 `["production","warehouse"]` |

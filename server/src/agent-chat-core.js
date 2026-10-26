@@ -5,7 +5,8 @@
 const { getPool, sql } = require('./db');
 const { resolveUserRoles } = require('./roles');
 const { signScopedToken } = require('./ai-scoped-token');
-const { resolveAgentContext } = require('./agent-context');
+const { resolveAgentContext, toAgentSkillPayload } = require('./agent-context');
+const { canUseSkill } = require('./agent-skills');
 const {
   isValidConversationId,
   ensureConversation,
@@ -153,6 +154,8 @@ async function postAgentStream(pathname, payload, scopedToken, opts = {}) {
  * @param {AbortSignal} [opts.signal]  - 外部中止信号（如客户端断开）；中止后返回 { status: 'cancelled' }
  * @param {object} [opts.context]      - 看板点击上下文（见 bi-context.js），注入本轮用户消息
  * @param {string} [opts.mode]         - 'fast' = 用快模型（点击解读）
+ * @param {object} [opts.skill]        - 指定 skill（定时报告关联的，调用方已校验存在且启用）：只注入这一个，
+ *                                       执行账号角色不够时本次对话临时带上该 skill 的角色，run_sql 门禁才能通过
  * @returns {Promise<object>}          - { conversationId, status, message, ... }
  */
 async function agentChatCore(opts) {
@@ -193,9 +196,14 @@ async function agentChatCore(opts) {
       .map((m) => ({ role: m.role, content: m.content }));
   } catch {}
 
-  const { skills, agentPrompt } = await resolveAgentContext(pool, { agentKey, userRoles, log });
+  let { skills, agentPrompt } = await resolveAgentContext(pool, { agentKey, userRoles, log });
+  let roles = userRoles;
+  if (opts.skill) {
+    skills = [toAgentSkillPayload(opts.skill)];
+    if (!canUseSkill(userRoles, opts.skill.roles) && opts.skill.roles?.length) roles = [...userRoles, opts.skill.roles[0]];
+  }
 
-  const scopedToken = signScopedToken({ userCode, displayName, roles: userRoles, conversationId });
+  const scopedToken = signScopedToken({ userCode, displayName, roles, conversationId });
 
   // 调 Agent
   if (agentEnabled()) {
@@ -208,7 +216,7 @@ async function agentChatCore(opts) {
         input,
         messages: history,
         skills,
-        user: { userCode, displayName, roles: userRoles },
+        user: { userCode, displayName, roles },
         agentPrompt: agentPrompt || undefined,
         context: context || undefined,
         mode,

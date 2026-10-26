@@ -9,6 +9,7 @@ const { getPool, sql } = require('./db');
 const { agentChatCore } = require('./agent-chat-core');
 const { resolveUserRolesSync, getAdminUserCodesSet, resolveUserRoles } = require('./roles');
 const { getAgent, canUseAgent } = require('./agents');
+const { getSkill, canUseSkill } = require('./agent-skills');
 const { loadExpandedDashboard } = require('./bi-dashboards');
 const { runNamedQuery } = require('./bi-exec');
 const { aiService } = require('./ai');
@@ -48,12 +49,27 @@ async function executeReport(report, log) {
 
     // 2. 调用 Agent 生成报告（用系统账号身份）
     const systemUser = process.env.SCHEDULED_REPORT_USER || 'SYSTEM';
+    // 关联了 Skill：只给 AI 这一个 skill，按它的表与口径查数（管理员选的，不受执行账号角色限制）
+    let skill = null;
+    if (report.skill_name) {
+      skill = await getSkill(pool, report.skill_name);
+      const problem = !skill || !skill.enabled
+        ? `关联的 Skill「${report.skill_name}」不存在或已停用`
+        : !skill.roles.length && !canUseSkill(await resolveUserRoles(pool, systemUser), skill.roles)
+          ? `关联的 Skill「${report.skill_name}」没有设置可用角色，请在「AI Skill」里至少勾选一个角色`
+          : '';
+      if (problem) {
+        await updateLog(pool, logId, 'error', 0, 0, problem);
+        return;
+      }
+    }
     const convId = `sched_${report.id}_${Date.now()}`;
     const result = await agentChatCore({
       userCode: systemUser,
       displayName: '定时报告',
       conversationId: convId,
-      message: report.prompt_template,
+      message: skill ? `请按 Skill「${skill.name}」的说明查数并写报告。\n\n${report.prompt_template}` : report.prompt_template,
+      skill,
       log,
     });
 
