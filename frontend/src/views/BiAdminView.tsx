@@ -26,7 +26,7 @@ import { clearPendingPin, readPendingPin } from '../utils/biPin'
 import { DEFAULT_LIST_FILTER, NO_OPERATOR, filterAdminList, formatUpdatedAt, operatorsOf, type AdminListItem, type ListFilter } from '../utils/biAdminList'
 
 type Tab = 'queries' | 'charts' | 'dashboards'
-const TYPE_LABEL: Record<string, string> = { kpi: 'KPI', bar: '柱状', line: '折线', pie: '饼图', table: '表格' }
+const TYPE_LABEL: Record<string, string> = { kpi: 'KPI', bar: '柱状', line: '折线', pie: '饼图', waterfall: '瀑布', table: '表格' }
 
 /** 查询被哪些图表用到（主查询或下钻） */
 function usedBy(charts: BiChartAdmin[], queryKey: string): string[] {

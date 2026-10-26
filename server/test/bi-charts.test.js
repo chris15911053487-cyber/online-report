@@ -154,6 +154,35 @@ test('图表校验：堆叠只用于柱状图，且要有两个以上柱状数�
   assert.match(run({ dimension: '月份', values: ['本期', '对比期'], stack: 'normal' }, 'line').error, /只有柱状图/);
 });
 
+test('图表校验：瀑布图一个数值列，可设末尾合计 / 小计；合计 / 小计只用于瀑布图', () => {
+  const q = new Map([['pl', {
+    queryKey: 'pl', label: '利润表', params: [],
+    columns: [{ column: '项目', role: 'dimension' }, { column: '金额', role: 'measure' }, { column: '去年', role: 'measure' }],
+  }]]);
+  const base = { chartKey: 'pl_waterfall', label: '收入到利润', type: 'waterfall', queryKey: 'pl', params: {} };
+  const run = (encoding, type = 'waterfall') => validateChartInput({ ...base, type, encoding }, q);
+  const ok = run({ dimension: '项目', value: '金额', total: ' 营业利润 ', subtotals: ['毛利', '毛利', ''], trend: 'up-bad' });
+  assert.equal(ok.ok, true, ok.error);
+  assert.equal(ok.value.encoding.total, '营业利润');
+  assert.deepEqual(ok.value.encoding.subtotals, ['毛利'], '去重、去空');
+  assert.equal(ok.value.size.w, 8, '默认 2/3 宽');
+  assert.match(run({ value: '金额' }).error, /dimension/);
+  assert.match(run({ dimension: '项目', values: ['金额', '去年'] }).error, /只能选一个数值列/);
+  assert.match(run({ dimension: '项目', value: '金额', series: '去年' }).error, /系列列/);
+  assert.match(run({ dimension: '项目', value: '金额', subtotals: '毛利' }).error, /subtotals 须为/);
+  assert.match(run({ dimension: '项目', value: '金额', total: '合计' }, 'bar').error, /只有瀑布图/);
+  assert.match(run({ dimension: '项目', value: 'Ghost' }).error, /Ghost/, '数值列须在输出列中');
+});
+
+test('图表校验：表格数据条列（可设各列同一比例）；引用检查包含数据条列', () => {
+  const t = validateChartInput({ ...chartInput, type: 'table', drill: [], encoding: { barColumns: ['Amount', 'Amount'], barShared: 1 } }, queries);
+  assert.equal(t.ok, true, t.error);
+  assert.deepEqual(t.value.encoding.barColumns, ['Amount']);
+  assert.equal(t.value.encoding.barShared, true);
+  const bad = validateChartInput({ ...chartInput, type: 'table', drill: [], encoding: { barColumns: ['Ghost'] } }, queries);
+  assert.match(bad.error, /Ghost/);
+});
+
 test('图表校验：涨跌着色列 / 涨跌颜色；引用检查包含这些列', () => {
   const t = validateChartInput({ ...chartInput, type: 'table', drill: [], encoding: { deltaColumns: ['Amount'], trend: 'up-bad' } }, queries);
   assert.equal(t.ok, true);

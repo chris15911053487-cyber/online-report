@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   changeRatio,
+  dataBarScale,
   fillPlaceholders,
   filterDisplayText,
   formatValue,
@@ -127,5 +128,18 @@ describe('withColumnSemantics + 右轴', () => {
     const out = withColumnSemantics({ dimension: 'm', values: ['增长率', '本期'], rightAxis: ['增长率'] }, sem)
     expect(out.format).toBe('money')
     expect(out.unit).toBe('万元')
+  })
+})
+
+describe('dataBarScale', () => {
+  const rows = [{ 收入: 800, 成本: '480', 毛利: -320 }, { 收入: 1200, 成本: 720, 毛利: null }]
+  it('每列各自按最大绝对值', () => {
+    expect(dataBarScale(rows, ['收入', '成本', '毛利'])).toEqual({ 收入: 1200, 成本: 720, 毛利: 320 })
+  })
+  it('shared：各列同一比例', () => {
+    expect(dataBarScale(rows, ['收入', '毛利'], true)).toEqual({ 收入: 1200, 毛利: 1200 })
+  })
+  it('全空的列为 0', () => {
+    expect(dataBarScale([{ a: null }], ['a'])).toEqual({ a: 0 })
   })
 })

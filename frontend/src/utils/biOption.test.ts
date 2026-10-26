@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { alignedAxisRanges, buildChartModel, columnLabel, labelPlan, rightAxisColumns, valueColumns } from './biOption'
+import { alignedAxisRanges, buildChartModel, columnLabel, labelPlan, rightAxisColumns, valueColumns, waterfallAxisMin, waterfallColors, waterfallSteps } from './biOption'
 import { canDrillFrom, levelView, nextDrillLabel, popDrillTo, pushDrill, rootStack, rowCaption } from './biDrill'
 import type { BiCard } from './bi'
 
@@ -301,5 +301,85 @@ describe('堆叠柱形图', () => {
     const o = m.option as { series: S[] }
     expect(o.series.map((s) => [s.name, s.stack, s.data])).toEqual([['甲', 'total', [0.25]], ['乙', 'total', [0.75]]])
     expect(m.rowAt(0, '乙')).toEqual({ M: '01', Co: '乙', V: 3 })
+  })
+})
+
+describe('瀑布图', () => {
+  const pl = [
+    { Item: '收入', Amt: 1000 },
+    { Item: '营业成本', Amt: -600 },
+    { Item: '毛利', Amt: null },
+    { Item: '期间费用', Amt: -200 },
+    { Item: '其他收益', Amt: 50 },
+  ]
+  const enc = { dimension: 'Item', value: 'Amt', subtotals: ['毛利'], total: '营业利润' }
+
+  it('waterfallSteps：起点 → 增减接着累计 → 小计 / 合计从 0 画到累计', () => {
+    const steps = waterfallSteps(enc, pl)
+    expect(steps.map((s) => [s.name, s.kind, s.value, s.start, s.end])).toEqual([
+      ['收入', 'total', 1000, 0, 1000],
+      ['营业成本', 'down', -600, 1000, 400],
+      ['毛利', 'total', 400, 0, 400],
+      ['期间费用', 'down', -200, 400, 200],
+      ['其他收益', 'up', 50, 200, 250],
+      ['营业利润', 'total', 250, 0, 250],
+    ])
+    expect(steps[5].row).toBeNull()
+    expect(steps[1].row).toBe(pl[1])
+  })
+
+  it('累计跌破 0（亏损）时柱子跨过 0 轴', () => {
+    const steps = waterfallSteps({ dimension: 'Item', value: 'Amt', total: '净利润' }, [{ Item: '收入', Amt: 100 }, { Item: '成本', Amt: -150 }])
+    expect(steps.map((s) => [s.start, s.end])).toEqual([[0, 100], [100, -50], [0, -50]])
+  })
+
+  it('waterfallAxisMin：最低处有标在下方的数值时 Y 轴往下留空，否则交给 ECharts', () => {
+    expect(waterfallAxisMin(waterfallSteps(enc, pl))).toBeUndefined()
+    const loss = waterfallSteps({ dimension: 'Item', value: 'Amt' }, [{ Item: '收入', Amt: 500 }, { Item: '成本', Amt: -580 }])
+    // 量程 -80~500 = 580：步长 niceStep(116) = 200，(-80 - 69.6) 向下取整到 -200
+    expect(waterfallAxisMin(loss)).toBe(-200)
+    expect(waterfallAxisMin([])).toBeUndefined()
+  })
+
+  it('增减颜色：默认增绿减红，up-bad 反过来；合计用主色', () => {
+    expect(waterfallColors()).toEqual({ up: 'success', down: 'danger', total: 'info' })
+    expect(waterfallColors('up-bad')).toEqual({ up: 'danger', down: 'success', total: 'info' })
+  })
+
+  it('buildChartModel：每类一个自定义系列（按类目对齐）+ 连接线；点击映射回行，合计柱没有行', () => {
+    const m = buildChartModel('waterfall', enc, pl, { clickable: true })
+    type S = { name: string; type: string; colorToken: string; data: unknown[][]; silent?: boolean; renderItem: (p: unknown, api: unknown) => unknown }
+    const series = (m.option as { series: S[] }).series
+    expect(series.map((s) => [s.name, s.colorToken])).toEqual([['合计', 'info'], ['增加', 'success'], ['减少', 'danger'], ['连接线', 'line-strong']])
+    expect(series.every((s) => s.type === 'custom')).toBe(true)
+    expect(series[2].data[1]).toEqual([1, 400, 1000, -600, 400])
+    expect(series[2].data[0]).toEqual([0, null, null, null, null])
+    expect(series[3].silent).toBe(true)
+    expect(series[3].data).toEqual([[0, 1000], [1, 400], [2, 400], [3, 200], [4, 250]])
+    expect((m.option as { xAxis: { data: string[] } }).xAxis.data).toEqual(['收入', '营业成本', '毛利', '期间费用', '其他收益', '营业利润'])
+    expect(m.plotted).toBe(6)
+    expect(m.rowAt(1)).toBe(pl[1])
+    expect(m.rowAt(5)).toBeNull()
+
+    // renderItem：柱子从柱顶画到柱底，减少项的数值标在下方并带符号
+    const values = series[2].data[1] as number[]
+    const api = {
+      value: (i: number) => (values[i] == null ? NaN : values[i]),
+      coord: ([x, y]: number[]) => [x * 100 + 50, 500 - y / 4],
+      size: () => [100, 0],
+      visual: () => 'red',
+    }
+    const g = series[2].renderItem({}, api) as { children: { type: string; shape?: Record<string, number>; style: Record<string, unknown> }[] }
+    expect(g.children[0].shape).toMatchObject({ x: 126, y: 250, width: 48, height: 150 })
+    expect(g.children[1].style).toMatchObject({ text: '−600', fill: 'red', verticalAlign: 'top' })
+    const empty = { ...api, value: () => NaN }
+    expect(series[2].renderItem({}, empty)).toBeNull()
+  })
+
+  it('标数值：自动时 16 项以内标；hide 不标', () => {
+    const m = buildChartModel('waterfall', { ...enc, labels: 'hide' as const }, pl)
+    const s = (m.option as { series: { renderItem: (p: unknown, api: unknown) => { children: unknown[] } }[] }).series[0]
+    const api = { value: (i: number) => [0, 0, 1000, 1000, 1000][i], coord: ([x, y]: number[]) => [x, -y], size: () => [100, 0], visual: () => 'c' }
+    expect(s.renderItem({}, api).children).toHaveLength(1)
   })
 })

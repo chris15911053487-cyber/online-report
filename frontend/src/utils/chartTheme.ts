@@ -3,7 +3,7 @@
  * 只补「option 里没写」的部分：AI 生成的图表若自带 color 等，按数据内容保留原样。
  * 主题切换时由图表组件重新调用（见 BiChart / ChartRenderer 的 useThemeChange）。
  */
-import { readChartPalette } from '../theme'
+import { readChartPalette, tokenColor } from '../theme'
 
 type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -55,6 +55,8 @@ export function themedChartOption(option: Obj): Obj {
     const labelColor = (o: Obj, color: string) => (isObj(o.label) ? fill(o, { label: { color } }) : o)
     out.series = out.series.map((s) => {
       if (!isObj(s)) return s
+      // 按语义取色的系列（如瀑布图的增 / 减 / 合计）：colorToken 换成当前主题的颜色
+      if (typeof s.colorToken === 'string') s = fill(s, { itemStyle: { color: tokenColor(s.colorToken) } })
       if (s.type === 'pie') return fill(s, { label: { color: p.strongText } })
       if (s.type !== 'bar' && s.type !== 'line') return s
       const t = labelColor(s, p.text)

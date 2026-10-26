@@ -11,7 +11,7 @@ import { Badge, Button, Card, EmptyState, Input, Modal, Segmented } from '../../
 import { cn } from '../../../ui/classes'
 import { DashboardView } from '../DashboardPanel'
 
-const TYPE_LABEL: Record<BiCardType, string> = { kpi: 'KPI', bar: '柱状', line: '折线', pie: '饼图', table: '表格' }
+const TYPE_LABEL: Record<BiCardType, string> = { kpi: 'KPI', bar: '柱状', line: '折线', pie: '饼图', waterfall: '瀑布', table: '表格' }
 type TypeFilter = 'all' | BiCardType
 
 export default function AddChartModal({

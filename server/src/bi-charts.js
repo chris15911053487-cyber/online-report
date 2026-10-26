@@ -13,7 +13,9 @@ const { coerceParam } = require('./bi-params');
 const CHART_KEY_RE = /^[a-z][a-z0-9_-]{0,63}$/;
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 const COLUMN_RE = /^[^\s[\]"'`;]{1,128}$/;
-const CARD_TYPES = new Set(['kpi', 'bar', 'line', 'pie', 'table']);
+const CARD_TYPES = new Set(['kpi', 'bar', 'line', 'pie', 'waterfall', 'table']);
+/** 有维度 + 数值列的图表类型 */
+const CHART_TYPES = new Set(['bar', 'line', 'pie', 'waterfall']);
 const FORMATS = new Set(['number', 'money', 'percent', 'integer']);
 const MAX_DRILL = 5;
 
@@ -101,6 +103,17 @@ function stackProblem(enc, type) {
   return '';
 }
 
+/** 瀑布图的结构问题（与前端 utils/biAdmin.ts 的 waterfallProblem 一致）；没有问题返回 '' */
+function waterfallProblem(enc, type) {
+  if (type !== 'waterfall') {
+    if (enc.total || (enc.subtotals && enc.subtotals.length)) return '只有瀑布图能设置合计 / 小计';
+    return '';
+  }
+  if (enc.values && enc.values.length > 1) return '瀑布图只能选一个数值列';
+  if (enc.series) return '瀑布图不能按系列列拆分';
+  return '';
+}
+
 function normalizeEncoding(input, type, where) {
   const e = isPlainObject(input) ? input : {};
   const out = {};
@@ -170,9 +183,17 @@ function normalizeEncoding(input, type, where) {
     if (list.length) out[field] = list;
     return { ok: true };
   };
-  for (const [field, max] of [['rightAxis', 10], ['deltaColumns', 50]]) {
+  for (const [field, max] of [['rightAxis', 10], ['deltaColumns', 50], ['barColumns', 50]]) {
     const r = listField(field, max);
     if (!r.ok) return r;
+  }
+  if (e.barShared) out.barShared = true;
+  // 瀑布图：末尾合计柱的名称、画成小计柱的项目（维度列的值，不是列名）
+  if (e.total != null && String(e.total).trim()) out.total = str(e.total, 32);
+  if (e.subtotals != null) {
+    if (!Array.isArray(e.subtotals) || e.subtotals.length > 20) return fail(`${where} encoding.subtotals 须为 ≤20 个名称的数组`);
+    const list = [...new Set(e.subtotals.map((v) => str(v, 64)).filter(Boolean))];
+    if (list.length) out.subtotals = list;
   }
   if (e.trend != null && e.trend !== '') {
     if (!TRENDS.has(e.trend)) return fail(`${where} encoding.trend 须为 ${[...TRENDS].join(' / ')}`);
@@ -184,7 +205,7 @@ function normalizeEncoding(input, type, where) {
   }
   // 必需字段
   if (type === 'kpi' && !out.value) return fail(`${where} KPI 须设置 encoding.value`);
-  if (['bar', 'line', 'pie'].includes(type)) {
+  if (CHART_TYPES.has(type)) {
     if (!out.dimension) return fail(`${where} 图表须设置 encoding.dimension`);
     if (!out.value && !(out.values && out.values.length)) return fail(`${where} 图表须设置 encoding.value 或 values`);
   }
@@ -194,6 +215,8 @@ function normalizeEncoding(input, type, where) {
   }
   const sp = stackProblem(out, type);
   if (sp) return fail(`${where} ${sp}`);
+  const wp = waterfallProblem(out, type);
+  if (wp) return fail(`${where} ${wp}`);
   return { ok: true, value: out };
 }
 
@@ -219,7 +242,7 @@ function normalizeDrill(input, knownQueries, where) {
     const pm = normalizeParamMap(d.params, null, w);
     if (!pm.ok) return pm;
     const type = str(d.type || 'table', 16).toLowerCase();
-    if (!CARD_TYPES.has(type) || type === 'kpi') return fail(`${w} type 须为 bar / line / pie / table`);
+    if (!CARD_TYPES.has(type) || type === 'kpi') return fail(`${w} type 须为 bar / line / pie / waterfall / table`);
     const enc = normalizeEncoding(d.encoding, type, w);
     if (!enc.ok) return enc;
     out.push({ queryKey, label: str(d.label || queryKey, 32), bind: outBind, params: pm.value, type, encoding: enc.value });
@@ -227,8 +250,8 @@ function normalizeDrill(input, knownQueries, where) {
   return { ok: true, value: out };
 }
 
-/** 按类型的默认宽度（12 栅格）：KPI 1/4；折线 / 表格整行；饼图 1/3；柱状半宽（与前端 defaultChartSize 一致） */
-const DEFAULT_WIDTH = { kpi: 3, line: 12, table: 12, pie: 4, bar: 6 };
+/** 按类型的默认宽度（12 栅格）：KPI 1/4；折线 / 表格整行；饼图 1/3；柱状半宽；瀑布图 2/3（与前端 defaultChartSize 一致） */
+const DEFAULT_WIDTH = { kpi: 3, line: 12, table: 12, pie: 4, bar: 6, waterfall: 8 };
 
 function normalizeSize(input, type) {
   const s = isPlainObject(input) ? input : {};
@@ -295,6 +318,7 @@ function encodingColumns(enc) {
   for (const v of enc.values || []) cols.push(v);
   for (const v of enc.rightAxis || []) cols.push(v);
   for (const v of enc.deltaColumns || []) cols.push(v);
+  for (const v of enc.barColumns || []) cols.push(v);
   for (const c of enc.columns || []) cols.push(c.column);
   return cols;
 }

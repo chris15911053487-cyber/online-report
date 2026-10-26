@@ -131,12 +131,16 @@ export function useThemeChange(cb: (theme: ThemeId) => void) {
   useEffect(() => subscribe(() => cb(getActiveTheme())), [cb])
 }
 
-/** 读一个颜色 token，返回 CSS 可用的 rgb(...) 字符串 */
+/**
+ * 读一个颜色 token，返回 rgb(r, g, b) / rgba(r, g, b, a) 字符串。
+ * 用逗号写法：ECharts（zrender）解析不了 CSS 新写法 rgb(r g b)，悬停高亮时会把颜色算成透明、柱子消失。
+ */
 export function tokenColor(name: string, alpha = 1): string {
   if (typeof document === 'undefined') return 'currentColor'
   const raw = getComputedStyle(document.documentElement).getPropertyValue(name.startsWith('--') ? name : `--c-${name}`).trim()
   if (!raw) return 'currentColor'
-  return alpha >= 1 ? `rgb(${raw})` : `rgb(${raw} / ${alpha})`
+  const rgb = raw.split(/\s+/).join(', ')
+  return alpha >= 1 ? `rgb(${rgb})` : `rgba(${rgb}, ${alpha})`
 }
 
 /** ECharts 用的配色：系列色 + 文字/轴线色 */

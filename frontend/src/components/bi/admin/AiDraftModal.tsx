@@ -23,7 +23,7 @@ export interface BiDraft {
 
 const EXAMPLES = ['本月各客户销售额前 10 名', '今年每月销售额趋势（扣除退货，不含税）', '本月各销售员的开票金额', '当前各仓库库存金额占比']
 const STAGES = ['选表', '读表结构', '写 SQL 与图表', '试运行', '核对结果']
-const TYPE_LABEL: Record<string, string> = { kpi: 'KPI', bar: '柱状图', line: '折线图', pie: '饼图', table: '表格' }
+const TYPE_LABEL: Record<string, string> = { kpi: 'KPI', bar: '柱状图', line: '折线图', pie: '饼图', waterfall: '瀑布图', table: '表格' }
 
 const SQL_STAGES = ['读表结构', '参数化与补语义', '试运行', '核对结果']
 

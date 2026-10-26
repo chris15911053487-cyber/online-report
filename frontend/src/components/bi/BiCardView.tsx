@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Info, Maximize2, Minimize2, RotateCw } from 'lucide-react'
 import { apiFetch } from '../../utils/api'
 import { usePageFullscreen } from '../../hooks/usePageFullscreen'
-import { BI_CARD_HEIGHT, changeRatio, fillPlaceholders, formatValue, toNumber, withColumnSemantics, type BiCard, type BiColumnDef, type BiFilterValues, type BiQueryMeta, type BiQueryResult, type BiTrend } from '../../utils/bi'
+import { BI_CARD_HEIGHT, changeRatio, dataBarScale, fillPlaceholders, formatValue, toNumber, withColumnSemantics, type BiCard, type BiColumnDef, type BiFilterValues, type BiQueryMeta, type BiQueryResult, type BiTrend } from '../../utils/bi'
 import { buildChartModel, columnLabel, type BiRow } from '../../utils/biOption'
 import { canDrillFrom, levelView, nextDrillLabel, popDrillTo, pushDrill, rootStack, type DrillFrame } from '../../utils/biDrill'
 import type { BiPick } from '../../utils/biContext'
@@ -110,7 +110,7 @@ export default function BiCardView({ card, filters, queries, filterText, onPick 
   }, [view.encoding, semantics, resultColumns, vars])
   const chart = useMemo(
     () =>
-      view.type === 'bar' || view.type === 'line' || view.type === 'pie'
+      view.type === 'bar' || view.type === 'line' || view.type === 'pie' || view.type === 'waterfall'
         ? buildChartModel(view.type, encoding, rows, { clickable })
         : null,
     [rows, view.type, encoding, clickable],
@@ -298,6 +298,8 @@ function TableBody({
 }) {
   const cols: BiColumnDef[] = encoding.columns?.length ? encoding.columns : columns.map((c) => ({ column: c }))
   const delta = new Set(encoding.deltaColumns || [])
+  const barCols = (encoding.barColumns || []).filter((c) => cols.some((x) => x.column === c))
+  const barMax = dataBarScale(rows, barCols, encoding.barShared)
   const isNum = (v: unknown) => typeof v === 'number' || (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v)))
   return (
     <div className="overflow-auto border border-line rounded-lg" style={{ maxHeight }}>
@@ -329,6 +331,24 @@ function TableBody({
               {cols.map((c) => {
                 const v = r[c.column]
                 const num = c.format != null || isNum(v)
+                if (c.column in barMax) {
+                  const b = toNumber(v)
+                  const ratio = b != null && barMax[c.column] > 0 ? Math.abs(b) / barMax[c.column] : 0
+                  const text = delta.has(c.column) && b != null ? `${b > 0 ? '▲ ' : b < 0 ? '▼ ' : ''}${formatValue(Math.abs(b), { format: c.format })}` : formatValue(v, { format: c.format })
+                  return (
+                    <td key={c.column} className="px-2.5 py-1.5 min-w-[10rem]">
+                      {/* 条长按 (单元格宽 - 数字宽) × 比例，数字紧跟在条的末端 */}
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          aria-hidden
+                          className={`h-3.5 rounded-sm shrink-0 ${b != null && b < 0 ? 'bg-danger/60' : 'bg-primary/70'}`}
+                          style={{ width: `calc((100% - 5rem) * ${ratio})` }}
+                        />
+                        <span className={`whitespace-nowrap tabular-nums ${delta.has(c.column) && b != null ? deltaTone(b, encoding.trend) : 'text-fg-2'}`}>{text}</span>
+                      </div>
+                    </td>
+                  )
+                }
                 const n = delta.has(c.column) ? toNumber(v) : null
                 if (n != null) {
                   return (

@@ -3,7 +3,7 @@
  * 与后端 server/src/bi-dashboards.js 的结构保持一致。
  */
 
-export type BiCardType = 'kpi' | 'bar' | 'line' | 'pie' | 'table'
+export type BiCardType = 'kpi' | 'bar' | 'line' | 'pie' | 'waterfall' | 'table'
 export type BiFormat = 'number' | 'money' | 'percent' | 'integer'
 export type BiScalar = string | number | boolean | null
 /** 参数 / 筛选值：多选参数与多选筛选是一组值 */
@@ -36,8 +36,16 @@ export interface BiEncoding {
   rightAxis?: string[]
   /** 表格：按正负着色并加 ▲▼ 的列（增长率、差额） */
   deltaColumns?: string[]
-  /** 涨跌颜色（KPI 增长率、表格涨跌列）：up-good 上涨为好、up-bad 上涨为坏；不写 = 中性色 */
+  /** 涨跌颜色（KPI 增长率、表格涨跌列、瀑布图增减）：up-good 上涨为好、up-bad 上涨为坏；不写 = 中性色（瀑布图默认增绿减红） */
   trend?: BiTrend
+  /** 瀑布图：末尾自动加一根合计柱，值为这个名称（如「营业利润」）；不写 = 不加 */
+  total?: string
+  /** 瀑布图：维度列取这些值的行画成小计柱（从 0 画到当前累计，该行自身的数值不用），如「毛利」 */
+  subtotals?: string[]
+  /** 表格：单元格内画数据条的数值列（条长与数值成比例，负数反向着色） */
+  barColumns?: string[]
+  /** 表格数据条：true = 各列同一比例（同单位的金额列互相比较），不写 = 每列按本列最大值 */
+  barShared?: boolean
 }
 
 export type BiLabelMode = 'auto' | 'show' | 'hide'
@@ -189,11 +197,12 @@ export type BiFilterValues = Record<string, BiValue>
 /** 卡片高度档位（layout.h 1~4）对应的图表内容高度（px） */
 export const BI_CARD_HEIGHT: Record<number, number> = { 1: 170, 2: 260, 3: 360, 4: 460 }
 
-/** 按图表类型的默认尺寸（12 栅格）：KPI 1/4 矮；折线 / 表格整行；柱状半宽；饼图 1/3 */
+/** 按图表类型的默认尺寸（12 栅格）：KPI 1/4 矮；折线 / 表格整行；柱状半宽；饼图 1/3；瀑布图 2/3 */
 export function defaultChartSize(type: BiCardType): { w: number; h: number } {
   if (type === 'kpi') return { w: 3, h: 1 }
   if (type === 'line' || type === 'table') return { w: 12, h: 2 }
   if (type === 'pie') return { w: 4, h: 2 }
+  if (type === 'waterfall') return { w: 8, h: 2 }
   return { w: 6, h: 2 }
 }
 
@@ -360,6 +369,20 @@ export function formatValue(
       s = scaled.toLocaleString('zh-CN', { maximumFractionDigits: Math.abs(scaled) >= 100 ? 0 : 2 })
   }
   return opts.withUnit !== false && enc.unit && enc.format !== 'percent' ? `${s} ${enc.unit}` : s
+}
+
+/**
+ * 表格数据条的比例尺：每列的最大绝对值（条长 = |值| / 最大值）。
+ * shared：各列取同一个最大值（同单位的金额列互相比较，如收入 / 成本 / 毛利）；全为空或 0 的列为 0（不画条）。
+ */
+export function dataBarScale(rows: Record<string, unknown>[], columns: string[], shared = false): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const c of columns) out[c] = rows.reduce<number>((m, r) => Math.max(m, Math.abs(toNumber(r[c]) ?? 0)), 0)
+  if (shared) {
+    const max = Math.max(0, ...Object.values(out))
+    for (const c of columns) out[c] = max
+  }
+  return out
 }
 
 /** 环比/同比变化：返回比例（0.12 = +12%），基数为 0 或缺失时为 null */

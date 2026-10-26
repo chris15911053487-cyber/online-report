@@ -12,7 +12,7 @@
 import { formatValue, toNumber, type BiEncoding } from './bi'
 
 export type BiRow = Record<string, unknown>
-export type BiChartType = 'bar' | 'line' | 'pie'
+export type BiChartType = 'bar' | 'line' | 'pie' | 'waterfall'
 
 export interface ChartModel {
   option: Record<string, unknown>
@@ -154,6 +154,7 @@ export function buildChartModel(
   allRows: BiRow[],
   opts: { clickable?: boolean } = {},
 ): ChartModel {
+  if (type === 'waterfall') return buildWaterfallModel(enc, allRows, opts)
   const cursor = opts.clickable ? 'pointer' : 'default'
   const rows = enc.topN ? allRows.slice(0, enc.topN) : allRows
   const dim = enc.dimension || ''
@@ -344,6 +345,204 @@ export function buildChartModel(
       legend: series.length > 1 ? { top: 0, type: 'scroll', textStyle: { fontSize: 11 } } : undefined,
       xAxis: horizontal ? valueAxis : categoryAxis,
       yAxis: horizontal ? categoryAxis : right.length ? [valueAxis, rightAxis] : valueAxis,
+      series,
+    },
+  }
+}
+
+// ─── 瀑布图 ──────────────────────────────────────────────────────────────────
+
+export type WaterfallKind = 'up' | 'down' | 'total'
+
+export interface WaterfallStep {
+  name: string
+  kind: WaterfallKind
+  /** 本步的数值：增减项为增减额，合计 / 小计为累计 */
+  value: number
+  /** 柱子从 start 画到 end；end 即本步之后的累计 */
+  start: number
+  end: number
+  /** 对应的结果行；自动追加的合计柱为 null */
+  row: BiRow | null
+}
+
+/** 瀑布图「自动」时标数值的上限 */
+export const AUTO_LABEL_MAX_STEPS = 16
+
+/**
+ * 结果行 → 瀑布图的各步：第一行是起点（从 0 画起）；subtotals 里的行画成小计（从 0 画到当前累计，
+ * 该行的数值不用）；其余行按正负接着上一步的累计往上 / 往下画；设了 total 时末尾追加合计柱。
+ * 数值为空的行按 0 计。
+ */
+export function waterfallSteps(enc: BiEncoding, rows: BiRow[]): WaterfallStep[] {
+  const dim = enc.dimension || ''
+  const col = valueColumns(enc)[0] || ''
+  const subtotals = new Set(enc.subtotals || [])
+  const steps: WaterfallStep[] = []
+  let running = 0
+  rows.forEach((r, i) => {
+    const name = str(r[dim])
+    if (i > 0 && subtotals.has(name)) {
+      steps.push({ name, kind: 'total', value: running, start: 0, end: running, row: r })
+      return
+    }
+    const v = toNumber(r[col]) ?? 0
+    if (i === 0) {
+      running = v
+      steps.push({ name, kind: 'total', value: v, start: 0, end: v, row: r })
+      return
+    }
+    steps.push({ name, kind: v < 0 ? 'down' : 'up', value: v, start: running, end: running + v, row: r })
+    running += v
+  })
+  if (enc.total && steps.length > 0) steps.push({ name: enc.total, kind: 'total', value: running, start: 0, end: running, row: null })
+  return steps
+}
+
+/** 各类柱子的颜色 token：默认增绿减红；up-bad（成本类）增红减绿；合计用 info（有的主题主色偏红，会和「减少」混淆） */
+export function waterfallColors(trend?: BiEncoding['trend']): Record<WaterfallKind, string> {
+  return trend === 'up-bad' ? { up: 'danger', down: 'success', total: 'info' } : { up: 'success', down: 'danger', total: 'info' }
+}
+
+/** 标在柱子下方的数值：往下走的（减少、负的合计） */
+const labelBelow = (s: WaterfallStep) => s.kind === 'down' || (s.kind === 'total' && s.value < 0)
+
+/**
+ * 最低处的柱子要在下方标数值时，Y 轴往下多留一截（约 12% 的量程，取整到刻度），免得数字压到 X 轴文字上；
+ * 不需要时返回 undefined（交给 ECharts 自动定刻度）。
+ */
+export function waterfallAxisMin(steps: WaterfallStep[]): number | undefined {
+  if (steps.length === 0) return undefined
+  const lo = Math.min(0, ...steps.map((s) => Math.min(s.start, s.end)))
+  const hi = Math.max(0, ...steps.map((s) => Math.max(s.start, s.end)))
+  const range = hi - lo
+  if (range <= 0) return undefined
+  const crowded = steps.some((s) => labelBelow(s) && Math.min(s.start, s.end) - lo < range * 0.08)
+  if (!crowded) return undefined
+  const step = niceStep(range / 5)
+  return Math.floor((lo - range * 0.12) / step) * step
+}
+
+const KIND_LABEL: Record<WaterfallKind, string> = { up: '增加', down: '减少', total: '合计' }
+
+/** ECharts 自定义系列的绘图接口（只用到的部分） */
+interface CustomApi {
+  value: (dim: number) => number
+  coord: (v: number[]) => number[]
+  size: (v: number[]) => number[]
+  visual: (key: string) => string
+}
+
+/**
+ * 瀑布图：每类柱子（增加 / 减少 / 合计）一个自定义系列，数据按类目对齐（不属于本类的位置留空），
+ * 点击事件的 dataIndex 就是类目序号；另有一个不响应鼠标的系列画相邻柱子之间的虚线。
+ * 颜色由 colorToken 标出，渲染时 chartTheme 按当前主题换成实际颜色；数值标签与柱子同色。
+ */
+function buildWaterfallModel(enc: BiEncoding, allRows: BiRow[], opts: { clickable?: boolean }): ChartModel {
+  const steps = waterfallSteps(enc, allRows)
+  const categories = steps.map((s) => s.name)
+  const fmt = axisFormatter(enc)
+  const showLabels = enc.labels === 'show' || (enc.labels !== 'hide' && steps.length <= AUTO_LABEL_MAX_STEPS)
+  const signed = (s: WaterfallStep) => (s.kind === 'total' ? fmt(s.value) : `${s.value > 0 ? '+' : s.value < 0 ? '−' : ''}${fmt(Math.abs(s.value))}`)
+  const colors = waterfallColors(enc.trend)
+  const barWidth = (api: CustomApi) => Math.min(48, api.size([1, 0])[0] * 0.6)
+
+  // 数据维度：[类目序号, 柱底, 柱顶, 本步数值, 累计]
+  const series: Record<string, unknown>[] = (['total', 'up', 'down'] as const)
+    .filter((kind) => steps.some((s) => s.kind === kind))
+    .map((kind) => ({
+      type: 'custom',
+      name: KIND_LABEL[kind],
+      colorToken: colors[kind],
+      cursor: opts.clickable ? 'pointer' : 'default',
+      encode: { x: 0, y: [1, 2] },
+      data: steps.map((s, j) => (s.kind === kind ? [j, Math.min(s.start, s.end), Math.max(s.start, s.end), s.value, s.end] : [j, null, null, null, null])),
+      renderItem: (_params: unknown, api: CustomApi) => {
+        const lo = api.value(1)
+        const hi = api.value(2)
+        if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null
+        const j = api.value(0)
+        const w = barWidth(api)
+        const top = api.coord([j, hi])
+        const bottom = api.coord([j, lo])
+        const color = api.visual('color')
+        const children: Record<string, unknown>[] = [
+          {
+            type: 'rect',
+            shape: { x: top[0] - w / 2, y: top[1], width: w, height: Math.max(1, bottom[1] - top[1]), r: 2 },
+            style: { fill: color },
+          },
+        ]
+        if (showLabels) {
+          const step = steps[j]
+          // 往下走的（减少、负的合计）标在柱子下方，其余标在上方
+          const below = labelBelow(step)
+          children.push({
+            type: 'text',
+            silent: true,
+            x: top[0],
+            y: below ? bottom[1] + 4 : top[1] - 4,
+            style: { text: signed(step), fill: color, fontSize: 11, align: 'center', verticalAlign: below ? 'top' : 'bottom' },
+          })
+        }
+        return { type: 'group', children }
+      },
+    }))
+
+  // 相邻柱子之间的连接虚线：画在上一步的累计高度
+  if (steps.length > 1) {
+    series.push({
+      type: 'custom',
+      name: '连接线',
+      silent: true,
+      colorToken: 'line-strong',
+      encode: { x: 0, y: 1 },
+      tooltip: { show: false },
+      data: steps.slice(0, -1).map((s, j) => [j, s.end]),
+      renderItem: (_params: unknown, api: CustomApi) => {
+        const p = api.coord([api.value(0), api.value(1)])
+        const step = api.size([1, 0])[0]
+        const w = barWidth(api)
+        return {
+          type: 'line',
+          shape: { x1: p[0] + w / 2, y1: p[1], x2: p[0] + step - w / 2, y2: p[1] },
+          style: { stroke: api.visual('color'), lineDash: [4, 3], lineWidth: 1 },
+        }
+      },
+    })
+  }
+
+  const axisMin = showLabels ? waterfallAxisMin(steps) : undefined
+
+  return {
+    plotted: steps.length,
+    rowAt: (i) => steps[i]?.row ?? null,
+    option: {
+      grid: { left: 8, right: 16, top: showLabels ? 24 : 20, bottom: 8, containLabel: true },
+      tooltip: {
+        trigger: 'item',
+        formatter: (p: { dataIndex: number; marker?: string }) => {
+          const s = steps[p.dataIndex]
+          if (!s) return ''
+          const lines = [`${p.marker ?? ''}${escapeHtml(s.name)}&nbsp;&nbsp;<b>${escapeHtml(s.kind === 'total' ? formatValue(s.value, enc) : signed(s) + (enc.unit && enc.format !== 'percent' ? ` ${enc.unit}` : ''))}</b>`]
+          if (s.kind !== 'total') lines.push(`累计&nbsp;&nbsp;${escapeHtml(formatValue(s.end, enc))}`)
+          return lines.join('<br/>')
+        },
+      },
+      xAxis: {
+        type: 'category',
+        data: categories,
+        axisLabel: { fontSize: 11, hideOverlap: true },
+        axisTick: { alignWithLabel: true },
+      },
+      yAxis: {
+        type: 'value',
+        name: enc.unit && enc.format !== 'percent' ? enc.unit : '',
+        nameTextStyle: { fontSize: 11 },
+        axisLabel: { fontSize: 11, formatter: fmt },
+        ...(axisMin != null ? { min: axisMin } : {}),
+        splitLine: { show: true },
+      },
       series,
     },
   }

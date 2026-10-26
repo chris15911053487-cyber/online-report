@@ -28,6 +28,7 @@ const CARD_TYPES: { value: BiCardType; label: string }[] = [
   { value: 'bar', label: '柱状' },
   { value: 'line', label: '折线' },
   { value: 'pie', label: '饼图' },
+  { value: 'waterfall', label: '瀑布' },
   { value: 'table', label: '表格' },
 ]
 const STACK_MODES: { value: BiStackMode | 'none'; label: string }[] = [
@@ -45,6 +46,10 @@ const TRENDS: { value: BiTrend | 'neutral'; label: string }[] = [
   { value: 'neutral', label: '中性' },
   { value: 'up-good', label: '上涨为好' },
   { value: 'up-bad', label: '上涨为坏' },
+]
+const WATERFALL_TRENDS: { value: 'up-good' | 'up-bad'; label: string }[] = [
+  { value: 'up-good', label: '增加为好（增绿减红）' },
+  { value: 'up-bad', label: '增加为坏（增红减绿）' },
 ]
 const DRILL_TYPES = CARD_TYPES.filter((t) => t.value !== 'kpi') as { value: Exclude<BiCardType, 'kpi'>; label: string }[]
 
@@ -112,6 +117,24 @@ function ColumnSelect({
         )
       })}
     </select>
+  )
+}
+
+/** 逗号 / 顿号分隔的一组名称（瀑布图小计行）；输入时保留原文，失焦不改写 */
+function NameListInput({ value, onChange, placeholder, ariaLabel }: { value?: string[]; onChange: (v: string[] | undefined) => void; placeholder: string; ariaLabel: string }) {
+  const [text, setText] = useState((value || []).join('、'))
+  return (
+    <input
+      className={compactInputClass}
+      aria-label={ariaLabel}
+      value={text}
+      placeholder={placeholder}
+      onChange={(e) => {
+        setText(e.target.value)
+        const list = [...new Set(e.target.value.split(/[,，、]/).map((x) => x.trim()).filter(Boolean))]
+        onChange(list.length ? list : undefined)
+      }}
+    />
   )
 }
 
@@ -295,6 +318,54 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
           </Row>
         )}
         {!!enc.deltaColumns?.length && trendRow}
+        {measures.length > 0 && (
+          <Row label="数据条列" hint="单元格里画一根与数值成比例的横条，适合金额、数量对比">
+            <ChipSelect
+              options={measures.map((c) => ({ value: c.column, label: c.label || c.column }))}
+              selected={enc.barColumns || []}
+              onChange={(sel) => set({ barColumns: sel.length ? sel : undefined, barShared: sel.length > 1 ? enc.barShared : undefined })}
+            />
+          </Row>
+        )}
+        {(enc.barColumns?.length ?? 0) > 1 && (
+          <Row label="数据条比例" hint="同一比例：各列按同一个最大值画，单位相同的列（收入、成本、毛利）可以横向比大小">
+            <Segmented
+              size="sm"
+              options={[
+                { value: 'column', label: '每列各自' },
+                { value: 'shared', label: '各列同一比例' },
+              ]}
+              value={enc.barShared ? 'shared' : 'column'}
+              onChange={(v) => set({ barShared: v === 'shared' || undefined })}
+            />
+          </Row>
+        )}
+      </div>
+    )
+  }
+
+  if (type === 'waterfall') {
+    return (
+      <div className="flex flex-col gap-2">
+        <Row label="项目列（X 轴）" hint="每行一根柱子，按查询结果的顺序从左到右">
+          <ColumnSelect ariaLabel="项目列" columns={columns} prefer={['dimension', 'time']} value={enc.dimension} onChange={(v) => set({ dimension: v })} />
+        </Row>
+        <Row label="数值列" hint="第一行是起点；之后增加写正数、减少写负数（成本、费用在 SQL 里取负）">
+          <ColumnSelect ariaLabel="数值列" columns={columns} prefer={['measure']} value={enc.value ?? enc.values?.[0]} onChange={(v) => set({ value: v, values: undefined })} />
+        </Row>
+        <Row label="小计行" hint="项目列为这些值的行画成小计柱（从 0 画到当前累计，行里的数值不用），多个用顿号分隔">
+          <NameListInput ariaLabel="小计行" value={enc.subtotals} placeholder="如：毛利（可不填）" onChange={(v) => set({ subtotals: v })} />
+        </Row>
+        <Row label="末尾合计" hint="在最后自动加一根合计柱，值为全部累计">
+          <input className={compactInputClass} aria-label="末尾合计" value={enc.total || ''} maxLength={32} placeholder="如：营业利润（不填不加）" onChange={(e) => set({ total: e.target.value.trim() ? e.target.value : undefined })} />
+        </Row>
+        <Row label="增减颜色">
+          <Segmented size="sm" options={WATERFALL_TRENDS} value={enc.trend === 'up-bad' ? 'up-bad' : 'up-good'} onChange={(v) => set({ trend: v === 'up-bad' ? v : undefined })} />
+        </Row>
+        <Row label="显示数值" hint="自动：16 项以内在柱子上标增减额">
+          <Segmented size="sm" options={LABEL_MODES} value={enc.labels || 'auto'} onChange={(v) => set({ labels: v === 'auto' ? undefined : v })} />
+        </Row>
+        {formatRows}
       </div>
     )
   }

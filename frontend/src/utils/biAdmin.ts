@@ -446,7 +446,7 @@ export function defaultEncoding(type: BiCardType, cols: BiColumnSemantic[], curr
   if (type === 'kpi') {
     if (!enc.value && measure) enc.value = measure
     delete enc.dimension
-  } else if (type === 'bar' || type === 'line' || type === 'pie') {
+  } else if (type === 'bar' || type === 'line' || type === 'pie' || type === 'waterfall') {
     if (!enc.dimension) enc.dimension = firstOf(cols, type === 'line' ? ['time', 'dimension', 'attr'] : ['dimension', 'time', 'attr'])
     if (!enc.value && !enc.values?.length && measure) enc.value = measure
   }
@@ -466,8 +466,10 @@ export function cleanEncoding(type: BiCardType, enc: BiEncoding): BiEncoding {
     type === 'kpi'
       ? ['value', 'compare', 'label', 'format', 'unit', 'scale', 'trend']
       : type === 'table'
-        ? ['columns', 'dimension', 'deltaColumns', 'trend']
-        : ['dimension', 'value', 'values', 'series', 'format', 'unit', 'scale', 'topN', 'horizontal', 'stack', 'labels', 'columns', 'rightAxis']
+        ? ['columns', 'dimension', 'deltaColumns', 'trend', 'barColumns', 'barShared']
+        : type === 'waterfall'
+          ? ['dimension', 'value', 'total', 'subtotals', 'trend', 'format', 'unit', 'scale', 'labels', 'columns']
+          : ['dimension', 'value', 'values', 'series', 'format', 'unit', 'scale', 'topN', 'horizontal', 'stack', 'labels', 'columns', 'rightAxis']
   for (const k of keep) {
     const v = enc[k]
     if (v === undefined || v === '' || (Array.isArray(v) && v.length === 0)) continue
@@ -479,7 +481,21 @@ export function cleanEncoding(type: BiCardType, enc: BiEncoding): BiEncoding {
   }
   if (type === 'pie' || out.labels === 'auto') delete out.labels
   if (type === 'pie') delete out.rightAxis
+  // 瀑布图只有一个数值列：多选时取第一个
+  if (type === 'waterfall' && !out.value && enc.values?.length) out.value = enc.values[0]
+  if (type === 'table' && !out.barColumns?.length) delete out.barShared
   return out
+}
+
+/** 瀑布图的结构问题（与后端 bi-charts.js 的 waterfallProblem 一致）；没有问题返回 '' */
+export function waterfallProblem(enc: BiEncoding, type: BiCardType): string {
+  if (type !== 'waterfall') {
+    if (enc.total || enc.subtotals?.length) return '只有瀑布图能设置合计 / 小计'
+    return ''
+  }
+  if ((enc.values?.length ?? 0) > 1) return '瀑布图只能选一个数值列'
+  if (enc.series) return '瀑布图不能按系列列拆分'
+  return ''
 }
 
 /** 右轴的结构问题（与后端 bi-charts.js 的 rightAxisProblem 一致）；没有问题返回 '' */
@@ -536,6 +552,7 @@ function encodingColumns(enc: BiEncoding): string[] {
   for (const v of enc.values || []) cols.push(v)
   for (const v of enc.rightAxis || []) cols.push(v)
   for (const v of enc.deltaColumns || []) cols.push(v)
+  for (const v of enc.barColumns || []) cols.push(v)
   for (const c of enc.columns || []) cols.push(c.column)
   return cols
 }
@@ -586,8 +603,11 @@ export function cardProblems(
     const cols = colSet(target)
     if (cols) for (const c of encodingColumns(enc)) if (!cols.has(c)) problems.push(`${where}列「${c}」不在查询的输出列中`)
     if (type === 'kpi' && !enc.value) problems.push(`${where}KPI 需要选择数值列`)
-    if ((type === 'bar' || type === 'line' || type === 'pie') && !enc.dimension) problems.push(`${where}图表需要选择维度列`)
-    if ((type === 'bar' || type === 'line' || type === 'pie') && !enc.value && !enc.values?.length) problems.push(`${where}图表需要选择数值列`)
+    const isChart = type === 'bar' || type === 'line' || type === 'pie' || type === 'waterfall'
+    if (isChart && !enc.dimension) problems.push(`${where}图表需要选择维度列`)
+    if (isChart && !enc.value && !enc.values?.length) problems.push(`${where}图表需要选择数值列`)
+    const wf = waterfallProblem(enc, type)
+    if (wf) problems.push(`${where}${wf}`)
     const ra = rightAxisProblem(enc, type)
     if (ra) problems.push(`${where}${ra}`)
     const sp = stackProblem(enc, type)

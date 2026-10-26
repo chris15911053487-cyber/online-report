@@ -20,7 +20,7 @@ import DashboardCanvas from './DashboardCanvas'
 import ParamValueInput from './ParamValueInput'
 import { errMsg, type BiDashboardAdmin, type QueryOption } from './types'
 
-const TYPE_LABEL: Record<BiCardType, string> = { kpi: 'KPI', bar: '柱状', line: '折线', pie: '饼图', table: '表格' }
+const TYPE_LABEL: Record<BiCardType, string> = { kpi: 'KPI', bar: '柱状', line: '折线', pie: '饼图', waterfall: '瀑布', table: '表格' }
 const FILTER_TYPES: { value: BiFilter['type']; label: string }[] = [
   { value: 'month', label: '月份' },
   { value: 'year', label: '年份' },
