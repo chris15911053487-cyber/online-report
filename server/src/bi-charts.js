@@ -110,7 +110,7 @@ function waterfallProblem(enc, type) {
     return '';
   }
   if (enc.values && enc.values.length > 1) return '瀑布图只能选一个数值列';
-  if (enc.series) return '瀑布图不能按系列列拆分';
+  if (enc.series && !enc.horizontal) return '瀑布图按分栏列拆开（如每年一栏）需要选横向';
   return '';
 }
 

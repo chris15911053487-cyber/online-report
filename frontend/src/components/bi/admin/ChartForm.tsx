@@ -22,6 +22,7 @@ import { cn, compactInputClass } from '../../../ui/classes'
 import type { QueryOption } from './types'
 import ParamValueInput from './ParamValueInput'
 import QueryPickerModal from './QueryPickerModal'
+import { MAX_WATERFALL_PANELS } from '../../../utils/biOption'
 
 const CARD_TYPES: { value: BiCardType; label: string }[] = [
   { value: 'kpi', label: 'KPI' },
@@ -347,9 +348,25 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
   if (type === 'waterfall') {
     return (
       <div className="flex flex-col gap-2">
-        <Row label="项目列（X 轴）" hint="每行一根柱子，按查询结果的顺序从左到右">
+        <Row label="方向" hint="横向：项目从上往下排，项目名长、或要按年份分栏对比时用">
+          <Segmented
+            size="sm"
+            options={[
+              { value: 'v', label: '竖向' },
+              { value: 'h', label: '横向' },
+            ]}
+            value={enc.horizontal ? 'h' : 'v'}
+            onChange={(v) => set(v === 'h' ? { horizontal: true } : { horizontal: undefined, series: undefined })}
+          />
+        </Row>
+        <Row label={enc.horizontal ? '项目列（Y 轴）' : '项目列（X 轴）'} hint={`每行一根柱子，按查询结果的顺序从${enc.horizontal ? '上到下' : '左到右'}`}>
           <ColumnSelect ariaLabel="项目列" columns={columns} prefer={['dimension', 'time']} value={enc.dimension} onChange={(v) => set({ dimension: v })} />
         </Row>
+        {enc.horizontal && (
+          <Row label="分栏列" hint={`按这一列的值（如年份）每个值画一栏，左右并排、同一比例尺，最多 ${MAX_WATERFALL_PANELS} 栏；查询里每年各有一套项目行（可选）`}>
+            <ColumnSelect ariaLabel="分栏列" columns={columns} prefer={['time', 'dimension', 'attr']} optional value={enc.series} onChange={(v) => set({ series: v })} />
+          </Row>
+        )}
         <Row label="数值列" hint="第一行是起点；之后增加写正数、减少写负数（成本、费用在 SQL 里取负）">
           <ColumnSelect ariaLabel="数值列" columns={columns} prefer={['measure']} value={enc.value ?? enc.values?.[0]} onChange={(v) => set({ value: v, values: undefined })} />
         </Row>

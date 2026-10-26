@@ -24,6 +24,8 @@ interface Props {
   /** 像素高度；全屏时传 '100%' 铺满父容器 */
   height: number | string
   onPick?: (e: BiChartClick) => void
+  /** 点在空白处时：坐标轴上的值 [x, y] → dataIndex（不传 = 按类目序号）；如分栏瀑布图要同时看在哪一栏 */
+  pickIndex?: (value: number[]) => number | null
   /** 屏幕阅读器用的图表说明 */
   ariaLabel?: string
 }
@@ -35,13 +37,15 @@ interface EchartsClickParams {
   event?: { event?: { clientX?: number; clientY?: number } }
 }
 
-export default function BiChart({ option, height, onPick, ariaLabel }: Props) {
+export default function BiChart({ option, height, onPick, pickIndex, ariaLabel }: Props) {
   const elRef = useRef<HTMLDivElement>(null)
   const chartRef = useRef<echarts.ECharts | null>(null)
   const onPickRef = useRef(onPick)
+  const pickIndexRef = useRef(pickIndex)
 
   useEffect(() => {
     onPickRef.current = onPick
+    pickIndexRef.current = pickIndex
   })
 
   // 初始化一次；容器尺寸变化（左栏收起、页签切回可见）时自适应
@@ -74,7 +78,8 @@ export default function BiChart({ option, height, onPick, ariaLabel }: Props) {
       const opt = chart.getOption() as { xAxis?: { type?: string }[]; series?: { name?: string }[] }
       const horizontal = opt.xAxis?.[0]?.type !== 'category'
       const v = chart.convertFromPixel({ gridIndex: 0 }, pt) as number[] | null
-      const dataIndex = Math.round(Number(v?.[horizontal ? 1 : 0]))
+      if (!v) return
+      const dataIndex = pickIndexRef.current ? pickIndexRef.current(v) ?? -1 : Math.round(Number(v[horizontal ? 1 : 0]))
       if (!Number.isFinite(dataIndex) || dataIndex < 0) return
       const series = opt.series ?? []
       const native = e.event as unknown as { clientX?: number; clientY?: number }

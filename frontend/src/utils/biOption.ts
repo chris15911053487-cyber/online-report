@@ -20,6 +20,8 @@ export interface ChartModel {
   rowAt: (dataIndex: number, seriesName?: string) => BiRow | null
   /** 实际参与绘图的行数（topN 截断后） */
   plotted: number
+  /** 点在图形之间的空白处：坐标轴上的值 [x, y] → dataIndex（不写 = 按类目序号）；找不到返回 null */
+  pickIndex?: (value: number[]) => number | null
 }
 
 /** 数值列：values 优先，其次 value */
@@ -425,6 +427,31 @@ export function waterfallAxisMin(steps: WaterfallStep[]): number | undefined {
 
 const KIND_LABEL: Record<WaterfallKind, string> = { up: '增加', down: '减少', total: '合计' }
 
+/** 横向瀑布图按分栏列拆开时最多画几栏（年份再多就挤了） */
+export const MAX_WATERFALL_PANELS = 6
+
+export interface WaterfallPanel {
+  /** 分栏列的值（如年份）；不分栏时为空串 */
+  name: string
+  steps: WaterfallStep[]
+}
+
+/**
+ * 横向瀑布图的分栏：设了 series（如年份）时按它的值分组（按首次出现的顺序），每组各算一套台阶；
+ * 不分栏时只有一栏。超过 MAX_WATERFALL_PANELS 栏的截掉。
+ */
+export function waterfallPanels(enc: BiEncoding, rows: BiRow[]): WaterfallPanel[] {
+  if (!enc.horizontal || !enc.series) return [{ name: '', steps: waterfallSteps(enc, rows) }]
+  const groups = new Map<string, BiRow[]>()
+  for (const r of rows) {
+    const k = str(r[enc.series])
+    const g = groups.get(k)
+    if (g) g.push(r)
+    else groups.set(k, [r])
+  }
+  return [...groups].slice(0, MAX_WATERFALL_PANELS).map(([name, rs]) => ({ name, steps: waterfallSteps(enc, rs) }))
+}
+
 /** ECharts 自定义系列的绘图接口（只用到的部分） */
 interface CustomApi {
   value: (dim: number) => number
@@ -434,115 +461,195 @@ interface CustomApi {
 }
 
 /**
- * 瀑布图：每类柱子（增加 / 减少 / 合计）一个自定义系列，数据按类目对齐（不属于本类的位置留空），
- * 点击事件的 dataIndex 就是类目序号；另有一个不响应鼠标的系列画相邻柱子之间的虚线。
+ * 瀑布图：每类柱子（增加 / 减少 / 合计）一个自定义系列，另有一个不响应鼠标的系列画相邻柱子之间的虚线。
  * 颜色由 colorToken 标出，渲染时 chartTheme 按当前主题换成实际颜色；数值标签与柱子同色。
+ *
+ * 竖向（默认）：项目从左到右。横向（horizontal）：项目从上到下，增减项的数值标在柱子右边 / 左边。
+ * 横向且设了分栏列（series，如年份）：每年一栏左右并排，共用一根数值轴——第 p 栏整体平移 p 个栏宽，
+ * 各栏比例尺相同，横着看就能比出同一项目各年的长短；数值轴隐藏，栏顶标年份、每栏画一条 0 线。
+ *
+ * 数据按「栏 × 项目」铺开：第 p 栏第 j 个项目的 dataIndex = p × 项目数 + j（不属于本类的位置留空），
+ * 点击事件的 dataIndex 经 rowAt 映射回结果行。
  */
 function buildWaterfallModel(enc: BiEncoding, allRows: BiRow[], opts: { clickable?: boolean }): ChartModel {
-  const steps = waterfallSteps(enc, allRows)
-  const categories = steps.map((s) => s.name)
+  const horizontal = !!enc.horizontal
+  const panels = waterfallPanels(enc, allRows)
+  const multi = horizontal && !!enc.series
+  // 各栏项目取并集（按首次出现的顺序）；某年缺的项目留空
+  const categories: string[] = []
+  for (const p of panels) for (const s of p.steps) if (!categories.includes(s.name)) categories.push(s.name)
+  const n = categories.length
+  const at: (WaterfallStep | null)[] = panels.flatMap((p) => categories.map((c) => p.steps.find((s) => s.name === c) ?? null))
+  const all = panels.flatMap((p) => p.steps)
+
+  // 分栏时第 p 栏平移 offset(p)：每栏宽 = 全部栏的数值范围 + 两侧留给数值标签的空白
+  const lo = Math.min(0, ...all.map((s) => Math.min(s.start, s.end)))
+  const hi = Math.max(0, ...all.map((s) => Math.max(s.start, s.end)))
+  const range = hi - lo || 1
+  const pad = multi ? range * 0.3 : 0
+  const span = range + pad * 2
+  const offset = (p: number) => (multi ? p * span + pad - lo : 0)
+
   const fmt = axisFormatter(enc)
-  const showLabels = enc.labels === 'show' || (enc.labels !== 'hide' && steps.length <= AUTO_LABEL_MAX_STEPS)
+  const showLabels = enc.labels === 'show' || (enc.labels !== 'hide' && n <= AUTO_LABEL_MAX_STEPS)
   const signed = (s: WaterfallStep) => (s.kind === 'total' ? fmt(s.value) : `${s.value > 0 ? '+' : s.value < 0 ? '−' : ''}${fmt(Math.abs(s.value))}`)
   const colors = waterfallColors(enc.trend)
-  const barWidth = (api: CustomApi) => Math.min(48, api.size([1, 0])[0] * 0.6)
+  const band = (api: CustomApi) => (horizontal ? api.size([0, 1])[1] : api.size([1, 0])[0])
+  const barWidth = (api: CustomApi) => Math.min(horizontal ? 28 : 48, band(api) * 0.6)
+  // 数值 + 类目 → 像素坐标（横向时数值在 X 轴）
+  const pt = (api: CustomApi, v: number, j: number) => api.coord(horizontal ? [v, j] : [j, v])
+  const valueDims = horizontal ? { y: 0, x: [1, 2] } : { x: 0, y: [1, 2] }
 
-  // 数据维度：[类目序号, 柱底, 柱顶, 本步数值, 累计]
+  // 数据维度：[类目序号, 柱底, 柱顶, 本步数值, 累计]（柱底 / 柱顶已加上本栏的平移）
   const series: Record<string, unknown>[] = (['total', 'up', 'down'] as const)
-    .filter((kind) => steps.some((s) => s.kind === kind))
+    .filter((kind) => all.some((s) => s.kind === kind))
     .map((kind) => ({
       type: 'custom',
       name: KIND_LABEL[kind],
       colorToken: colors[kind],
       cursor: opts.clickable ? 'pointer' : 'default',
-      encode: { x: 0, y: [1, 2] },
-      data: steps.map((s, j) => (s.kind === kind ? [j, Math.min(s.start, s.end), Math.max(s.start, s.end), s.value, s.end] : [j, null, null, null, null])),
-      renderItem: (_params: unknown, api: CustomApi) => {
-        const lo = api.value(1)
-        const hi = api.value(2)
-        if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null
+      encode: valueDims,
+      data: at.map((s, i) => {
+        const j = i % Math.max(1, n)
+        if (!s || s.kind !== kind) return [j, null, null, null, null]
+        const o = offset(Math.floor(i / n))
+        return [j, Math.min(s.start, s.end) + o, Math.max(s.start, s.end) + o, s.value, s.end]
+      }),
+      renderItem: (params: { dataIndex?: number }, api: CustomApi) => {
+        const a = api.value(1)
+        const b = api.value(2)
+        if (!Number.isFinite(a) || !Number.isFinite(b)) return null
         const j = api.value(0)
         const w = barWidth(api)
-        const top = api.coord([j, hi])
-        const bottom = api.coord([j, lo])
+        const p1 = pt(api, a, j)
+        const p2 = pt(api, b, j)
         const color = api.visual('color')
-        const children: Record<string, unknown>[] = [
-          {
-            type: 'rect',
-            shape: { x: top[0] - w / 2, y: top[1], width: w, height: Math.max(1, bottom[1] - top[1]), r: 2 },
-            style: { fill: color },
-          },
-        ]
-        if (showLabels) {
-          const step = steps[j]
-          // 往下走的（减少、负的合计）标在柱子下方，其余标在上方
+        const rect = horizontal
+          ? { x: p1[0], y: p1[1] - w / 2, width: Math.max(1, p2[0] - p1[0]), height: w, r: 2 }
+          : { x: p2[0] - w / 2, y: p2[1], width: w, height: Math.max(1, p1[1] - p2[1]), r: 2 }
+        const children: Record<string, unknown>[] = [{ type: 'rect', shape: rect, style: { fill: color } }]
+        const step = at[params.dataIndex ?? j]
+        if (showLabels && step) {
+          // 往下走的（减少、负的合计）：竖向标在柱子下方，横向标在左边；其余标在上方 / 右边
           const below = labelBelow(step)
-          children.push({
-            type: 'text',
-            silent: true,
-            x: top[0],
-            y: below ? bottom[1] + 4 : top[1] - 4,
-            style: { text: signed(step), fill: color, fontSize: 11, align: 'center', verticalAlign: below ? 'top' : 'bottom' },
-          })
+          const style = { text: signed(step), fill: color, fontSize: 11 }
+          children.push(
+            horizontal
+              ? { type: 'text', silent: true, x: below ? p1[0] - 4 : p2[0] + 4, y: p1[1], style: { ...style, align: below ? 'right' : 'left', verticalAlign: 'middle' } }
+              : { type: 'text', silent: true, x: p2[0], y: below ? p1[1] + 4 : p2[1] - 4, style: { ...style, align: 'center', verticalAlign: below ? 'top' : 'bottom' } },
+          )
         }
         return { type: 'group', children }
       },
     }))
 
-  // 相邻柱子之间的连接虚线：画在上一步的累计高度
-  if (steps.length > 1) {
+  // 相邻柱子之间的连接虚线：画在上一步的累计处，连到同一栏的下一根柱子。数据：[本柱类目, 累计, 下一柱类目]
+  const links = panels.flatMap((p, pi) =>
+    p.steps.slice(0, -1).map((s, k) => [categories.indexOf(s.name), s.end + offset(pi), categories.indexOf(p.steps[k + 1].name)]),
+  )
+  if (links.length > 0) {
     series.push({
       type: 'custom',
       name: '连接线',
       silent: true,
       colorToken: 'line-strong',
-      encode: { x: 0, y: 1 },
+      encode: horizontal ? { y: 0, x: 1 } : { x: 0, y: 1 },
       tooltip: { show: false },
-      data: steps.slice(0, -1).map((s, j) => [j, s.end]),
+      data: links,
       renderItem: (_params: unknown, api: CustomApi) => {
-        const p = api.coord([api.value(0), api.value(1)])
-        const step = api.size([1, 0])[0]
+        const v = api.value(1)
+        const a = pt(api, v, api.value(0))
+        const b = pt(api, v, api.value(2))
         const w = barWidth(api)
+        const shape = horizontal ? { x1: a[0], y1: a[1] + w / 2, x2: b[0], y2: b[1] - w / 2 } : { x1: a[0] + w / 2, y1: a[1], x2: b[0] - w / 2, y2: b[1] }
+        return { type: 'line', shape, style: { stroke: api.visual('color'), lineDash: [4, 3], lineWidth: 1 } }
+      },
+    })
+  }
+
+  // 分栏：每栏一条 0 线、栏顶标分栏名（年份）。数据：[栏序号, 本栏 0 点]
+  if (multi && n > 0) {
+    const panelData = panels.map((_, p) => [p, offset(p)])
+    series.push({
+      type: 'custom',
+      name: '零线',
+      silent: true,
+      colorToken: 'line-strong',
+      encode: { x: 1 },
+      tooltip: { show: false },
+      data: panelData,
+      renderItem: (_params: unknown, api: CustomApi) => {
+        const top = pt(api, api.value(1), 0)
+        const bottom = pt(api, api.value(1), n - 1)
+        const h = band(api) / 2
+        return { type: 'line', shape: { x1: top[0], y1: top[1] - h, x2: top[0], y2: bottom[1] + h }, style: { stroke: api.visual('color'), lineWidth: 1 } }
+      },
+    })
+    series.push({
+      type: 'custom',
+      name: '分栏',
+      silent: true,
+      colorToken: 'fg-2',
+      encode: { x: 1 },
+      tooltip: { show: false },
+      data: panelData,
+      renderItem: (_params: unknown, api: CustomApi) => {
+        const p = api.value(0)
+        const c = pt(api, p * span + span / 2, 0)
         return {
-          type: 'line',
-          shape: { x1: p[0] + w / 2, y1: p[1], x2: p[0] + step - w / 2, y2: p[1] },
-          style: { stroke: api.visual('color'), lineDash: [4, 3], lineWidth: 1 },
+          type: 'text',
+          x: c[0],
+          y: c[1] - band(api) / 2 - 6,
+          style: { text: panels[p]?.name ?? '', fill: api.visual('color'), fontSize: 12, fontWeight: 600, align: 'center', verticalAlign: 'bottom' },
         }
       },
     })
   }
 
-  const axisMin = showLabels ? waterfallAxisMin(steps) : undefined
-
-  return {
-    plotted: steps.length,
-    rowAt: (i) => steps[i]?.row ?? null,
-    option: {
-      grid: { left: 8, right: 16, top: showLabels ? 24 : 20, bottom: 8, containLabel: true },
-      tooltip: {
-        trigger: 'item',
-        formatter: (p: { dataIndex: number; marker?: string }) => {
-          const s = steps[p.dataIndex]
-          if (!s) return ''
-          const lines = [`${p.marker ?? ''}${escapeHtml(s.name)}&nbsp;&nbsp;<b>${escapeHtml(s.kind === 'total' ? formatValue(s.value, enc) : signed(s) + (enc.unit && enc.format !== 'percent' ? ` ${enc.unit}` : ''))}</b>`]
-          if (s.kind !== 'total') lines.push(`累计&nbsp;&nbsp;${escapeHtml(formatValue(s.end, enc))}`)
-          return lines.join('<br/>')
-        },
-      },
-      xAxis: {
-        type: 'category',
-        data: categories,
-        axisLabel: { fontSize: 11, hideOverlap: true },
-        axisTick: { alignWithLabel: true },
-      },
-      yAxis: {
+  const axisMin = showLabels && !multi ? waterfallAxisMin(all) : undefined
+  const categoryAxis = {
+    type: 'category',
+    data: categories,
+    inverse: horizontal, // 横向：第一项在最上面
+    axisLabel: { fontSize: 11, hideOverlap: true },
+    axisTick: { alignWithLabel: true },
+  }
+  const valueAxis = multi
+    ? { type: 'value', min: 0, max: panels.length * span, show: false, splitLine: { show: false } }
+    : {
         type: 'value',
         name: enc.unit && enc.format !== 'percent' ? enc.unit : '',
         nameTextStyle: { fontSize: 11 },
         axisLabel: { fontSize: 11, formatter: fmt },
         ...(axisMin != null ? { min: axisMin } : {}),
         splitLine: { show: true },
+      }
+
+  return {
+    plotted: all.length,
+    rowAt: (i) => at[i]?.row ?? null,
+    // 点在柱子之间的空白处：按所在的栏和项目算
+    pickIndex: (v) => {
+      const j = Math.round(v[horizontal ? 1 : 0])
+      const p = multi ? Math.floor(v[0] / span) : 0
+      return j >= 0 && j < n && p >= 0 && p < panels.length ? p * n + j : null
+    },
+    option: {
+      grid: { left: 8, right: horizontal && !multi && showLabels ? 48 : 16, top: multi ? 28 : showLabels && !horizontal ? 24 : 20, bottom: 8, containLabel: true },
+      tooltip: {
+        trigger: 'item',
+        formatter: (p: { dataIndex: number; marker?: string }) => {
+          const s = at[p.dataIndex]
+          if (!s) return ''
+          const panel = multi ? panels[Math.floor(p.dataIndex / n)]?.name : ''
+          const name = panel ? `${panel} · ${s.name}` : s.name
+          const lines = [`${p.marker ?? ''}${escapeHtml(name)}&nbsp;&nbsp;<b>${escapeHtml(s.kind === 'total' ? formatValue(s.value, enc) : signed(s) + (enc.unit && enc.format !== 'percent' ? ` ${enc.unit}` : ''))}</b>`]
+          if (s.kind !== 'total') lines.push(`累计&nbsp;&nbsp;${escapeHtml(formatValue(s.end, enc))}`)
+          return lines.join('<br/>')
+        },
       },
+      xAxis: horizontal ? valueAxis : categoryAxis,
+      yAxis: horizontal ? categoryAxis : valueAxis,
       series,
     },
   }

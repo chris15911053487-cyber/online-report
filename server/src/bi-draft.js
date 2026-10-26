@@ -191,7 +191,7 @@ ${SQL_RULES}
 - 例如排名类查询：横向条形（排名）+ 饼图（占比）+ 表格（明细）；趋势类：折线 + 当期 KPI；单值类：KPI
 - type：kpi（单个数，取第一行）/ bar / line（时间趋势）/ pie（占比，类别 ≤ 8）/ waterfall（瀑布图：从起点经各项增减到结果，如收入 → 成本 → 费用 → 利润）/ table
 - encoding：kpi 用 {"value": 度量列}；bar/line/pie 用 {"dimension": 维度列, "value": 度量列}，可加 "horizontal": true（横向条形，适合排名）、"labels": "show"/"hide"（柱/线上是否标数值，不写 = 自动）、"stack": "normal"/"percent"（仅 bar 且有多个数值列或 series 时：看合计用 normal，看构成占比用 percent）、"topN"
-- waterfall：查询每行一个项目（按 SortNo 排好序），第一行是起点（如收入），之后增加为正、减少为负（成本、费用在 SQL 里取负）；encoding {"dimension": 项目列, "value": 金额列, "total": "营业利润"}（末尾自动加合计柱），中间小计行写 "subtotals": ["毛利"]（该行数值可为 NULL）；成本类用 "trend": "up-bad"
+- waterfall：查询每行一个项目（按 SortNo 排好序），第一行是起点（如收入），之后增加为正、减少为负（成本、费用在 SQL 里取负）；encoding {"dimension": 项目列, "value": 金额列, "total": "营业利润"}（末尾自动加合计柱），中间小计行写 "subtotals": ["毛利"]（该行数值可为 NULL）；成本类用 "trend": "up-bad"；多年对比利润构成时查询加年份列（按 年份, 序号 排序），encoding 加 "horizontal": true, "series": 年份列（每年一栏并排，最多 6 栏）
 - table 可加 "barColumns": [数值列...]（单元格内数据条，适合按年 / 月对比多个金额）；同单位的多列加 "barShared": true（各列同一比例）
 - 同比 / 环比查询：按月趋势用 bar {"dimension": "Month", "values": ["Cur", "Prev", "GrowthRate"], "rightAxis": ["GrowthRate"]}（增长率画折线走右轴）；按客户 / 产品用 table {"deltaColumns": ["GrowthRate"], "trend": "up-good"}（增长率涨绿跌红；成本类用 "up-bad"）；KPI 用 {"value": "Cur", "compare": "Prev", "trend": "up-good"}
 - 列名必须是 SQL 的输出列别名

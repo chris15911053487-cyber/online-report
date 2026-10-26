@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { alignedAxisRanges, buildChartModel, columnLabel, labelPlan, rightAxisColumns, valueColumns, waterfallAxisMin, waterfallColors, waterfallSteps } from './biOption'
+import { alignedAxisRanges, buildChartModel, columnLabel, labelPlan, MAX_WATERFALL_PANELS, rightAxisColumns, valueColumns, waterfallAxisMin, waterfallColors, waterfallPanels, waterfallSteps } from './biOption'
 import { canDrillFrom, levelView, nextDrillLabel, popDrillTo, pushDrill, rootStack, rowCaption } from './biDrill'
 import type { BiCard } from './bi'
 
@@ -355,7 +355,7 @@ describe('瀑布图', () => {
     expect(series[2].data[1]).toEqual([1, 400, 1000, -600, 400])
     expect(series[2].data[0]).toEqual([0, null, null, null, null])
     expect(series[3].silent).toBe(true)
-    expect(series[3].data).toEqual([[0, 1000], [1, 400], [2, 400], [3, 200], [4, 250]])
+    expect(series[3].data).toEqual([[0, 1000, 1], [1, 400, 2], [2, 400, 3], [3, 200, 4], [4, 250, 5]])
     expect((m.option as { xAxis: { data: string[] } }).xAxis.data).toEqual(['收入', '营业成本', '毛利', '期间费用', '其他收益', '营业利润'])
     expect(m.plotted).toBe(6)
     expect(m.rowAt(1)).toBe(pl[1])
@@ -374,6 +374,66 @@ describe('瀑布图', () => {
     expect(g.children[1].style).toMatchObject({ text: '−600', fill: 'red', verticalAlign: 'top' })
     const empty = { ...api, value: () => NaN }
     expect(series[2].renderItem({}, empty)).toBeNull()
+  })
+
+  it('横向：项目在 Y 轴（第一项在上），数值在 X 轴；减少项标在柱子左边', () => {
+    const m = buildChartModel('waterfall', { ...enc, horizontal: true }, pl)
+    type S = { name: string; data: unknown[][]; encode: unknown; renderItem: (p: unknown, api: unknown) => { children: { shape?: Record<string, number>; style: Record<string, unknown> }[] } }
+    const o = m.option as { xAxis: { type: string }; yAxis: { type: string; inverse: boolean; data: string[] }; series: S[] }
+    expect(o.xAxis.type).toBe('value')
+    expect(o.yAxis).toMatchObject({ type: 'category', inverse: true })
+    expect(o.yAxis.data[0]).toBe('收入')
+    const down = o.series.find((s) => s.name === '减少')!
+    expect(down.encode).toEqual({ y: 0, x: [1, 2] })
+    const values = down.data[1] as number[]
+    const api = {
+      value: (i: number) => values[i],
+      coord: ([x, y]: number[]) => [x / 4, y * 100 + 50],
+      size: () => [0, 100],
+      visual: () => 'red',
+    }
+    const g = down.renderItem({ dataIndex: 1 }, api)
+    // 柱子从 400 画到 1000：x 100 → 250，高 28（横向柱子最粗 28）
+    expect(g.children[0].shape).toMatchObject({ x: 100, y: 136, width: 150, height: 28 })
+    expect(g.children[1].style).toMatchObject({ text: '−600', align: 'right' })
+  })
+
+  it('横向 + 分栏列：每年一栏，同一比例尺左右平移；点击 / 空白处映射回对应年份的行', () => {
+    const rows = [
+      { Y: '2024', Item: '收入', Amt: 1000 },
+      { Y: '2024', Item: '成本', Amt: -600 },
+      { Y: '2025', Item: '收入', Amt: 1200 },
+      { Y: '2025', Item: '成本', Amt: -720 },
+    ]
+    const e = { dimension: 'Item', value: 'Amt', series: 'Y', horizontal: true, total: '毛利' }
+    expect(waterfallPanels(e, rows).map((p) => [p.name, p.steps.map((s) => s.end)])).toEqual([
+      ['2024', [1000, 400, 400]],
+      ['2025', [1200, 480, 480]],
+    ])
+    // 竖向时分栏列不生效
+    expect(waterfallPanels({ ...e, horizontal: false }, rows)).toHaveLength(1)
+
+    const m = buildChartModel('waterfall', e, rows, { clickable: true })
+    type S = { name: string; data: unknown[][] }
+    const o = m.option as { xAxis: { show: boolean; min: number; max: number }; yAxis: { data: string[] }; series: S[] }
+    expect(o.yAxis.data).toEqual(['收入', '成本', '毛利'])
+    // 范围 0~1200，两侧各留 30%：栏宽 1920，第 2 栏整体右移 1920
+    expect(o.xAxis).toMatchObject({ show: false, min: 0, max: 3840 })
+    const total = o.series.find((s) => s.name === '合计')!
+    expect(total.data[0]).toEqual([0, 360, 1360, 1000, 1000])
+    expect(total.data[3]).toEqual([0, 2280, 3480, 1200, 1200])
+    expect(o.series.map((s) => s.name)).toEqual(['合计', '减少', '连接线', '零线', '分栏'])
+    expect(m.plotted).toBe(6)
+    expect(m.rowAt(1)).toBe(rows[1])
+    expect(m.rowAt(4)).toBe(rows[3])
+    expect(m.rowAt(5)).toBeNull()
+    expect(m.pickIndex?.([2500, 1.2])).toBe(4)
+    expect(m.pickIndex?.([5000, 0])).toBeNull()
+  })
+
+  it(`分栏最多 ${MAX_WATERFALL_PANELS} 栏`, () => {
+    const rows = Array.from({ length: 9 }, (_, i) => ({ Y: String(2017 + i), Item: '收入', Amt: 1 }))
+    expect(waterfallPanels({ dimension: 'Item', value: 'Amt', series: 'Y', horizontal: true }, rows)).toHaveLength(MAX_WATERFALL_PANELS)
   })
 
   it('标数值：自动时 16 项以内标；hide 不标', () => {

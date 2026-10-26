@@ -216,6 +216,7 @@ export default function BiCardView({ card, filters, queries, filterText, onPick 
                     height={bodyHeight}
                     ariaLabel={`${title}图表，共 ${chart.plotted} 项`}
                     onPick={clickable ? (e) => pick(chart.rowAt(e.dataIndex, e.seriesName), e.x, e.y) : undefined}
+                    pickIndex={chart.pickIndex}
                   />
                 )}
                 {view.type === 'table' && (

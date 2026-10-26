@@ -168,7 +168,10 @@ test('图表校验：瀑布图一个数值列，可设末尾合计 / 小计；�
   assert.equal(ok.value.size.w, 8, '默认 2/3 宽');
   assert.match(run({ value: '金额' }).error, /dimension/);
   assert.match(run({ dimension: '项目', values: ['金额', '去年'] }).error, /只能选一个数值列/);
-  assert.match(run({ dimension: '项目', value: '金额', series: '去年' }).error, /系列列/);
+  assert.match(run({ dimension: '项目', value: '金额', series: '去年' }).error, /需要选横向/);
+  const panels = run({ dimension: '项目', value: '金额', series: '去年', horizontal: true });
+  assert.equal(panels.ok, true, panels.error);
+  assert.equal(panels.value.encoding.horizontal, true, '横向瀑布图可按分栏列拆开');
   assert.match(run({ dimension: '项目', value: '金额', subtotals: '毛利' }).error, /subtotals 须为/);
   assert.match(run({ dimension: '项目', value: '金额', total: '合计' }, 'bar').error, /只有瀑布图/);
   assert.match(run({ dimension: '项目', value: 'Ghost' }).error, /Ghost/, '数值列须在输出列中');

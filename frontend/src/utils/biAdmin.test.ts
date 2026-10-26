@@ -310,13 +310,17 @@ describe('瀑布图 / 数据条', () => {
   it('waterfallProblem 与后端规则一致', () => {
     expect(waterfallProblem({ dimension: '项目', value: '金额', total: '利润' }, 'waterfall')).toBe('')
     expect(waterfallProblem({ dimension: '项目', values: ['a', 'b'] }, 'waterfall')).toMatch(/只能选一个/)
-    expect(waterfallProblem({ dimension: '项目', value: 'a', series: 'b' }, 'waterfall')).toMatch(/系列列/)
+    expect(waterfallProblem({ dimension: '项目', value: 'a', series: 'b' }, 'waterfall')).toMatch(/需要选横向/)
+    expect(waterfallProblem({ dimension: '项目', value: 'a', series: 'b', horizontal: true }, 'waterfall')).toBe('')
     expect(waterfallProblem({ dimension: '项目', value: 'a', subtotals: ['毛利'] }, 'bar')).toMatch(/只有瀑布图/)
   })
 
   it('cleanEncoding：切到瀑布图只留一个数值列与瀑布字段；表格保留数据条', () => {
     const enc = { dimension: '项目', values: ['金额', '去年'], horizontal: true, stack: 'normal' as const, total: '利润', subtotals: ['毛利'], trend: 'up-bad' as const, barColumns: ['金额'] }
-    expect(cleanEncoding('waterfall', enc)).toEqual({ dimension: '项目', value: '金额', total: '利润', subtotals: ['毛利'], trend: 'up-bad' })
+    expect(cleanEncoding('waterfall', enc)).toEqual({ dimension: '项目', value: '金额', horizontal: true, total: '利润', subtotals: ['毛利'], trend: 'up-bad' })
+    // 分栏只在横向时保留
+    expect(cleanEncoding('waterfall', { ...enc, series: '年份' }).series).toBe('年份')
+    expect(cleanEncoding('waterfall', { ...enc, horizontal: false, series: '年份' }).series).toBeUndefined()
     expect(cleanEncoding('bar', enc).total).toBeUndefined()
     expect(cleanEncoding('table', { ...enc, barShared: true })).toEqual({ dimension: '项目', trend: 'up-bad', barColumns: ['金额'], barShared: true })
     expect(cleanEncoding('table', { barShared: true })).toEqual({})

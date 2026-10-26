@@ -468,17 +468,17 @@ export function cleanEncoding(type: BiCardType, enc: BiEncoding): BiEncoding {
       : type === 'table'
         ? ['columns', 'dimension', 'deltaColumns', 'trend', 'barColumns', 'barShared']
         : type === 'waterfall'
-          ? ['dimension', 'value', 'total', 'subtotals', 'trend', 'format', 'unit', 'scale', 'labels', 'columns']
+          ? ['dimension', 'value', 'horizontal', 'series', 'total', 'subtotals', 'trend', 'format', 'unit', 'scale', 'labels', 'columns']
           : ['dimension', 'value', 'values', 'series', 'format', 'unit', 'scale', 'topN', 'horizontal', 'stack', 'labels', 'columns', 'rightAxis']
   for (const k of keep) {
     const v = enc[k]
     if (v === undefined || v === '' || (Array.isArray(v) && v.length === 0)) continue
     ;(out as Record<string, unknown>)[k] = v
   }
-  if (type !== 'bar') {
-    delete out.horizontal
-    delete out.stack
-  }
+  if (type !== 'bar') delete out.stack
+  if (type !== 'bar' && type !== 'waterfall') delete out.horizontal
+  // 瀑布图只有横向才能分栏
+  if (type === 'waterfall' && !out.horizontal) delete out.series
   if (type === 'pie' || out.labels === 'auto') delete out.labels
   if (type === 'pie') delete out.rightAxis
   // 瀑布图只有一个数值列：多选时取第一个
@@ -494,7 +494,7 @@ export function waterfallProblem(enc: BiEncoding, type: BiCardType): string {
     return ''
   }
   if ((enc.values?.length ?? 0) > 1) return '瀑布图只能选一个数值列'
-  if (enc.series) return '瀑布图不能按系列列拆分'
+  if (enc.series && !enc.horizontal) return '瀑布图按分栏列拆开（如每年一栏）需要选横向'
   return ''
 }
 
