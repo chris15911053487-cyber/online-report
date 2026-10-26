@@ -10,6 +10,7 @@ import { ChevronDown, ChevronRight, Loader2, Play, Sparkles, Trash2, Undo2, Wand
 import { useStore } from '../../../store'
 import { apiFetch } from '../../../utils/api'
 import type { BiColumnRole, BiColumnSemantic, BiFormat, BiParamDef } from '../../../utils/bi'
+import SqlEditor from '../../SqlEditor'
 import { COLUMN_ROLE_LABEL, FORMAT_LABEL, bareTableRefs, extractSqlParams, mergeDetectedColumns, optionsToText, paramDefProblems, sessionParamsUsed, syncParamsWithSql, textToOptions } from '../../../utils/biAdmin'
 import { AdminPage, Badge, Button, Checkbox, ChipSelect, Code, EditorActions, Field, IconButton, Input, Notice, ResultTable, Section, Segmented, Textarea } from '../../../ui'
 import { compactInputClass, tableClass, tdClass, thClass } from '../../../ui/classes'
@@ -410,7 +411,12 @@ export default function QueryEditor({
           </Section>
 
           <Section title="② SQL" hint="只允许一条 SELECT / WITH 只读查询；参数写成 @名称，右侧参数表自动同步。按当前登录用户过滤可直接写 @_loginUser（用户编码）/ @_loginDisplayName（显示名），由系统自动代入，不是参数。">
-            <Textarea mono rows={14} value={d.sqlText} onChange={(e) => setSql(e.target.value)} spellCheck={false} placeholder="SELECT T0.CardCode, T0.CardName, SUM(T1.Balance) AS Balance&#10;FROM ... WHERE T1.Period = @period&#10;GROUP BY T0.CardCode, T0.CardName" />
+            <SqlEditor
+              value={d.sqlText}
+              onChange={setSql}
+              paramNames={d.params.map((p) => p.name)}
+              placeholder={'SELECT T0.CardCode, T0.CardName, SUM(T1.Balance) AS Balance\nFROM ... WHERE T1.Period = @period\nGROUP BY T0.CardCode, T0.CardName'}
+            />
             {bareTables.length > 0 && (
               <Notice tone="warning" className="mt-2">
                 表名 {bareTables.map((n) => `@${n}`).join('、')} 需要加方括号，写成 {bareTables.map((n) => `[@${n}]`).join('、')}：SAP 自定义表以 @ 开头，不加括号数据库会当成变量报错（这里也不会把它当参数）。
