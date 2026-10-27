@@ -25,6 +25,13 @@ interface AgentSkill {
   sortOrder: number
 }
 
+/** AI 起草时每条查询模式的试跑结果 */
+interface SkillDraftCheck {
+  title: string
+  rowCount: number
+  columns: string[]
+}
+
 const EMPTY_SKILL: AgentSkill = {
   name: '',
   description: '',
@@ -98,6 +105,7 @@ export default function AiSkillsView() {
   const [previewPath, setPreviewPath] = useState<string | null>(null)
   const [showAIDialog, setShowAIDialog] = useState(false)
   const [aiGenerating, setAiGenerating] = useState(false)
+  const [aiChecks, setAiChecks] = useState<SkillDraftCheck[] | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
@@ -123,6 +131,7 @@ export default function AiSkillsView() {
   const startEdit = (s: AgentSkill) => {
     setEditing({ ...s, roles: [...s.roles] })
     setAllowedTablesInput((s.allowedTables || []).join(', '))
+    setAiChecks(null)
     setIsNew(false)
     setPreviewPath(null)
   }
@@ -152,29 +161,38 @@ export default function AiSkillsView() {
   const startNew = () => {
     setEditing({ ...EMPTY_SKILL })
     setAllowedTablesInput('')
+    setAiChecks(null)
     setIsNew(true)
   }
 
   const handleAIGenerate = async (requirement: string) => {
     setShowAIDialog(false)
     setAiGenerating(true)
-    showToast('AI 正在生成 Skill…（约需数十秒）', 95000)
+    setAiChecks(null)
+    showToast('AI 正在读表结构、写查询并试跑…（约需 1 分钟）', 170000)
     try {
       const data = await apiFetchReport(
         '/ai/generate-skill',
         { method: 'POST', body: JSON.stringify({ requirement }) },
-        120000,
-      ) as { success?: boolean; skill?: { name: string; description: string; bodyMd: string }; error?: string }
+        180000,
+      ) as {
+        success?: boolean
+        skill?: { name: string; description: string; bodyMd: string; allowedTables: string[] }
+        checks?: SkillDraftCheck[]
+        error?: string
+      }
       if (data.success && data.skill) {
         setEditing({
           ...EMPTY_SKILL,
           name: data.skill.name,
           description: data.skill.description,
           bodyMd: data.skill.bodyMd,
+          allowedTables: data.skill.allowedTables || [],
         })
-        setAllowedTablesInput('')
+        setAllowedTablesInput((data.skill.allowedTables || []).join(', '))
+        setAiChecks(data.checks || [])
         setIsNew(true)
-        showToast('AI 生成成功，请检查内容后保存')
+        showToast('AI 生成成功：查询已试跑通过，请勾选可用角色后保存')
       } else {
         showToast('生成失败：' + (data.error || '未知错误'))
       }
@@ -232,8 +250,8 @@ export default function AiSkillsView() {
       open={showAIDialog}
       title="AI 辅助生成 Skill"
       label="描述你想要的 Skill 功能"
-      example="帮我创建一个 Skill，用于分析生产报工数据，统计每个工序的效率和异常情况，给出改进建议。"
-      placeholder="描述 Skill 的用途、工作流程和期望输出…"
+      example="每天的销售订单日报：昨天的订单数、金额、客户数和前天对比，昨天下单金额前 5 的客户，已过交货日期仍未清的订单。"
+      placeholder="说清要查什么数、按什么分、怎么比。AI 会读真实表结构写出查询并逐条试跑…"
       onConfirm={(v) => void handleAIGenerate(v)}
       onClose={() => setShowAIDialog(false)}
     />
@@ -277,6 +295,18 @@ export default function AiSkillsView() {
           </Section>
 
           <div className="flex flex-col gap-4">
+            {aiChecks && aiChecks.length > 0 && (
+              <Section title="查询试跑" hint="AI 写的查询模式都已在库里执行通过（只读，只取前几行）。0 行不一定有错，可能只是当天没数据。">
+                <div className="flex flex-col gap-1.5">
+                  {aiChecks.map((c, i) => (
+                    <div key={i} className="flex items-start justify-between gap-3 text-sm">
+                      <span className="text-fg-2">{i + 1}. {c.title}</span>
+                      <Badge tone={c.rowCount > 0 ? 'success' : 'warning'}>{c.rowCount} 行</Badge>
+                    </div>
+                  ))}
+                </div>
+              </Section>
+            )}
             <Section title="权限与约束">
               <div className="flex flex-col gap-3">
                 <Field

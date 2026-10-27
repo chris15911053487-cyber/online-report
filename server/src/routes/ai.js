@@ -21,6 +21,10 @@ const {
   getUserRolesFromRequest,
   canAccessMenu,
 } = require('../roles');
+const { draftSqlSkill } = require('../skill-draft');
+const { DraftError } = require('../bi-draft');
+const { listAllSkills } = require('../agent-skills');
+const { runSqlLimited } = require('../agent-sql');
 
 /**
  * AI 分析路由
@@ -275,7 +279,7 @@ async function aiRoutes(fastify) {
     }
   );
 
-  // AI 辅助生成 Skill 内容 - 仅管理员可用
+  // AI 起草 Skill（以 SQL 为主：读真实表结构、查询模式逐条试跑）- 仅管理员可用，只返回草稿
   fastify.post(
     '/ai/generate-skill',
     { preHandler: [fastify.requireAdmin] },
@@ -284,11 +288,23 @@ async function aiRoutes(fastify) {
       if (!requirement) {
         return reply.code(400).send({ success: false, error: '请提供需求描述' });
       }
+      const llm = async (messages) => {
+        const r = await aiService.generateChat(messages, { maxTokens: 4000, temperature: 0.2 });
+        if (!r.success) throw new DraftError(r.fallback || r.error || 'AI 服务不可用');
+        return r.content;
+      };
       try {
-        const result = await aiService.generateSkillContent(requirement);
-        if (!result.success) return reply.code(400).send(result);
-        return result;
+        const pool = await getPool();
+        const run = (sqlText) => {
+          const req = pool.request();
+          req.timeout = 30000;
+          return runSqlLimited(req, sqlText, { limit: 5, hardCap: 1000 });
+        };
+        const existingNames = (await listAllSkills(pool)).map((s) => s.name);
+        const draft = await draftSqlSkill({ pool, llm, run, existingNames }, requirement);
+        return { success: true, ...draft };
       } catch (err) {
+        if (err instanceof DraftError) return reply.code(400).send({ success: false, error: err.message });
         request.log.error({ err }, 'ai/generate-skill');
         return reply.code(500).send({ success: false, error: '生成 Skill 失败', detail: err.message });
       }

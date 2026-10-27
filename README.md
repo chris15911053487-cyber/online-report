@@ -182,7 +182,7 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 
 **SQL 查询机制**：Agent 通过 `run_sql` 工具执行只读 SELECT 查询，但**必须在 Skill 上下文中使用**——只能执行 Skill `body_md` 中明确描述的 SQL 模式和表，不可自行发挥。主后端 `/ai/agent/internal/run-sql` 接口仅允许 SELECT，禁止写操作。
 
-**Skill 管理**：管理员在前台「AI Skill 管理」中配置 Skill（描述 + 工作流 + 约束），支持 AI 辅助生成。Skill 按角色过滤注入 Agent system prompt。
+**Skill 管理**：管理员在前台「AI Skill 管理」中配置 Skill（描述 + 工作流 + 约束），支持 AI 辅助生成（`skill-draft.js`：选表 → 读表结构 → 写出以 SQL 为主的正文「用到的表 / 口径 / 查询模式 / 输出」→ 每条查询只读试跑、报错交回 AI 修正 ≤3 轮，表白名单自动填为用到的表，只返回草稿）。Skill 按角色过滤注入 Agent system prompt。
 
 **Skill 注入方式（按需加载）**：Skill 正文总字数 ≤ `AI_SKILL_INLINE_MAX_CHARS`（ai-agent，默认 12000）时，全文写入 system prompt；超过后 prompt 只列「名称 + 描述」索引，Agent 命中某个 skill 后先调用 `load_skill(skill_name)` 取完整工作流、表白名单与资源清单再执行（新增 Skill 不会再无限撑大 prompt）。`0` 表示始终按需加载，`-1` 表示始终全量内联。
 

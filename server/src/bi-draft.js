@@ -549,6 +549,7 @@ class DraftError extends Error {
 }
 
 module.exports = {
+  PICK_SYSTEM,
   draftFromSql,
   draftQueryAndChart,
   reviseQuery,
