@@ -8,6 +8,7 @@ import { tableClass, tdClass, thClass } from '../ui/classes'
 import { confirmDelete } from '../ui/confirm'
 import AlertAiModal from '../components/alert/AlertAiModal'
 import CronField from '../components/CronField'
+import UserPicker from '../components/UserPicker'
 import { describeCron } from '../utils/cron'
 import BiCheckPreview, { type BiCheckPreviewData } from '../components/alert/BiCheckPreview'
 
@@ -548,11 +549,11 @@ function RuleForm({ form, setForm, knownEvents, error, editId, saving, onSave, o
           )}
           <Section
             title={isTask ? '主管' : '推送目标'}
-            hint={isTask ? '收团队汇总、超期升级和无负责人的待办，可在「消息 → 待办 → 团队」查看与转交；用户优先于角色' : '用户优先于角色；目标用户多个值用逗号分隔'}
+            hint={isTask ? '收团队汇总、超期升级和无负责人的待办，可在「消息 → 待办 → 团队」查看与转交；用户优先于角色' : '用户优先于角色'}
           >
             <div className="flex flex-col gap-3">
               <Field label="目标用户">
-                <Input value={form.target_users_json} onChange={(e) => set({ target_users_json: e.target.value })} placeholder="U001, U002" />
+                <UserPicker value={splitComma(form.target_users_json)} onChange={(next) => set({ target_users_json: next.join(', ') })} />
               </Field>
               <Field label="目标角色">
                 <ChipSelect

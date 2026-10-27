@@ -7,6 +7,7 @@ import ChatMarkdown from '../components/ChatMarkdown'
 import { tableClass, tdClass, thClass } from '../ui/classes'
 import { confirmDelete } from '../ui/confirm'
 import CronField from '../components/CronField'
+import UserPicker from '../components/UserPicker'
 import { describeCron } from '../utils/cron'
 
 function cronText(expr: string) {
@@ -291,7 +292,7 @@ export default function ScheduledReportsView() {
               )}
             </div>
           </Section>
-          <Section title="推送" hint="目标用户多个值用逗号分隔">
+          <Section title="推送" hint="目标用户优先于目标角色">
             <div className="flex flex-col gap-3">
               <Field label="目标角色">
                 <ChipSelect
@@ -302,7 +303,7 @@ export default function ScheduledReportsView() {
                 />
               </Field>
               <Field label="目标用户" hint="优先于角色">
-                <Input value={form.target_users_json} onChange={(e) => setForm({ ...form, target_users_json: e.target.value })} placeholder="U001, U002" />
+                <UserPicker value={splitComma(form.target_users_json)} onChange={(next) => setForm({ ...form, target_users_json: next.join(', ') })} />
               </Field>
               <Field label="推送渠道">
                 <Input value={form.channels_json} onChange={(e) => setForm({ ...form, channels_json: e.target.value })} placeholder="dingtalk, wecom, feishu" />
