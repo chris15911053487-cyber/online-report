@@ -54,6 +54,9 @@ export type BiLabelMode = 'auto' | 'show' | 'hide'
 export type BiStackMode = 'normal' | 'percent'
 export type BiTrend = 'up-good' | 'up-bad'
 
+/** 下钻打开方式：inline 在卡片里切换；panel 在明细面板打开（PC 右侧抽屉 / 手机底部全屏面板） */
+export type BiDrillOpen = 'inline' | 'panel'
+
 export interface BiDrillLevel {
   queryKey: string
   label: string
@@ -61,6 +64,8 @@ export interface BiDrillLevel {
   params: Record<string, BiValue>
   type: Exclude<BiCardType, 'kpi'>
   encoding: BiEncoding
+  /** 不写 = 自动：表格在明细面板打开，图表在卡片里切换 */
+  open?: BiDrillOpen
 }
 
 /**

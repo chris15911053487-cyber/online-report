@@ -6,6 +6,7 @@
  * - 首次加载（登录且菜单拉取完成后）→ 按地址恢复页面，支持刷新、收藏、分享链接
  *
  * 依赖内存数据的页面（合并报工确认、行详情）有自己的地址，但刷新后退回所在报表页。
+ * 页内浮层（看板的下钻明细面板）用 openHistoryOverlay 占一条历史：返回键先关浮层，地址带上 ?查询串 便于刷新恢复。
  * 服务端配合见 server/src/spa.js（/api 前缀与 SPA 回退）。
  */
 import type { NavMenuItem, ViewName } from './types'
@@ -30,6 +31,7 @@ const SIMPLE_VIEWS: Partial<Record<ViewName, string>> = {
   messages: '/messages',
   settings: '/settings',
   help: '/help',
+  'bi-drill': '/bi/drill',
 }
 const SIMPLE_PATHS = Object.fromEntries(Object.entries(SIMPLE_VIEWS).map(([v, p]) => [p, v])) as Record<string, ViewName>
 
@@ -188,12 +190,35 @@ export function applyNavigation(store: RouterStore, nav: Navigation) {
   }
 }
 
+// ─── 页内浮层（返回键先关闭）──────────────────────────────────────────────────
+
+export interface OverlayHandle {
+  /** 更新地址上的查询串（浮层内容变了，如面板里继续下钻） */
+  update: (search: string) => void
+  /** 由页面主动关闭（× / Esc）：退掉这条历史；不会再调用 onClose */
+  close: () => void
+}
+
+type OverlayImpl = (search: string, onClose: () => void) => OverlayHandle
+let overlayImpl: OverlayImpl | null = null
+
+/**
+ * 打开一个页内浮层：推入一条同地址的历史（带 search，如 ?drill=…），
+ * 浏览器后退 / 安卓返回键时调用 onClose 而不是离开页面。路由未启动（测试、未登录）时只是不接管返回键。
+ */
+export function openHistoryOverlay(search: string, onClose: () => void): OverlayHandle {
+  if (overlayImpl) return overlayImpl(search, onClose)
+  return { update: () => {}, close: () => {} }
+}
+
 let started = false
 const STACK_KEY = 'online_report_route_stack'
 interface HistoryState {
   app: true
   /** 该条目在本应用历史栈中的位置，用于刷新后恢复栈、判断前进还是后退 */
   idx: number
+  /** 页内浮层的层数（openHistoryOverlay 推入的条目），页面本身为 0 / 不写 */
+  overlay?: number
 }
 
 function readSavedStack(): string[] | null {
@@ -238,16 +263,50 @@ export function startRouter(store: RouterStore) {
   window.history.replaceState(entry(), '', current + window.location.search)
   save()
 
+  // 页内浮层：与浏览器历史里 overlay = 1..n 的条目一一对应
+  const overlays: { onClose: () => void }[] = []
+  overlayImpl = (search, onClose) => {
+    const path = stack[stack.length - 1]
+    // 刷新后从地址恢复的浮层：当前条目先改回不带查询串的页面，再推入浮层，返回键才能关掉它
+    if (window.location.search && !(window.history.state as HistoryState | null)?.overlay) {
+      window.history.replaceState(entry(), '', path)
+    }
+    const item = { onClose }
+    overlays.push(item)
+    const state: HistoryState = { ...entry(), overlay: overlays.length }
+    window.history.pushState(state, '', path + search)
+    return {
+      update: (s) => {
+        const hs = window.history.state as HistoryState | null
+        if (overlays[overlays.length - 1] === item && hs?.overlay === overlays.length) window.history.replaceState(hs, '', path + s)
+      },
+      close: () => {
+        const i = overlays.indexOf(item)
+        if (i < 0) return
+        const hs = window.history.state as HistoryState | null
+        const onTop = i === overlays.length - 1 && hs?.overlay === overlays.length && window.location.pathname === path
+        overlays.splice(i, 1)
+        if (onTop) {
+          ignorePops += 1
+          window.history.back()
+        }
+      },
+    }
+  }
+
   store.subscribe(() => {
     if (applyingPop) return
     const path = pathFor(store.getState())
     if (path === stack[stack.length - 1]) return
+    // 离开页面时浮层不再占历史（页面保活时浮层可能仍开着，回来后用 × 关闭即可）
+    const depth = (window.history.state as HistoryState | null)?.overlay ?? 0
+    overlays.length = 0
     if (stack.length > 1 && path === stack[stack.length - 2]) {
-      // 页面内的返回：同步后退一步，避免历史里堆出「列表 → 详情 → 列表」
+      // 页面内的返回：同步后退一步（连同浮层条目），避免历史里堆出「列表 → 详情 → 列表」
       stack.pop()
       save()
       ignorePops += 1
-      window.history.back()
+      window.history.go(-(depth + 1))
       return
     }
     stack.push(path)
@@ -263,6 +322,12 @@ export function startRouter(store: RouterStore) {
     const target = window.location.pathname
     const st = e.state as HistoryState | null
     const idx = st?.app && typeof st.idx === 'number' ? st.idx : null
+    // 退出页内浮层：同一页面、浮层层数变少 → 关掉多出来的浮层，页面不动
+    const depth = st?.overlay ?? 0
+    if (overlays.length > depth && target === stack[stack.length - 1] && (idx == null || idx === stack.length - 1)) {
+      for (const o of overlays.splice(depth)) o.onClose()
+      return
+    }
     const backOne = stack.length > 1 && stack[stack.length - 2] === target && (idx == null || idx === stack.length - 2)
     applyingPop = true
     try {

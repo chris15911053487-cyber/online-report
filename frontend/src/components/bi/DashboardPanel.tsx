@@ -3,14 +3,30 @@
  * 每张卡片独立并行取数，谁先回来谁先画；一张失败不影响其它。
  *
  * 点中卡片元素时调用 onPick（由上层决定显示点击浮层 / 直接下钻）。
+ * 下钻到配成「明细面板」的一级时打开 DrillPanel（PC 右侧抽屉，可并排；手机全屏面板），
+ * 位置写进地址 ?drill=（刷新恢复、返回键先关面板），也可在新标签页打开（/bi/drill）。
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Loader2 } from 'lucide-react'
 import { apiFetch } from '../../utils/api'
-import { filterDisplayText, initialFilterValues, type BiDashboard, type BiFilter, type BiFilterValues, type BiOption, type BiValue } from '../../utils/bi'
+import { openHistoryOverlay, type OverlayHandle } from '../../router'
+import { filterDisplayText, initialFilterValues, type BiCard, type BiDashboard, type BiFilter, type BiFilterValues, type BiOption, type BiValue } from '../../utils/bi'
 import type { BiPick } from '../../utils/biContext'
+import {
+  DRILL_PARAM,
+  decodeDrillLink,
+  drillPagePath,
+  encodeDrillLink,
+  openPanel,
+  panelFromLink,
+  toDrillLink,
+  type DrillFrame,
+  type DrillPanelState,
+} from '../../utils/biDrill'
 import { useFilterOptions } from '../../utils/biOptions'
 import BiCardView from './BiCardView'
+import DrillPanel, { DRAWER_MIN_W } from './DrillPanel'
 import MultiSelect from './MultiSelect'
 
 interface Props {
@@ -19,11 +35,26 @@ interface Props {
   onPick?: (pick: BiPick, ctx: { dashboard: BiDashboard; filters: BiFilterValues }) => void
   /** 标题行右侧的附加按钮（如全屏切换） */
   actions?: React.ReactNode
+  /** PC：明细抽屉挂到这个容器里（只盖住看板这一栏）；容器须 position: relative、与看板滚动区同为 flex 行 */
+  panelHost?: HTMLElement | null
 }
 
-type LoadState = { key: string; dashboard?: BiDashboard; error?: string; filters?: BiFilterValues }
+type LoadState = { key: string; dashboard?: BiDashboard; error?: string; filters?: BiFilterValues; restore?: DrillPanelState }
 
-export default function DashboardPanel({ agentKey, pcMode, onPick, actions }: Props) {
+/** 地址上的 ?drill=（刷新、从新标签页「回到看板」）：还原出面板与筛选；对不上本看板返回 null */
+function restoreFromUrl(agentKey: string, dashboard: BiDashboard, filters: BiFilterValues): { panel: DrillPanelState; filters: BiFilterValues } | null {
+  const link = decodeDrillLink(new URLSearchParams(window.location.search).get(DRILL_PARAM))
+  if (!link || link.agentKey !== agentKey) return null
+  const card = dashboard.cards.find((c) => c.id === link.cardId)
+  const panel = card ? panelFromLink(card, link) : null
+  if (!panel) return null
+  const known = new Set((dashboard.filters || []).map((f) => f.name))
+  const next = { ...filters }
+  for (const [k, v] of Object.entries(link.filters)) if (known.has(k)) next[k] = v
+  return { panel, filters: next }
+}
+
+export default function DashboardPanel({ agentKey, pcMode, onPick, actions, panelHost }: Props) {
   const [state, setState] = useState<LoadState | null>(null)
   const [filters, setFilters] = useState<BiFilterValues>({})
 
@@ -32,8 +63,10 @@ export default function DashboardPanel({ agentKey, pcMode, onPick, actions }: Pr
     apiFetch(`/agents/${encodeURIComponent(agentKey)}/dashboard`)
       .then((d: { dashboard: BiDashboard }) => {
         if (!alive) return
-        setState({ key: agentKey, dashboard: d.dashboard })
-        setFilters(initialFilterValues(d.dashboard.filters || []))
+        const initial = initialFilterValues(d.dashboard.filters || [])
+        const restored = restoreFromUrl(agentKey, d.dashboard, initial)
+        setState({ key: agentKey, dashboard: d.dashboard, restore: restored?.panel })
+        setFilters(restored?.filters ?? initial)
       })
       .catch((err: unknown) => alive && setState({ key: agentKey, error: err instanceof Error ? err.message : '看板加载失败' }))
     return () => {
@@ -53,7 +86,96 @@ export default function DashboardPanel({ agentKey, pcMode, onPick, actions }: Pr
     return <div className="rounded-xl bg-danger-soft border border-danger/25 text-danger text-[13px] p-4">{state.error || '看板不可用'}</div>
   }
 
-  return <DashboardView dashboard={state.dashboard} pcMode={pcMode} onPick={onPick} filters={filters} onFiltersChange={setFilters} actions={actions} />
+  return (
+    <DashboardView
+      key={state.key}
+      dashboard={state.dashboard}
+      pcMode={pcMode}
+      onPick={onPick}
+      filters={filters}
+      onFiltersChange={setFilters}
+      actions={actions}
+      drillLinkKey={agentKey}
+      panelHost={panelHost}
+      initialPanel={state.restore}
+    />
+  )
+}
+
+// ─── 明细面板偏好（本机）──────────────────────────────────────────────────────
+
+const PANEL_W_KEY = 'bi_drill_panel_w'
+const PANEL_SPLIT_KEY = 'bi_drill_panel_split'
+
+function readPref(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+function writePref(key: string, v: string) {
+  try {
+    localStorage.setItem(key, v)
+  } catch {
+    /* 存不了就只在本次有效 */
+  }
+}
+
+/**
+ * 明细面板状态 + 历史条目：打开时占一条历史（返回键先关面板），内容变化时更新地址上的 ?drill=。
+ * linkKey 为空（管理端预览）时不写地址。
+ */
+function useDrillPanel(linkKey: string | undefined, filters: BiFilterValues, initial?: DrillPanelState) {
+  const [panel, setPanel] = useState<DrillPanelState | null>(initial ?? null)
+  const handleRef = useRef<OverlayHandle | null>(null)
+  const search = useCallback((p: DrillPanelState) => (linkKey ? `?${DRILL_PARAM}=${encodeDrillLink(toDrillLink(linkKey, p, filters))}` : ''), [linkKey, filters])
+  const onBack = useCallback(() => {
+    // 浏览器后退 / 安卓返回键
+    handleRef.current = null
+    setPanel(null)
+  }, [])
+
+  const show = useCallback(
+    (p: DrillPanelState) => {
+      setPanel(p)
+      if (!linkKey) return
+      if (handleRef.current) handleRef.current.update(search(p))
+      else {
+        handleRef.current = openHistoryOverlay(search(p), onBack)
+      }
+    },
+    [linkKey, search, onBack],
+  )
+  const close = useCallback(() => {
+    handleRef.current?.close()
+    handleRef.current = null
+    setPanel(null)
+  }, [])
+
+  // 筛选变了：地址跟着更新（面板内容按新筛选重查）
+  useEffect(() => {
+    if (panel && handleRef.current) handleRef.current.update(search(panel))
+  }, [panel, search])
+
+  // 卸载（换 Agent）时退掉历史条目；推迟一拍，StrictMode 开发时的「卸载 → 立即重新挂载」不算
+  const mounted = useRef(false)
+  useEffect(() => {
+    mounted.current = true
+    // 从地址恢复的面板：补上历史条目（返回键先关面板）
+    if (panel && linkKey && !handleRef.current) handleRef.current = openHistoryOverlay(search(panel), onBack)
+    return () => {
+      mounted.current = false
+      setTimeout(() => {
+        if (mounted.current) return
+        handleRef.current?.close()
+        handleRef.current = null
+      }, 0)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  return { panel, show, close }
 }
 
 /**
@@ -68,6 +190,9 @@ export function DashboardView({
   onFiltersChange,
   showHeader = true,
   actions,
+  drillLinkKey,
+  panelHost,
+  initialPanel,
 }: {
   dashboard: BiDashboard
   pcMode: boolean
@@ -77,20 +202,80 @@ export function DashboardView({
   onFiltersChange?: (f: BiFilterValues) => void
   showHeader?: boolean
   actions?: React.ReactNode
+  /** Agent 标识：明细面板写地址 ?drill=、可在新标签页打开；不传（管理端预览）则都不做 */
+  drillLinkKey?: string
+  panelHost?: HTMLElement | null
+  /** 从地址 ?drill= 还原的面板（DashboardPanel 加载看板时解析） */
+  initialPanel?: DrillPanelState
 }) {
   const [localFilters, setLocalFilters] = useState<BiFilterValues>(() => initialFilterValues(dashboard.filters || []))
   const filters = controlled ?? localFilters
-  const setFilter = (name: string, v: BiValue) => {
-    const next = { ...filters, [name]: v }
+  const setFilters = (next: BiFilterValues) => {
     setLocalFilters(next)
     onFiltersChange?.(next)
   }
-  const span = (w: number, type: string) => (pcMode ? w : type === 'kpi' ? 6 : 12)
+  const setFilter = (name: string, v: BiValue) => setFilters({ ...filters, [name]: v })
   const filterOptions = useFilterOptions(dashboard.filters || [])
   const filterText = useMemo(() => filterDisplayText(dashboard.filters || [], filters, filterOptions.loaded), [dashboard.filters, filters, filterOptions.loaded])
 
+  // ── 明细面板 ──
+  const { panel, show: showPanel, close: closePanel } = useDrillPanel(drillLinkKey, filters, initialPanel)
+  const [split, setSplit] = useState(() => readPref(PANEL_SPLIT_KEY) === '1')
+  const [panelWidth, setPanelWidth] = useState(() => {
+    const w = Number(readPref(PANEL_W_KEY))
+    return Number.isFinite(w) && w >= DRAWER_MIN_W ? w : null
+  })
+  const toggleSplit = () => {
+    setSplit((v) => {
+      writePref(PANEL_SPLIT_KEY, v ? '0' : '1')
+      return !v
+    })
+  }
+  const resizePanel = (w: number) => {
+    setPanelWidth(w)
+    writePref(PANEL_W_KEY, String(w))
+  }
+  // 默认宽度：看板这一栏的 55%（宿主本身可能是 display: contents，取它的父元素）
+  const hostWidth = panelHost ? panelHost.offsetWidth || panelHost.parentElement?.clientWidth || 0 : window.innerWidth
+  const wanted = panelWidth ?? Math.round(hostWidth * 0.55)
+  // 窗口变窄后，存下的宽度也要给看板留出至少 320px
+  const drawerWidth = Math.max(DRAWER_MIN_W, hostWidth > 0 ? Math.min(wanted, hostWidth - 320) : wanted)
+
+  const openTab = (card: BiCard, stack: DrillFrame[]) => {
+    if (!drillLinkKey) return
+    window.open(drillPagePath(toDrillLink(drillLinkKey, openPanel(card, stack), filters)), '_blank', 'noopener')
+  }
+
+
+  const splitOn = pcMode && split && !!panel && !!panelHost
+  // 并排时看板变窄：KPI 两个一行，其余半宽以上的卡片占满一行
+  const span = (w: number, type: string) => (!pcMode ? (type === 'kpi' ? 6 : 12) : splitOn ? (type === 'kpi' ? 6 : w >= 6 ? 12 : 6) : w)
+  const pick = onPick ? (p: BiPick) => onPick(p, { dashboard, filters }) : undefined
+
+  const panelEl = panel ? (
+    <DrillPanel
+      key={panel.card.id}
+      panel={panel}
+      onChange={showPanel}
+      onClose={closePanel}
+      filters={filters}
+      filterDefs={dashboard.filters || []}
+      filterText={filterText}
+      queries={dashboard.queries}
+      variant={pcMode ? 'drawer' : 'sheet'}
+      split={splitOn}
+      onToggleSplit={panelHost ? toggleSplit : undefined}
+      fixed={!panelHost}
+      width={drawerWidth}
+      onResize={resizePanel}
+      onPick={pick}
+      onOpenTab={pcMode && drillLinkKey ? (stack) => openTab(panel.card, stack) : undefined}
+    />
+  ) : null
+
   return (
     <div className="flex flex-col gap-4">
+      {panelEl && (pcMode && panelHost ? createPortal(panelEl, panelHost) : panelEl)}
       <div className="flex items-end justify-between gap-3 flex-wrap">
         {showHeader ? (
           <div className="min-w-0">
@@ -118,7 +303,16 @@ export function DashboardView({
             >
               {/* 图表/表格撑满行高对齐；KPI 不拉伸，避免与同行图表等高留下大片空白 */}
               <div className={`flex-1 min-w-0 flex flex-col ${card.type === 'kpi' ? '' : '[&>section]:flex-1'}`}>
-                <BiCardView card={card} filters={filters} queries={dashboard.queries} filterText={filterText} onPick={onPick ? (p) => onPick(p, { dashboard, filters }) : undefined} />
+                <BiCardView
+                  card={card}
+                  filters={filters}
+                  queries={dashboard.queries}
+                  filterText={filterText}
+                  onPick={pick}
+                  onOpenPanel={onPick ? (stack) => showPanel(openPanel(card, stack)) : undefined}
+                  onOpenTab={pcMode && drillLinkKey ? (stack) => openTab(card, stack) : undefined}
+                  selectedRow={panel?.card.id === card.id ? (panel.stack[panel.base]?.fromRow ?? null) : null}
+                />
               </div>
             </div>
           ))}

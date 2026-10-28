@@ -22,6 +22,14 @@ export interface ChartModel {
   plotted: number
   /** 点在图形之间的空白处：坐标轴上的值 [x, y] → dataIndex（不写 = 按类目序号）；找不到返回 null */
   pickIndex?: (value: number[]) => number | null
+  /** 结果行 → 图上的位置（明细面板打开时高亮来源项）；不支持的图（瀑布图）不提供 */
+  indexOf?: (row: BiRow) => ChartPoint | null
+}
+
+export interface ChartPoint {
+  dataIndex: number
+  /** 长表透视（多系列）时是哪个系列；不写 = 该类目的所有系列 */
+  seriesName?: string
 }
 
 /** 数值列：values 优先，其次 value */
@@ -168,6 +176,7 @@ export function buildChartModel(
     return {
       plotted: rows.length,
       rowAt: (i) => rows[i] ?? null,
+      indexOf: (row) => indexIn(rows, row),
       option: {
         tooltip: { trigger: 'item', valueFormatter: tooltipValue },
         legend: { type: 'scroll', bottom: 0, textStyle: { fontSize: 11 } },
@@ -190,6 +199,7 @@ export function buildChartModel(
   let categories: string[]
   let series: Record<string, unknown>[]
   let rowAt: ChartModel['rowAt']
+  let indexOf: ChartModel['indexOf']
 
   if (enc.series) {
     // 长表透视：dimension × series → value（只取第一个数值列）
@@ -211,6 +221,12 @@ export function buildChartModel(
       data: categories.map((c) => toNumber(cell.get(`${c}\u0000${s}`)?.[col])),
     }))
     rowAt = (i, s) => (categories[i] != null && s != null ? cell.get(`${categories[i]}\u0000${s}`) ?? null : null)
+    indexOf = (row) => {
+      const hit = indexIn(rows, row)
+      if (hit == null) return null
+      const r = rows[hit.dataIndex]
+      return { dataIndex: categories.indexOf(str(r[dim])), seriesName: str(r[sCol]) }
+    }
   } else {
     categories = rows.map((r) => str(r[dim]))
     series = cols.map((col) => ({
@@ -219,6 +235,7 @@ export function buildChartModel(
       data: rows.map((r) => toNumber(r[col])),
     }))
     rowAt = (i) => rows[i] ?? null
+    indexOf = (row) => indexIn(rows, row)
   }
 
   // 右轴：增长率等画成折线，有自己的格式（列语义里的 format，通常是百分比）
@@ -335,6 +352,7 @@ export function buildChartModel(
   return {
     plotted: rows.length,
     rowAt,
+    indexOf,
     option: {
       grid: { left: 8, right: plan !== 'none' && horizontal ? 40 : 16, top: series.length > 1 ? 32 : plan !== 'none' && !horizontal ? 24 : 20, bottom: 8, containLabel: true },
       tooltip: {
@@ -659,4 +677,41 @@ function buildWaterfallModel(enc: BiEncoding, allRows: BiRow[], opts: { clickabl
       series,
     },
   }
+}
+
+/** 同一行：同一个对象，或各列值都相同（卡片刷新后结果行是新对象） */
+export function sameRow(a: BiRow, b: BiRow): boolean {
+  if (a === b) return true
+  const ka = Object.keys(a)
+  if (ka.length !== Object.keys(b).length) return false
+  return ka.every((k) => a[k] === b[k] || (a[k] instanceof Date && b[k] instanceof Date && (a[k] as Date).getTime() === (b[k] as Date).getTime()))
+}
+
+function indexIn(rows: BiRow[], row: BiRow): ChartPoint | null {
+  const i = rows.findIndex((r) => sameRow(r, row))
+  return i < 0 ? null : { dataIndex: i }
+}
+
+const DIM_OPACITY = 0.3
+
+/**
+ * 高亮一个点（明细面板打开时标出来源项）：柱状 / 饼图把其余项调淡，折线把该点放大。
+ * 右轴折线、自定义系列（瀑布图）不动。返回新的 option，不改原对象。
+ */
+export function highlightPoint(option: Record<string, unknown>, point: ChartPoint | null): Record<string, unknown> {
+  if (!point || !Array.isArray(option.series)) return option
+  const series = (option.series as Record<string, unknown>[]).map((s) => {
+    if (!Array.isArray(s.data) || s.yAxisIndex === 1) return s
+    const hitSeries = point.seriesName == null || s.name === point.seriesName
+    const data = (s.data as unknown[]).map((item, i) => {
+      const obj = item != null && typeof item === 'object' ? (item as Record<string, unknown>) : { value: item }
+      const style = (obj.itemStyle as Record<string, unknown> | undefined) ?? {}
+      const hit = hitSeries && i === point.dataIndex
+      if (s.type === 'line') return hit ? { ...obj, symbolSize: 12, itemStyle: { ...style, borderWidth: 3 } } : item
+      if (s.type !== 'bar' && s.type !== 'pie') return item
+      return hit ? item : { ...obj, itemStyle: { ...style, opacity: DIM_OPACITY } }
+    })
+    return { ...s, data }
+  })
+  return { ...option, series }
 }

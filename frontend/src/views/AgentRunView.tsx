@@ -602,6 +602,8 @@ export default function AgentRunView() {
   }, [dashVisible, exitDashFullscreen])
 
   // 看板点击：浮层 + 「问点别的」时挂在输入框上方的上下文胶囊
+  /** PC 看板明细抽屉的挂载点（看板这一栏里） */
+  const [drillHost, setDrillHost] = useState<HTMLDivElement | null>(null)
   const [biPopover, setBiPopover] = useState<{ pick: BiPick; dashboard: BiDashboard; filters: BiFilterValues } | null>(null)
   const [pendingContext, setPendingContext] = useState<BiContextPayload | null>(null)
   const pcInputRef = useRef<HTMLInputElement>(null)
@@ -1199,14 +1201,17 @@ export default function AgentRunView() {
               </div>
             )}
 
-            {/* 看板：切走时只隐藏不卸载，保留筛选、下钻与已加载的数据 */}
+            {/* 看板：切走时只隐藏不卸载，保留筛选、下钻与已加载的数据。
+                外层是明细抽屉的宿主：抽屉只盖住看板这一栏（不挡对话），并排时与滚动区同为一行 */}
             {hasDashboard && currentAgentKey && (
               <div
-                className={`${dashFullscreen ? fullscreenCls : 'flex-1'} overflow-y-auto agent-scrollbar`}
-                role="tabpanel"
-                style={{ padding: '20px 28px 28px', display: rightTab === 'dashboard' ? 'block' : 'none' }}
+                className={`${dashFullscreen ? fullscreenCls : 'flex-1 min-h-0 relative'} overflow-hidden`}
+                style={{ display: rightTab === 'dashboard' ? 'flex' : 'none' }}
               >
-                <DashboardPanel agentKey={currentAgentKey} pcMode onPick={handleBiPick} actions={fullscreenBtn} />
+                <div className="flex-1 min-w-0 overflow-y-auto agent-scrollbar" role="tabpanel" style={{ padding: '20px 28px 28px' }}>
+                  <DashboardPanel agentKey={currentAgentKey} pcMode onPick={handleBiPick} actions={fullscreenBtn} panelHost={drillHost} />
+                </div>
+                <div ref={setDrillHost} className="contents" />
               </div>
             )}
 

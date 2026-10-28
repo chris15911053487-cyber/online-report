@@ -267,7 +267,10 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 **界面**：PC 左侧对话、右侧「📊 看板 / 当前结果」两个页签（回答出来后自动切到结果）；移动端顶部「看板 / 对话」页签。点击 KPI 数字或图表元素弹出通用浮层：
 
 - **✨ AI 解读**：直接发送，使用快模型（`AI_FAST_MODEL`）；程序自动把卡片、点中的数据、当前筛选、口径、查询参数作为上下文带给 AI（注入本轮用户消息，不进 system prompt，不影响前缀缓存）；AI 优先用同一命名查询 + 参数复查
-- **⤵ 下钻到 xx**：按卡片配置的 `drill` 逐级展开（不经 AI），面包屑返回
+- **⤵ 下钻到 xx**：按卡片配置的 `drill` 逐级展开（不经 AI）。每级 `open` 决定在哪打开：`inline` 卡片内切换（面包屑返回）、`panel` 明细面板；不写 = 自动（`type: 'table'` 走面板，图表在卡片内；`utils/biDrill.ts` 的 `drillOpenMode`，后端 `bi-charts.js` 的 `normalizeDrill` 只接受这两个值）。进了面板后更深的级都在面板里
+
+**下钻明细面板**（`components/bi/DrillPanel.tsx`，状态在 `DashboardPanel.tsx` 的 `useDrillPanel`）：PC 为右侧无遮罩抽屉，经 `panelHost` 挂进 `AgentRunView` 看板这一栏（只盖看板、不挡对话；看板仍可点，点另一项直接换内容，来源项经 `biOption.ts` 的 `highlightPoint` 高亮）；「并排」时抽屉变成与看板滚动区同一 flex 行、看板卡片按变窄后的宽度重排；左边缘可拖动调宽（宽度、并排选择存 localStorage `bi_drill_panel_w` / `bi_drill_panel_split`）。手机为底部弹出的全屏面板。内容：路径 + 筛选胶囊、`DetailTable`（表头 / 首列固定、多列排序、搜索 + 按列筛选、底部合计；逻辑在 `utils/biTable.ts`）、问 AI（复用点击浮层，上下文为这一级查询 + 参数，不指定行）、复制 TSV / 导出 Excel（`POST /bi/export`，`server/src/bi-export.js`：前端传当前显示的行，需 `admin` 或 `export-excel` 角色且查询可见，行数上限 `BI_MAX_ROWS`）。
+打开面板时经 `router.ts` 的 `openHistoryOverlay` 推入一条同地址历史，地址带 `?drill=`（`encodeDrillLink`：Agent + 卡片 + 筛选 + 路径的 base64url JSON，不含点中的行）：返回键 / 安卓返回键先关面板，刷新后 `DashboardPanel` 按地址恢复筛选与面板。PC 上面板的 ↗ 或 Ctrl / ⌘ + 点击打开 `/bi/drill?drill=…`（`views/BiDrillView.tsx`，只显示明细，可分享；权限仍由 `/agents/:agentKey/dashboard` 与 `/bi/query` 校验）。
 
 柱状图 / 折线图不必点准图形：点在绘图区内任意位置按所在类目算（`BiChart` 的 zrender 兜底；「按系列拆分」的多系列图仍需点中图形）。点击时收起 ECharts 悬浮提示，避免盖住浮层。
 - **问点别的…**：上下文以胶囊挂在输入框上方，用户补一句话再发（主模型）

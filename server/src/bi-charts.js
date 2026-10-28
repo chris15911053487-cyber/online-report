@@ -246,7 +246,13 @@ function normalizeDrill(input, knownQueries, where) {
     if (!CARD_TYPES.has(type) || type === 'kpi') return fail(`${w} type 须为 bar / line / pie / waterfall / table`);
     const enc = normalizeEncoding(d.encoding, type, w);
     if (!enc.ok) return enc;
-    out.push({ queryKey, label: str(d.label || queryKey, 32), bind: outBind, params: pm.value, type, encoding: enc.value });
+    const level = { queryKey, label: str(d.label || queryKey, 32), bind: outBind, params: pm.value, type, encoding: enc.value };
+    // 打开方式：不写 = 自动（表格在明细面板，图表在卡片里）
+    if (d.open != null && d.open !== '') {
+      if (d.open !== 'inline' && d.open !== 'panel') return fail(`${w} open 须为 inline / panel`);
+      level.open = d.open;
+    }
+    out.push(level);
   }
   return { ok: true, value: out };
 }

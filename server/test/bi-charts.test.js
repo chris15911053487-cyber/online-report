@@ -35,6 +35,14 @@ test('图表校验：合法输入；默认尺寸按类型', () => {
   assert.deepEqual(kpi.value.size, { w: 4, h: 1 }, 'KPI 高度固定为 1');
 });
 
+test('图表校验：下钻打开方式 open 可选，不写时不落库', () => {
+  const r = validateChartInput(chartInput, queries);
+  assert.equal('open' in r.value.drill[0], false);
+  const p = validateChartInput({ ...chartInput, drill: [{ ...chartInput.drill[0], open: 'inline' }] }, queries);
+  assert.equal(p.ok, true, p.error);
+  assert.equal(p.value.drill[0].open, 'inline');
+});
+
 test('图表校验：必填参数可以没有来源（由看板同名筛选提供）', () => {
   const r = validateChartInput({ ...chartInput, params: {} }, queries);
   assert.equal(r.ok, true, r.error);
@@ -58,6 +66,7 @@ test('图表校验：各种错误', () => {
     [{ drill: [{ queryKey: 'sales_docs', bind: { cardCode: 'x y' } }] }, /bind/],
     [{ drill: [{ queryKey: 'sales_docs', bind: { cardCode: 'Nope' } }] }, /取值列「Nope」/],
     [{ drill: [{ queryKey: 'sales_docs', params: { period: '$filter.period' } }] }, /只能写固定值/],
+    [{ drill: [{ queryKey: 'sales_docs', open: 'popup' }] }, /open 须为/],
   ];
   for (const [patch, re] of cases) {
     const r = validateChartInput({ ...chartInput, ...patch }, queries);

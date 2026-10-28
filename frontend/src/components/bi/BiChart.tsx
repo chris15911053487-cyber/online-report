@@ -17,6 +17,8 @@ export interface BiChartClick {
   seriesName?: string
   x: number
   y: number
+  /** 按住 Ctrl / ⌘ 点击：在新标签页打开 */
+  newTab?: boolean
 }
 
 interface Props {
@@ -34,7 +36,7 @@ interface EchartsClickParams {
   componentType?: string
   dataIndex?: number
   seriesName?: string
-  event?: { event?: { clientX?: number; clientY?: number } }
+  event?: { event?: { clientX?: number; clientY?: number; ctrlKey?: boolean; metaKey?: boolean } }
 }
 
 export default function BiChart({ option, height, onPick, pickIndex, ariaLabel }: Props) {
@@ -67,6 +69,7 @@ export default function BiChart({ option, height, onPick, pickIndex, ariaLabel }
         seriesName: p.seriesName,
         x: native?.clientX ?? rect.left + rect.width / 2,
         y: native?.clientY ?? rect.top + rect.height / 2,
+        newTab: !!(native?.ctrlKey || native?.metaKey),
       })
     })
     // 没点中任何图形（折线的小圆点、矮柱子很难点中）：点在绘图区内就按所在类目算。
@@ -82,13 +85,14 @@ export default function BiChart({ option, height, onPick, pickIndex, ariaLabel }
       const dataIndex = pickIndexRef.current ? pickIndexRef.current(v) ?? -1 : Math.round(Number(v[horizontal ? 1 : 0]))
       if (!Number.isFinite(dataIndex) || dataIndex < 0) return
       const series = opt.series ?? []
-      const native = e.event as unknown as { clientX?: number; clientY?: number }
+      const native = e.event as unknown as { clientX?: number; clientY?: number; ctrlKey?: boolean; metaKey?: boolean }
       hideTipSoon()
       onPickRef.current({
         dataIndex,
         seriesName: series.length === 1 ? series[0].name : undefined,
         x: native.clientX ?? 0,
         y: native.clientY ?? 0,
+        newTab: !!(native.ctrlKey || native.metaKey),
       })
     })
     const ro = new ResizeObserver(() => chart.resize())

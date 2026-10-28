@@ -162,6 +162,7 @@ export type ViewName =
   | 'agent-run'
   | 'agents-admin'
   | 'bi-admin'
+  | 'bi-drill'
   | 'messages'
   | 'message-detail'
   | 'settings'

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { alignedAxisRanges, buildChartModel, columnLabel, labelPlan, MAX_WATERFALL_PANELS, rightAxisColumns, valueColumns, waterfallAxisMin, waterfallColors, waterfallPanels, waterfallSteps } from './biOption'
+import { alignedAxisRanges, buildChartModel, columnLabel, highlightPoint, labelPlan, MAX_WATERFALL_PANELS, rightAxisColumns, valueColumns, waterfallAxisMin, waterfallColors, waterfallPanels, waterfallSteps } from './biOption'
 import { canDrillFrom, levelView, nextDrillLabel, popDrillTo, pushDrill, rootStack, rowCaption } from './biDrill'
 import type { BiCard } from './bi'
 
@@ -456,5 +456,37 @@ describe('瀑布图', () => {
     const s = (m.option as { series: { renderItem: (p: unknown, api: unknown) => { children: unknown[] } }[] }).series[0]
     const api = { value: (i: number) => [0, 0, 1000, 1000, 1000][i], coord: ([x, y]: number[]) => [x, -y], size: () => [100, 0], visual: () => 'c' }
     expect(s.renderItem({}, api).children).toHaveLength(1)
+  })
+})
+
+describe('明细面板打开时高亮来源项', () => {
+  const rows = [
+    { Name: '甲', Amt: 1 },
+    { Name: '乙', Amt: 2 },
+  ]
+  it('indexOf：同一行或各列值相同的新对象都能找到', () => {
+    const m = buildChartModel('bar', { dimension: 'Name', value: 'Amt' }, rows)
+    expect(m.indexOf?.(rows[1])).toEqual({ dataIndex: 1 })
+    expect(m.indexOf?.({ Name: '乙', Amt: 2 })).toEqual({ dataIndex: 1 })
+    expect(m.indexOf?.({ Name: '丙', Amt: 2 })).toBeNull()
+  })
+  it('多系列：返回类目序号 + 系列名', () => {
+    const long = [
+      { M: '1月', S: 'A', V: 1 },
+      { M: '2月', S: 'B', V: 2 },
+    ]
+    const m = buildChartModel('bar', { dimension: 'M', series: 'S', value: 'V' }, long)
+    expect(m.indexOf?.(long[1])).toEqual({ dataIndex: 1, seriesName: 'B' })
+  })
+  it('highlightPoint：柱状其余项变淡、折线放大该点，不改原 option', () => {
+    const m = buildChartModel('bar', { dimension: 'Name', value: 'Amt' }, rows)
+    const h = highlightPoint(m.option, { dataIndex: 0 })
+    const data = (h.series as { data: unknown[] }[])[0].data
+    expect(data[0]).toBe((m.option.series as { data: unknown[] }[])[0].data[0])
+    expect(data[1]).toMatchObject({ value: 2, itemStyle: { opacity: 0.3 } })
+    expect(highlightPoint(m.option, null)).toBe(m.option)
+    const line = buildChartModel('line', { dimension: 'Name', value: 'Amt' }, rows)
+    const hl = highlightPoint(line.option, { dataIndex: 1 })
+    expect((hl.series as { data: unknown[] }[])[0].data[1]).toMatchObject({ symbolSize: 12 })
   })
 })

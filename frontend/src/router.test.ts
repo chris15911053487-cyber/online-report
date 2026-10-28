@@ -18,6 +18,8 @@ describe('pathFor', () => {
     expect(pathFor(at({ currentView: 'agent-hub' }))).toBe('/agents')
     expect(pathFor(at({ currentView: 'settings' }))).toBe('/settings')
     expect(pathFor(at({ currentView: 'help' }))).toBe('/help')
+    expect(pathFor(at({ currentView: 'bi-drill' }))).toBe('/bi/drill')
+    expect(parsePath('/bi/drill?drill=abc')).toEqual({ kind: 'view', view: 'bi-drill' })
     expect(pathFor(at({ currentView: 'admin' }))).toBe('/admin')
     expect(pathFor(at({ currentView: 'bi-admin' }))).toBe('/admin/bi')
     expect(pathFor(at({ currentView: 'menu-settings' }))).toBe('/admin/menus')

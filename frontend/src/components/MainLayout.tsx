@@ -17,6 +17,7 @@ import AiSkillsView from '../views/AiSkillsView'
 import AgentHubView from '../views/AgentHubView'
 import AgentsAdminView from '../views/AgentsAdminView'
 import BiAdminView from '../views/BiAdminView'
+import BiDrillView from '../views/BiDrillView'
 import AgentRunView from '../views/AgentRunView'
 import MessagesView from '../views/MessagesView'
 import MessageDetailView from '../views/MessageDetailView'
@@ -39,6 +40,7 @@ const viewComponents: Record<string, React.ComponentType> = {
   'agent-run': AgentRunView,
   'agents-admin': AgentsAdminView,
   'bi-admin': BiAdminView,
+  'bi-drill': BiDrillView,
   messages: MessagesView,
   'message-detail': MessageDetailView,
   settings: SettingsView,
@@ -70,6 +72,7 @@ function getPageTitle(
     'agent-run': 'Agent',
     'agents-admin': 'Agent 配置',
     'bi-admin': 'BI 看板管理',
+    'bi-drill': '下钻明细',
     messages: '消息',
     'message-detail': '通知',
     settings: '设置',

@@ -5,6 +5,7 @@
  *   - GET  /agents/:agentKey/dashboard  进入 Agent 时取其关联看板（按 Agent 门禁 + 查询角色裁剪卡片）
  *   - POST /bi/query                    卡片 / 下钻取数（命名查询 + 参数），走结果缓存
  *   - POST /bi/options                  下拉选项来自查询：执行来源查询（默认参数），按取值 / 显示列去重
+ *   - POST /bi/export                   下钻明细导出 Excel（前端传看到的行；需 export-excel 角色 + 查询可见）
  * 管理侧（仅管理员）：
  *   - /admin/bi/queries     查询库增删改查 + 试运行（不走缓存）
  *   - /admin/bi/charts      图表库增删改查（图表引用查询；看板引用图表）
@@ -28,6 +29,7 @@ const {
   toPublicQuery,
 } = require('../bi-queries');
 const { runNamedQuery, testRunQuery, BiParamError } = require('../bi-exec');
+const { normalizeExportInput, buildDetailWorkbook, safeFileName, BiExportError } = require('../bi-export');
 const { optionsFromRows, optionsQueryProblems } = require('../bi-params');
 const { draftQueryAndChart, draftFromSql, reviseQuery, enrichQuery, DraftError } = require('../bi-draft');
 const { aiService } = require('../ai');
@@ -168,6 +170,31 @@ async function biRoutes(fastify) {
     } catch (err) {
       return sendQueryError(request, reply, err, roles);
     }
+  });
+
+  /** 下钻明细导出：行由前端传入（即面板里看到的，含搜索 / 排序），这里只校验权限与大小后写 xlsx */
+  fastify.post('/bi/export', { preHandler: [fastify.authenticate], bodyLimit: 20 * 1024 * 1024 }, async (request, reply) => {
+    const body = request.body || {};
+    const pool = await getPool();
+    const roles = await rolesOf(pool, request);
+    if (!roles.includes('admin') && !roles.includes('export-excel')) {
+      return reply.code(403).send({ error: '您没有导出 Excel 的权限', code: 'EXPORT_FORBIDDEN' });
+    }
+    const query = await getQuery(pool, body.queryKey);
+    if (!query || !query.enabled) return reply.code(404).send({ error: '查询不存在或未启用', code: 'BI_NO_QUERY' });
+    if (!canUseQuery(roles, query.roles)) return reply.code(403).send({ error: '无权访问该数据', code: 'BI_FORBIDDEN' });
+    let input;
+    try {
+      input = normalizeExportInput(body);
+    } catch (err) {
+      if (err instanceof BiExportError) return reply.code(400).send({ error: err.message, code: err.code });
+      throw err;
+    }
+    const buffer = await buildDetailWorkbook(input);
+    return reply
+      .header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .header('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(safeFileName(input.title))}`)
+      .send(buffer);
   });
 
   // ---------- 管理侧：查询库 ----------

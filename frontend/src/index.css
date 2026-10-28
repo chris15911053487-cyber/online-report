@@ -177,3 +177,25 @@
   }
 }
 
+
+/* 下钻明细面板：PC 抽屉从右滑入、手机面板从底部弹出 */
+@keyframes bi-drawer-in {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes bi-sheet-in {
+  from { transform: translateY(32px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+.bi-drawer-in {
+  animation: bi-drawer-in 0.18s ease-out;
+}
+.bi-sheet-in {
+  animation: bi-sheet-in 0.2s ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bi-drawer-in,
+  .bi-sheet-in {
+    animation: none;
+  }
+}

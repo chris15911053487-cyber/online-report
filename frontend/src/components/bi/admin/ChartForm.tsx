@@ -5,7 +5,7 @@
  */
 import { useState } from 'react'
 import { ArrowDown, ArrowUp, Plus, Search, Trash2 } from 'lucide-react'
-import { defaultChartSize, type BiCardType, type BiChartDef, type BiColumnRole, type BiColumnSemantic, type BiDrillLevel, type BiEncoding, type BiFormat, type BiLabelMode, type BiStackMode, type BiValue, type BiTrend } from '../../../utils/bi'
+import { defaultChartSize, type BiCardType, type BiChartDef, type BiColumnRole, type BiColumnSemantic, type BiDrillLevel, type BiDrillOpen, type BiEncoding, type BiFormat, type BiLabelMode, type BiStackMode, type BiValue, type BiTrend } from '../../../utils/bi'
 import {
   COLUMN_ROLE_LABEL,
   FORMAT_LABEL,
@@ -23,6 +23,7 @@ import type { QueryOption } from './types'
 import ParamValueInput from './ParamValueInput'
 import QueryPickerModal from './QueryPickerModal'
 import { MAX_WATERFALL_PANELS } from '../../../utils/biOption'
+import { drillOpenMode } from '../../../utils/biDrill'
 
 const CARD_TYPES: { value: BiCardType; label: string }[] = [
   { value: 'kpi', label: 'KPI' },
@@ -51,6 +52,11 @@ const TRENDS: { value: BiTrend | 'neutral'; label: string }[] = [
 const WATERFALL_TRENDS: { value: 'up-good' | 'up-bad'; label: string }[] = [
   { value: 'up-good', label: '增加为好（增绿减红）' },
   { value: 'up-bad', label: '增加为坏（增红减绿）' },
+]
+const DRILL_OPEN_OPTIONS: { value: 'auto' | BiDrillOpen; label: string }[] = [
+  { value: 'auto', label: '自动' },
+  { value: 'inline', label: '卡片内' },
+  { value: 'panel', label: '明细面板' },
 ]
 const DRILL_TYPES = CARD_TYPES.filter((t) => t.value !== 'kpi') as { value: Exclude<BiCardType, 'kpi'>; label: string }[]
 
@@ -664,6 +670,26 @@ export default function ChartForm({
                 />
               </Row>
               {q && <EncodingFields type={d.type} enc={d.encoding} columns={q.columns} onChange={(encoding) => setLevel(i, { encoding })} />}
+              <Row label="打开方式">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Segmented
+                    size="sm"
+                    options={DRILL_OPEN_OPTIONS}
+                    value={d.open ?? 'auto'}
+                    onChange={(v) => {
+                      const next = { ...d }
+                      if (v === 'auto') delete next.open
+                      else next.open = v
+                      set({ drill: chart.drill.map((x, j) => (j === i ? next : x)) })
+                    }}
+                  />
+                  <span className="text-[11.5px] text-subtle">
+                    {d.open
+                      ? d.open === 'panel' ? '在明细面板打开（电脑右侧抽屉，手机全屏面板）' : '在卡片里切换，顶部出现返回路径'
+                      : `自动：${drillOpenMode(d) === 'panel' ? '表格在明细面板打开' : '图表在卡片里切换'}`}
+                  </span>
+                </div>
+              </Row>
             </div>
           )
         })}

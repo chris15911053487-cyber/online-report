@@ -1,17 +1,19 @@
 /**
- * 看板卡片：自己取数（POST /bi/query，走服务端缓存），按类型渲染 KPI / 图表 / 表格，
- * 卡片内逐级下钻（面包屑返回）。点中元素时把 BiPick 交给上层（显示点击浮层）。
+ * 看板卡片：自己取数（POST /bi/query，走服务端缓存），按类型渲染 KPI / 图表 / 表格。
+ * 下钻：配成「卡片内」的一级在卡片里切换（面包屑返回）；配成「明细面板」的一级交给上层打开面板（onOpenPanel），
+ * 面板开着时卡片上高亮来源项（selectedRow）。点中元素时把 BiPick 交给上层（显示点击浮层）；
+ * 按住 Ctrl / ⌘ 点击直接在新标签页打开下一级（onOpenTab）。
  * 图表 / 表格卡片可单独全屏：同一个卡片原地铺满视口（不卸载，保留下钻），Esc 退出。
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Info, Maximize2, Minimize2, RotateCw } from 'lucide-react'
-import { apiFetch } from '../../utils/api'
 import { usePageFullscreen } from '../../hooks/usePageFullscreen'
-import { BI_CARD_HEIGHT, changeRatio, dataBarScale, fillPlaceholders, formatValue, toNumber, withColumnSemantics, type BiCard, type BiColumnDef, type BiFilterValues, type BiQueryMeta, type BiQueryResult, type BiTrend } from '../../utils/bi'
-import { buildChartModel, columnLabel, type BiRow } from '../../utils/biOption'
-import { canDrillFrom, levelView, nextDrillLabel, popDrillTo, pushDrill, rootStack, type DrillFrame } from '../../utils/biDrill'
+import { BI_CARD_HEIGHT, changeRatio, dataBarScale, fillPlaceholders, formatValue, toNumber, withColumnSemantics, type BiCard, type BiColumnDef, type BiFilterValues, type BiQueryMeta, type BiTrend } from '../../utils/bi'
+import { buildChartModel, columnLabel, highlightPoint, sameRow, type BiRow } from '../../utils/biOption'
+import { canDrillFrom, levelView, nextDrillLabel, nextOpensInPanel, popDrillTo, pushDrill, rootStack, type DrillFrame } from '../../utils/biDrill'
 import type { BiPick } from '../../utils/biContext'
 import BiChart from './BiChart'
+import { useBiQuery } from './useBiQuery'
 
 
 interface Props {
@@ -21,6 +23,12 @@ interface Props {
   /** 筛选当前值的显示文字（filterDisplayText），替换标题 / 列名里的 {筛选名} */
   filterText?: Record<string, string>
   onPick?: (pick: BiPick) => void
+  /** 下一级配成「明细面板」时：交给上层打开面板（stack 为含下一级的完整路径） */
+  onOpenPanel?: (stack: DrillFrame[]) => void
+  /** Ctrl / ⌘ + 点击：在新标签页打开下一级 */
+  onOpenTab?: (stack: DrillFrame[]) => void
+  /** 明细面板正显示这张卡片哪一行的明细（高亮） */
+  selectedRow?: BiRow | null
 }
 
 /** 涨跌颜色：up-good 涨绿跌红、up-bad 涨红跌绿；不写用中性色（主色 / 警示色） */
@@ -31,49 +39,19 @@ function deltaTone(n: number, trend?: BiTrend): string {
   return n > 0 ? 'text-primary' : 'text-warning'
 }
 
-type LoadState = { key: string; data?: BiQueryResult; error?: string }
-
-function fetchQuery(queryKey: string, params: unknown, refresh: boolean): Promise<BiQueryResult> {
-  return apiFetch('/bi/query', { method: 'POST', body: JSON.stringify({ queryKey, params, refresh }) }) as Promise<BiQueryResult>
-}
-
 const hhmm = (iso?: string) => {
   if (!iso) return ''
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? '' : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-export default function BiCardView({ card, filters, queries, filterText, onPick }: Props) {
+export default function BiCardView({ card, filters, queries, filterText, onPick, onOpenPanel, onOpenTab, selectedRow }: Props) {
   const [stack, setStack] = useState<DrillFrame[]>(() => rootStack(card))
   const view = levelView(card, stack, filters)
-  const reqKey = JSON.stringify([view.queryKey, view.params])
-  const [state, setState] = useState<LoadState | null>(null)
-  const [refreshing, setRefreshing] = useState(false)
+  // 参数变化（筛选、下钻）即取数
+  const { reqKey, loading, data, error, refreshing, refresh } = useBiQuery(view.queryKey, view.params)
   const { fullscreen, toggle: toggleFullscreen, exit: exitFullscreen } = usePageFullscreen()
 
-  // 参数变化（筛选、下钻）即取数；只在 Promise 回调里 setState
-  useEffect(() => {
-    let alive = true
-    const [queryKey, params] = JSON.parse(reqKey) as [string, unknown]
-    fetchQuery(queryKey, params, false)
-      .then((data) => alive && setState({ key: reqKey, data }))
-      .catch((err: unknown) => alive && setState({ key: reqKey, error: err instanceof Error ? err.message : '加载失败' }))
-    return () => {
-      alive = false
-    }
-  }, [reqKey])
-
-  const refresh = () => {
-    setRefreshing(true)
-    fetchQuery(view.queryKey, view.params, true)
-      .then((data) => setState({ key: reqKey, data }))
-      .catch((err: unknown) => setState({ key: reqKey, error: err instanceof Error ? err.message : '加载失败' }))
-      .finally(() => setRefreshing(false))
-  }
-
-  const loading = !state || state.key !== reqKey
-  const data = state?.data
-  const error = !loading ? state?.error : undefined
   const meta = queries[view.queryKey]
   const drillLabel = nextDrillLabel(card, stack)
   const clickable = !!onPick && (view.type !== 'table' || canDrillFrom(card, stack))
@@ -84,8 +62,23 @@ export default function BiCardView({ card, filters, queries, filterText, onPick 
   const title = fillPlaceholders(card.title, vars)
   const subtitle = card.subtitle ? fillPlaceholders(card.subtitle, vars) : ''
 
-  const pick = (row: BiRow | null, x: number, y: number) => {
+  /** 进入下一级：明细面板的一级交给上层（并退出单卡全屏），其余在卡片里切换 */
+  const drillInto = (row: BiRow) => {
+    const next = pushDrill(card, stack, row, view.encoding)
+    if (onOpenPanel && nextOpensInPanel(card, stack)) {
+      exitFullscreen()
+      onOpenPanel(next)
+    } else {
+      setStack(next)
+    }
+  }
+
+  const pick = (row: BiRow | null, x: number, y: number, newTab = false) => {
     if (!row || !onPick || !data) return
+    if (newTab && onOpenTab && canDrillFrom(card, stack)) {
+      onOpenTab(pushDrill(card, stack, row, view.encoding))
+      return
+    }
     onPick({
       card: title === card.title ? card : { ...card, title },
       stack,
@@ -95,7 +88,7 @@ export default function BiCardView({ card, filters, queries, filterText, onPick 
       x,
       y,
       drillLabel,
-      drill: () => setStack((s) => pushDrill(card, s, row, view.encoding)),
+      drill: () => drillInto(row),
       exitFullscreen,
     })
   }
@@ -114,6 +107,11 @@ export default function BiCardView({ card, filters, queries, filterText, onPick 
         ? buildChartModel(view.type, encoding, rows, { clickable })
         : null,
     [rows, view.type, encoding, clickable],
+  )
+  // 明细面板开着：高亮来源项（来源行不在当前级的结果里时不高亮）
+  const chartOption = useMemo(
+    () => (chart && selectedRow ? highlightPoint(chart.option, chart.indexOf?.(selectedRow) ?? null) : chart?.option),
+    [chart, selectedRow],
   )
 
   const height = BI_CARD_HEIGHT[card.layout.h] ?? BI_CARD_HEIGHT[2]
@@ -207,15 +205,15 @@ export default function BiCardView({ card, filters, queries, filterText, onPick 
         {data && !error && rows.length === 0 && <p className="text-[12px] text-subtle py-6 text-center">暂无数据</p>}
         {data && !error && rows.length > 0 && (
           <>
-            {view.type === 'kpi' && <KpiBody title={title} enc={encoding} row={rows[0]} onClick={(x, y) => pick(rows[0], x, y)} clickable={!!onPick} />}
+            {view.type === 'kpi' && <KpiBody title={title} enc={encoding} row={rows[0]} onClick={(x, y, newTab) => pick(rows[0], x, y, newTab)} clickable={!!onPick} />}
             {(chart || view.type === 'table') && (
               <div className={fullscreen ? 'flex-1 min-h-0' : undefined}>
                 {chart && (
                   <BiChart
-                    option={chart.option}
+                    option={chartOption ?? chart.option}
                     height={bodyHeight}
                     ariaLabel={`${title}图表，共 ${chart.plotted} 项`}
-                    onPick={clickable ? (e) => pick(chart.rowAt(e.dataIndex, e.seriesName), e.x, e.y) : undefined}
+                    onPick={clickable ? (e) => pick(chart.rowAt(e.dataIndex, e.seriesName), e.x, e.y, e.newTab) : undefined}
                     pickIndex={chart.pickIndex}
                   />
                 )}
@@ -225,7 +223,8 @@ export default function BiCardView({ card, filters, queries, filterText, onPick 
                     columns={data.columns}
                     encoding={encoding}
                     maxHeight={bodyHeight}
-                    onRow={clickable ? (row, x, y) => pick(row, x, y) : undefined}
+                    selectedRow={selectedRow}
+                    onRow={clickable ? (row, x, y, newTab) => pick(row, x, y, newTab) : undefined}
                   />
                 )}
               </div>
@@ -242,7 +241,7 @@ export default function BiCardView({ card, filters, queries, filterText, onPick 
   )
 }
 
-function KpiBody({ title, enc, row, onClick, clickable }: { title: string; enc: BiCard['encoding']; row: BiRow; onClick: (x: number, y: number) => void; clickable: boolean }) {
+function KpiBody({ title, enc, row, onClick, clickable }: { title: string; enc: BiCard['encoding']; row: BiRow; onClick: (x: number, y: number, newTab: boolean) => void; clickable: boolean }) {
   const value = enc.value ? row[enc.value] : undefined
   const prev = enc.compare ? row[enc.compare] : undefined
   const ratio = enc.compare ? changeRatio(value, prev) : null
@@ -276,7 +275,7 @@ function KpiBody({ title, enc, row, onClick, clickable }: { title: string; enc: 
     <button
       type="button"
       className="text-left w-full rounded-lg -m-1 p-1 hover:bg-primary-soft/60 transition-colors"
-      onClick={(e) => onClick(e.clientX, e.clientY)}
+      onClick={(e) => onClick(e.clientX, e.clientY, e.ctrlKey || e.metaKey)}
       aria-label={`${title}：${formatValue(value, enc)}，点击查看操作`}
     >
       {body}
@@ -289,13 +288,15 @@ function TableBody({
   columns,
   encoding,
   maxHeight,
+  selectedRow,
   onRow,
 }: {
   rows: BiRow[]
   columns: string[]
   encoding: BiCard['encoding']
   maxHeight: number | string
-  onRow?: (row: BiRow, x: number, y: number) => void
+  selectedRow?: BiRow | null
+  onRow?: (row: BiRow, x: number, y: number, newTab: boolean) => void
 }) {
   const cols: BiColumnDef[] = encoding.columns?.length ? encoding.columns : columns.map((c) => ({ column: c }))
   const delta = new Set(encoding.deltaColumns || [])
@@ -318,13 +319,14 @@ function TableBody({
           {rows.map((r, i) => (
             <tr
               key={i}
-              className={`border-t border-line ${onRow ? 'cursor-pointer hover:bg-primary-soft/60' : ''}`}
-              onClick={onRow ? (e) => onRow(r, e.clientX, e.clientY) : undefined}
+              className={`border-t border-line ${selectedRow && sameRow(r, selectedRow) ? 'bg-primary-soft' : ''} ${onRow ? 'cursor-pointer hover:bg-primary-soft/60' : ''}`}
+              aria-selected={selectedRow ? sameRow(r, selectedRow) : undefined}
+              onClick={onRow ? (e) => onRow(r, e.clientX, e.clientY, e.ctrlKey || e.metaKey) : undefined}
               onKeyDown={onRow ? (e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault()
                   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                  onRow(r, rect.left + 40, rect.bottom)
+                  onRow(r, rect.left + 40, rect.bottom, false)
                 }
               } : undefined}
               tabIndex={onRow ? 0 : undefined}
