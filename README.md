@@ -472,8 +472,8 @@ node-cron 定时触发 → 加载 scheduled_reports 配置
 |------|------|
 | `name` | 任务名称，如「每日生产日报」 |
 | `cron_expr` | cron 表达式，如 `0 8 * * *`（每天 8 点）。表单输入框（`components/CronField.tsx`，预警规则共用）实时显示中文解读 + 接下来 3 次执行时间（`utils/cron.ts`，按 node-cron 语义：步长按整除取值、日与周同时满足）；「AI 生成」用一句话出表达式（`POST /admin/cron/ai` → `cron-draft.js`，`cron.validate` 不通过交回 AI ≤3 轮，只返回草稿） |
-| `skill_name` | 可选，关联的 AI Skill：执行时只注入这一个 Skill；执行账号（`SCHEDULED_REPORT_USER`）角色不够时临时带上该 Skill 的第一个角色；Skill 停用 / 不存在 / 未设角色则记失败日志 |
-| `prompt_template` | 给 Agent 的指令，如「请统计今日生产完工情况并生成日报」；看板要点时为可选的「关注点」 |
+| `skill_name` | 可选，关联的 AI Skill：执行时只注入这一个 Skill；收件人角色不够时临时带上该 Skill 的第一个角色；Skill 停用 / 不存在则记失败日志，未设角色时只有管理员收件人能生成 |
+| `prompt_template` | 给 Agent 的指令，如「请统计今日生产完工情况并生成日报」；看板要点时为可选的「关注点」。非看板报告**逐个目标用户以本人身份生成**（当前用户编码 / 姓名 / 角色 = 收件人，Skill 里按当前用户过滤、`@_loginUser` 都按收件人代入），只推给本人；收件人多时 AI 调用次数相应增加 |
 | `agent_key` | 可选：关联了 BI 看板的 Agent。设了即为「看板每日要点」（见下） |
 | `target_roles_json` | 按角色推送，如 `["production","warehouse"]` |
 | `target_users_json` | 按用户推送，如 `["U001","U002"]`（优先于角色） |
@@ -495,7 +495,6 @@ node-cron 定时触发 → 加载 scheduled_reports 配置
 
 | 变量 | 说明 |
 |------|------|
-| `SCHEDULED_REPORT_USER` | Agent 执行报告时使用的系统账号（默认 `SYSTEM`） |
 | `PUBLIC_BASE_URL` | 系统对外访问地址（如 `https://report.example.com`）。看板要点消息末尾附 `{PUBLIC_BASE_URL}/agents/{agentKey}` 链接；未配置时改为提示「在系统 Agent → xx 查看看板」。钉钉消息的「在系统中查看」按钮也靠它，未配置则不带按钮 |
 
 ### 看板每日要点

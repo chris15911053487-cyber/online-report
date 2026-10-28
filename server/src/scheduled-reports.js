@@ -1,7 +1,7 @@
 /**
  * 定时 AI 报告推送调度模块。
  * - node-cron 定时触发
- * - agentChatCore 生成报告
+ * - agentChatCore 生成报告：逐个目标用户以本人身份生成（Skill 里的当前用户 = 收件人），只推给本人
  * - 经 notify 推送给目标用户：写入「消息」收件箱 + 按 channels_json 发 IM（钉钉 / 企微 / 飞书）
  */
 const cron = require('node-cron');
@@ -47,53 +47,100 @@ async function executeReport(report, log) {
       return;
     }
 
-    // 2. 调用 Agent 生成报告（用系统账号身份）
-    const systemUser = process.env.SCHEDULED_REPORT_USER || 'SYSTEM';
-    // 关联了 Skill：只给 AI 这一个 skill，按它的表与口径查数（管理员选的，不受执行账号角色限制）
+    // 2. 关联了 Skill：只给 AI 这一个 skill，按它的表与口径查数（管理员选的，不受收件人角色限制）
     let skill = null;
     if (report.skill_name) {
       skill = await getSkill(pool, report.skill_name);
-      const problem = !skill || !skill.enabled
-        ? `关联的 Skill「${report.skill_name}」不存在或已停用`
-        : !skill.roles.length && !canUseSkill(await resolveUserRoles(pool, systemUser), skill.roles)
-          ? `关联的 Skill「${report.skill_name}」没有设置可用角色，请在「AI Skill」里至少勾选一个角色`
-          : '';
-      if (problem) {
-        await updateLog(pool, logId, 'error', 0, 0, problem);
+      if (!skill || !skill.enabled) {
+        await updateLog(pool, logId, 'error', 0, 0, `关联的 Skill「${report.skill_name}」不存在或已停用`);
         return;
       }
     }
-    const convId = `sched_${report.id}_${Date.now()}`;
-    const result = await agentChatCore({
-      userCode: systemUser,
-      displayName: '定时报告',
-      conversationId: convId,
-      message: skill ? `请按 Skill「${skill.name}」的说明查数并写报告。\n\n${report.prompt_template}` : report.prompt_template,
-      skill,
-      log,
-    });
 
-    const content = result.message || result.error || '报告生成失败';
+    // 3. 逐个目标用户以本人身份生成（当前用户编码 / 姓名 / 角色都是收件人自己的，
+    //    Skill 里「按当前用户过滤」、@_loginUser 才对得上），只推给本人
+    const r = await executePerUserReport(pool, report, targetUsers, skill, log);
+    await updateLog(pool, logId, r.inboxCount ? 'done' : 'error', r.inboxCount, r.sentCount, r.skipped, r.content);
+    log?.info?.({ reportId: report.id, name: report.name, targets: targetUsers.length, sent: r.sentCount }, 'scheduled report done');
+  } catch (err) {
+    await updateLog(pool, logId, 'error', 0, 0, String(err.message).slice(0, 1000));
+    log?.error?.({ err, reportId: report.id }, 'scheduled report execution error');
+  }
+}
 
-    // 3. 推送：全部目标用户进收件箱，绑定了 IM 的同时发 IM
+async function executePerUserReport(pool, report, targetUsers, skill, log) {
+  const channels = safeJsonParse(report.channels_json) || ['dingtalk'];
+  const names = await loadDisplayNames(pool, targetUsers.map((u) => u.userCode));
+  const message = skill ? `请按 Skill「${skill.name}」的说明查数并写报告。\n\n${report.prompt_template}` : report.prompt_template;
+  const contents = [];
+  const failed = [];
+  const imErrors = [];
+  let sentCount = 0;
+  let inboxCount = 0;
+  for (const { userCode } of targetUsers) {
+    // Skill 没设可用角色：只有管理员能用（与对话里一致）
+    if (skill && !skill.roles.length && !canUseSkill(await resolveUserRoles(pool, userCode), skill.roles)) {
+      failed.push(`${userCode}（Skill「${skill.name}」没有设置可用角色，请在「AI Skill」里至少勾选一个角色）`);
+      continue;
+    }
+    let result;
+    try {
+      result = await agentChatCore({
+        userCode,
+        displayName: names.get(userCode) || userCode,
+        conversationId: `sched_${report.id}_${Date.now()}_${contents.length + failed.length}`,
+        message,
+        skill,
+        log,
+      });
+    } catch (err) {
+      result = { error: err.message };
+    }
+    if (!result.message) {
+      failed.push(`${userCode}（${String(result.error || '报告生成失败').slice(0, 100)}）`);
+      continue;
+    }
+    contents.push(`【用户 ${userCode}】\n${result.message}`);
     const r = await notify({
       sourceType: 'report',
       sourceId: report.id,
       sourceName: report.name,
       title: report.name,
-      body: content,
-      recipients: targetUsers.map((u) => u.userCode),
-      channels: safeJsonParse(report.channels_json) || ['dingtalk'],
+      body: result.message,
+      recipients: [userCode],
+      channels,
     });
-    const sentCount = r.imSent;
-    const imError = r.errors.length > 0 ? `IM 推送失败：${r.errors.join('; ')}`.slice(0, 1000) : null;
-
-    await updateLog(pool, logId, 'done', targetUsers.length, sentCount, imError, content);
-    log?.info?.({ reportId: report.id, name: report.name, targets: targetUsers.length, sent: sentCount }, 'scheduled report done');
-  } catch (err) {
-    await updateLog(pool, logId, 'error', 0, 0, String(err.message).slice(0, 1000));
-    log?.error?.({ err, reportId: report.id }, 'scheduled report execution error');
+    sentCount += r.imSent;
+    inboxCount += r.recipients;
+    imErrors.push(...r.errors);
   }
+  return {
+    sentCount,
+    inboxCount,
+    content: contents.join('\n\n'),
+    skipped:
+      [
+        failed.length ? `生成失败，未推送：${failed.join('、')}` : '',
+        imErrors.length ? `IM 推送失败：${[...new Set(imErrors)].join('; ')}` : '',
+      ]
+        .filter(Boolean)
+        .join('；')
+        .slice(0, 1000) || null,
+  };
+}
+
+/** 用户编码 → 姓名（OUSR.U_NAME，没有该列或查不到时用编码） */
+async function loadDisplayNames(pool, codes) {
+  const map = new Map();
+  if (!codes.length) return map;
+  try {
+    const rs = await pool.request()
+      .input('codes', sql.NVarChar(sql.MAX), JSON.stringify(codes))
+      .query(`SELECT [USER_CODE] AS code, [U_NAME] AS name FROM [OUSR]
+              WHERE [USER_CODE] IN (SELECT [value] FROM OPENJSON(@codes))`);
+    for (const row of rs.recordset || []) if (row.name) map.set(String(row.code), String(row.name));
+  } catch {}
+  return map;
 }
 
 const digestLlm = async (messages) => {
