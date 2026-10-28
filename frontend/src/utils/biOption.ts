@@ -361,7 +361,7 @@ export interface WaterfallStep {
   kind: WaterfallKind
   /** 本步的数值：增减项为增减额，合计 / 小计为累计 */
   value: number
-  /** 柱子从 start 画到 end；end 即本步之后的累计 */
+  /** 柱子从 start 画到 end；end 即本步之后的累计（fromZero 时增减项从 0 画到本项数值，end 不是累计） */
   start: number
   end: number
   /** 对应的结果行；自动追加的合计柱为 null */
@@ -374,6 +374,7 @@ export const AUTO_LABEL_MAX_STEPS = 16
 /**
  * 结果行 → 瀑布图的各步：第一行是起点（从 0 画起）；subtotals 里的行画成小计（从 0 画到当前累计，
  * 该行的数值不用）；其余行按正负接着上一步的累计往上 / 往下画；设了 total 时末尾追加合计柱。
+ * fromZero 时增减项也从 0 画到本项数值（负数在 0 的另一侧），小计 / 合计仍取累计。
  * 数值为空的行按 0 计。
  */
 export function waterfallSteps(enc: BiEncoding, rows: BiRow[]): WaterfallStep[] {
@@ -394,7 +395,7 @@ export function waterfallSteps(enc: BiEncoding, rows: BiRow[]): WaterfallStep[] 
       steps.push({ name, kind: 'total', value: v, start: 0, end: v, row: r })
       return
     }
-    steps.push({ name, kind: v < 0 ? 'down' : 'up', value: v, start: running, end: running + v, row: r })
+    steps.push({ name, kind: v < 0 ? 'down' : 'up', value: v, start: enc.fromZero ? 0 : running, end: enc.fromZero ? v : running + v, row: r })
     running += v
   })
   if (enc.total && steps.length > 0) steps.push({ name: enc.total, kind: 'total', value: running, start: 0, end: running, row: null })
@@ -464,6 +465,8 @@ interface CustomApi {
  * 瀑布图：每类柱子（增加 / 减少 / 合计）一个自定义系列，另有一个不响应鼠标的系列画相邻柱子之间的虚线。
  * 颜色由 colorToken 标出，渲染时 chartTheme 按当前主题换成实际颜色；数值标签与柱子同色。
  *
+ * fromZero：每项都从 0 画起、不画连接虚线，数值标签不加 + 号。
+ *
  * 竖向（默认）：项目从左到右。横向（horizontal）：项目从上到下，增减项的数值标在柱子右边 / 左边。
  * 横向且设了分栏列（series，如年份）：每年一栏左右并排，共用一根数值轴——第 p 栏整体平移 p 个栏宽，
  * 各栏比例尺相同，横着看就能比出同一项目各年的长短；数值轴隐藏，栏顶标年份、每栏画一条 0 线。
@@ -492,7 +495,9 @@ function buildWaterfallModel(enc: BiEncoding, allRows: BiRow[], opts: { clickabl
 
   const fmt = axisFormatter(enc)
   const showLabels = enc.labels === 'show' || (enc.labels !== 'hide' && n <= AUTO_LABEL_MAX_STEPS)
-  const signed = (s: WaterfallStep) => (s.kind === 'total' ? fmt(s.value) : `${s.value > 0 ? '+' : s.value < 0 ? '−' : ''}${fmt(Math.abs(s.value))}`)
+  const fromZero = !!enc.fromZero
+  const signed = (s: WaterfallStep) =>
+    s.kind === 'total' || fromZero ? fmt(s.value) : `${s.value > 0 ? '+' : s.value < 0 ? '−' : ''}${fmt(Math.abs(s.value))}`
   const colors = waterfallColors(enc.trend)
   const band = (api: CustomApi) => (horizontal ? api.size([0, 1])[1] : api.size([1, 0])[0])
   const barWidth = (api: CustomApi) => Math.min(horizontal ? 28 : 48, band(api) * 0.6)
@@ -544,7 +549,8 @@ function buildWaterfallModel(enc: BiEncoding, allRows: BiRow[], opts: { clickabl
     }))
 
   // 相邻柱子之间的连接虚线：画在上一步的累计处，连到同一栏的下一根柱子。数据：[本柱类目, 累计, 下一柱类目]
-  const links = panels.flatMap((p, pi) =>
+  // 每项从 0 画起时柱子不衔接，不画
+  const links = fromZero ? [] : panels.flatMap((p, pi) =>
     p.steps.slice(0, -1).map((s, k) => [categories.indexOf(s.name), s.end + offset(pi), categories.indexOf(p.steps[k + 1].name)]),
   )
   if (links.length > 0) {
@@ -644,7 +650,7 @@ function buildWaterfallModel(enc: BiEncoding, allRows: BiRow[], opts: { clickabl
           const panel = multi ? panels[Math.floor(p.dataIndex / n)]?.name : ''
           const name = panel ? `${panel} · ${s.name}` : s.name
           const lines = [`${p.marker ?? ''}${escapeHtml(name)}&nbsp;&nbsp;<b>${escapeHtml(s.kind === 'total' ? formatValue(s.value, enc) : signed(s) + (enc.unit && enc.format !== 'percent' ? ` ${enc.unit}` : ''))}</b>`]
-          if (s.kind !== 'total') lines.push(`累计&nbsp;&nbsp;${escapeHtml(formatValue(s.end, enc))}`)
+          if (s.kind !== 'total' && !fromZero) lines.push(`累计&nbsp;&nbsp;${escapeHtml(formatValue(s.end, enc))}`)
           return lines.join('<br/>')
         },
       },

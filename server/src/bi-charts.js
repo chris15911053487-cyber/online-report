@@ -195,6 +195,7 @@ function normalizeEncoding(input, type, where) {
     const list = [...new Set(e.subtotals.map((v) => str(v, 64)).filter(Boolean))];
     if (list.length) out.subtotals = list;
   }
+  if (e.fromZero) out.fromZero = true;
   if (e.trend != null && e.trend !== '') {
     if (!TRENDS.has(e.trend)) return fail(`${where} encoding.trend 须为 ${[...TRENDS].join(' / ')}`);
     out.trend = e.trend;

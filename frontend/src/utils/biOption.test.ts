@@ -328,6 +328,21 @@ describe('瀑布图', () => {
     expect(steps[1].row).toBe(pl[1])
   })
 
+  it('fromZero：增减项从 0 画到本项数值（负数在 0 下方），小计 / 合计仍是累计；不画连接线、标签不加 + 号', () => {
+    const z = { ...enc, fromZero: true }
+    expect(waterfallSteps(z, pl).map((s) => [s.name, s.kind, s.value, s.start, s.end])).toEqual([
+      ['收入', 'total', 1000, 0, 1000],
+      ['营业成本', 'down', -600, 0, -600],
+      ['毛利', 'total', 400, 0, 400],
+      ['期间费用', 'down', -200, 0, -200],
+      ['其他收益', 'up', 50, 0, 50],
+      ['营业利润', 'total', 250, 0, 250],
+    ])
+    const m = buildChartModel('waterfall', z, pl)
+    const series = (m.option as { series: { name: string }[] }).series
+    expect(series.map((x) => x.name)).not.toContain('连接线')
+  })
+
   it('累计跌破 0（亏损）时柱子跨过 0 轴', () => {
     const steps = waterfallSteps({ dimension: 'Item', value: 'Amt', total: '净利润' }, [{ Item: '收入', Amt: 100 }, { Item: '成本', Amt: -150 }])
     expect(steps.map((s) => [s.start, s.end])).toEqual([[0, 100], [100, -50], [0, -50]])

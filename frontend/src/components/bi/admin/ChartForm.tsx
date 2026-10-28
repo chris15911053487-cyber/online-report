@@ -359,6 +359,17 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
             onChange={(v) => set(v === 'h' ? { horizontal: true } : { horizontal: undefined, series: undefined })}
           />
         </Row>
+        <Row label="柱子画法" hint="累计：每项接着上一项的累计往后画（台阶）；从 0 画起：每项柱子长度就是本项数值，负数画在 0 的另一侧，方便直接比各项大小">
+          <Segmented
+            size="sm"
+            options={[
+              { value: 'step', label: '累计' },
+              { value: 'zero', label: '从 0 画起' },
+            ]}
+            value={enc.fromZero ? 'zero' : 'step'}
+            onChange={(v) => set({ fromZero: v === 'zero' ? true : undefined })}
+          />
+        </Row>
         <Row label={enc.horizontal ? '项目列（Y 轴）' : '项目列（X 轴）'} hint={`每行一根柱子，按查询结果的顺序从${enc.horizontal ? '上到下' : '左到右'}`}>
           <ColumnSelect ariaLabel="项目列" columns={columns} prefer={['dimension', 'time']} value={enc.dimension} onChange={(v) => set({ dimension: v })} />
         </Row>
@@ -379,7 +390,7 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
         <Row label="增减颜色">
           <Segmented size="sm" options={WATERFALL_TRENDS} value={enc.trend === 'up-bad' ? 'up-bad' : 'up-good'} onChange={(v) => set({ trend: v === 'up-bad' ? v : undefined })} />
         </Row>
-        <Row label="显示数值" hint="自动：16 项以内在柱子上标增减额">
+        <Row label="显示数值" hint={`自动：16 项以内在柱子上标${enc.fromZero ? '本项数值' : '增减额'}`}>
           <Segmented size="sm" options={LABEL_MODES} value={enc.labels || 'auto'} onChange={(v) => set({ labels: v === 'auto' ? undefined : v })} />
         </Row>
         {formatRows}

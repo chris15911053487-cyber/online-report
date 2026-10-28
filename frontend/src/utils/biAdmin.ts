@@ -468,7 +468,7 @@ export function cleanEncoding(type: BiCardType, enc: BiEncoding): BiEncoding {
       : type === 'table'
         ? ['columns', 'dimension', 'deltaColumns', 'trend', 'barColumns', 'barShared']
         : type === 'waterfall'
-          ? ['dimension', 'value', 'horizontal', 'series', 'total', 'subtotals', 'trend', 'format', 'unit', 'scale', 'labels', 'columns']
+          ? ['dimension', 'value', 'horizontal', 'series', 'total', 'subtotals', 'fromZero', 'trend', 'format', 'unit', 'scale', 'labels', 'columns']
           : ['dimension', 'value', 'values', 'series', 'format', 'unit', 'scale', 'topN', 'horizontal', 'stack', 'labels', 'columns', 'rightAxis']
   for (const k of keep) {
     const v = enc[k]
@@ -476,6 +476,7 @@ export function cleanEncoding(type: BiCardType, enc: BiEncoding): BiEncoding {
     ;(out as Record<string, unknown>)[k] = v
   }
   if (type !== 'bar') delete out.stack
+  if (type !== 'waterfall' || !out.fromZero) delete out.fromZero
   if (type !== 'bar' && type !== 'waterfall') delete out.horizontal
   // 瀑布图只有横向才能分栏
   if (type === 'waterfall' && !out.horizontal) delete out.series

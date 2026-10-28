@@ -321,6 +321,8 @@ describe('瀑布图 / 数据条', () => {
     // 分栏只在横向时保留
     expect(cleanEncoding('waterfall', { ...enc, series: '年份' }).series).toBe('年份')
     expect(cleanEncoding('waterfall', { ...enc, horizontal: false, series: '年份' }).series).toBeUndefined()
+    expect(cleanEncoding('waterfall', { ...enc, fromZero: true }).fromZero).toBe(true)
+    expect(cleanEncoding('bar', { dimension: '项目', value: '金额', fromZero: true }).fromZero).toBeUndefined()
     expect(cleanEncoding('bar', enc).total).toBeUndefined()
     expect(cleanEncoding('table', { ...enc, barShared: true })).toEqual({ dimension: '项目', trend: 'up-bad', barColumns: ['金额'], barShared: true })
     expect(cleanEncoding('table', { barShared: true })).toEqual({})
