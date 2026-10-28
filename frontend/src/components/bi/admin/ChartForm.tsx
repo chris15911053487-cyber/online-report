@@ -44,6 +44,12 @@ const LABEL_MODES: { value: BiLabelMode; label: string }[] = [
   { value: 'show', label: '显示' },
   { value: 'hide', label: '不显示' },
 ]
+const PIE_LABEL_MODES: { value: BiLabelMode; label: string }[] = [
+  { value: 'auto', label: '比例' },
+  { value: 'value', label: '金额' },
+  { value: 'both', label: '金额 + 比例' },
+  { value: 'hide', label: '不显示' },
+]
 const TRENDS: { value: BiTrend | 'neutral'; label: string }[] = [
   { value: 'neutral', label: '中性' },
   { value: 'up-good', label: '上涨为好' },
@@ -470,7 +476,11 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
           <Segmented size="sm" options={STACK_MODES} value={enc.stack || 'none'} onChange={(v) => set({ stack: v === 'none' ? undefined : v })} />
         </Row>
       )}
-      {type !== 'pie' && (
+      {type === 'pie' ? (
+        <Row label="显示数值" hint="扇区旁标出的内容；悬停时同时显示金额和占比">
+          <Segmented size="sm" options={PIE_LABEL_MODES} value={enc.labels || 'auto'} onChange={(v) => set({ labels: v === 'auto' ? undefined : v })} />
+        </Row>
+      ) : (
         <Row label="显示数值" hint={type === 'line' ? '自动：单条折线只标最新值' : '自动：单系列且柱子不多时标在柱上'}>
           <Segmented size="sm" options={LABEL_MODES} value={enc.labels || 'auto'} onChange={(v) => set({ labels: v === 'auto' ? undefined : v })} />
         </Row>

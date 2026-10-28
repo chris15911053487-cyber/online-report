@@ -30,7 +30,7 @@ export interface BiEncoding {
   horizontal?: boolean
   /** 柱状图堆叠：normal 数值堆叠、percent 百分比堆叠（每根柱子 = 100%）；不写 = 并排 */
   stack?: BiStackMode
-  /** 柱/线上是否标数值：auto（默认，按规则）/ show / hide */
+  /** 柱/线上是否标数值：auto（默认，按规则）/ show / hide；饼图：auto（比例）/ value（金额）/ both（金额 + 比例）/ hide */
   labels?: BiLabelMode
   /** 柱/线组合：数值列中画成折线、走右轴的列（如增长率与金额同图） */
   rightAxis?: string[]
@@ -50,7 +50,7 @@ export interface BiEncoding {
   barShared?: boolean
 }
 
-export type BiLabelMode = 'auto' | 'show' | 'hide'
+export type BiLabelMode = 'auto' | 'show' | 'hide' | 'value' | 'both'
 export type BiStackMode = 'normal' | 'percent'
 export type BiTrend = 'up-good' | 'up-bad'
 

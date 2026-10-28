@@ -158,6 +158,22 @@ function percentTooltip(
   return [escapeHtml(head), ...lines].join('<br/>')
 }
 
+const pieShare = (percent: number | undefined) => `${percent == null ? 0 : percent}%`
+
+/** 饼图扇区标签：auto（默认）比例、value 金额、both 金额 + 比例、hide 不显示 */
+export function pieLabel(enc: BiEncoding): Record<string, unknown> {
+  const mode = enc.labels || 'auto'
+  if (mode === 'hide') return { show: false }
+  const value = (v: unknown) => formatValue(v, enc)
+  const formatter = (p: { name?: string; value?: unknown; percent?: number }) => {
+    const name = p.name ?? ''
+    if (mode === 'value') return `${name}\n${value(p.value)}`
+    if (mode === 'both') return `${name}\n${value(p.value)} · ${pieShare(p.percent)}`
+    return `${name}\n${pieShare(p.percent)}`
+  }
+  return { formatter, fontSize: 11 }
+}
+
 export function buildChartModel(
   type: BiChartType,
   enc: BiEncoding,
@@ -178,7 +194,11 @@ export function buildChartModel(
       rowAt: (i) => rows[i] ?? null,
       indexOf: (row) => indexIn(rows, row),
       option: {
-        tooltip: { trigger: 'item', valueFormatter: tooltipValue },
+        tooltip: {
+          trigger: 'item',
+          formatter: (p: TooltipParam & { name?: string; percent?: number }) =>
+            `${p.marker ?? ''}${escapeHtml(p.name ?? '')}&nbsp;&nbsp;<b>${escapeHtml(tooltipValue(p.value))}</b>（${pieShare(p.percent)}）`,
+        },
         legend: { type: 'scroll', bottom: 0, textStyle: { fontSize: 11 } },
         series: [
           {
@@ -187,7 +207,7 @@ export function buildChartModel(
             center: ['50%', '45%'],
             avoidLabelOverlap: true,
             cursor,
-            label: { formatter: '{b}\n{d}%', fontSize: 11 },
+            label: pieLabel(enc),
             data: rows.map((r) => ({ name: str(r[dim]), value: toNumber(r[col]) })),
           },
         ],

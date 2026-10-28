@@ -201,7 +201,9 @@ function normalizeEncoding(input, type, where) {
     out.trend = e.trend;
   }
   if (e.labels != null && e.labels !== '' && e.labels !== 'auto') {
-    if (!['show', 'hide'].includes(e.labels)) return fail(`${where} encoding.labels 须为 auto / show / hide`);
+    if (type === 'pie') {
+      if (!['value', 'both', 'hide'].includes(e.labels)) return fail(`${where} 饼图 encoding.labels 须为 auto（比例）/ value（金额）/ both（金额 + 比例）/ hide`);
+    } else if (!['show', 'hide'].includes(e.labels)) return fail(`${where} encoding.labels 须为 auto / show / hide`);
     out.labels = e.labels;
   }
   // 必需字段

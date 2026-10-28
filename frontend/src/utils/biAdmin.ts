@@ -480,7 +480,8 @@ export function cleanEncoding(type: BiCardType, enc: BiEncoding): BiEncoding {
   if (type !== 'bar' && type !== 'waterfall') delete out.horizontal
   // 瀑布图只有横向才能分栏
   if (type === 'waterfall' && !out.horizontal) delete out.series
-  if (type === 'pie' || out.labels === 'auto') delete out.labels
+  const pieLabels = out.labels === 'value' || out.labels === 'both'
+  if (out.labels === 'auto' || (type === 'pie' ? out.labels === 'show' : pieLabels)) delete out.labels
   if (type === 'pie') delete out.rightAxis
   // 瀑布图只有一个数值列：多选时取第一个
   if (type === 'waterfall' && !out.value && enc.values?.length) out.value = enc.values[0]

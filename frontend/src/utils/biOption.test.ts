@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { alignedAxisRanges, buildChartModel, columnLabel, highlightPoint, labelPlan, MAX_WATERFALL_PANELS, rightAxisColumns, valueColumns, waterfallAxisMin, waterfallColors, waterfallPanels, waterfallSteps } from './biOption'
 import { canDrillFrom, levelView, nextDrillLabel, popDrillTo, pushDrill, rootStack, rowCaption } from './biDrill'
-import type { BiCard } from './bi'
+import type { BiCard, BiEncoding } from './bi'
 
 type Axis = { type: string; data?: string[]; inverse?: boolean; axisLabel?: { formatter?: (v: number) => string } }
 type Series = { name: string; type: string; data: unknown[] }
@@ -63,6 +63,19 @@ describe('buildChartModel', () => {
     const s = (m.option as { series: { data: { name: string; value: number }[] }[] }).series[0]
     expect(s.data[0]).toEqual({ name: '甲', value: 1200000 })
     expect(m.rowAt(2)?.CardCode).toBe('C3')
+  })
+
+  it('饼图标签：默认比例，可改金额 / 金额 + 比例 / 不显示；悬停同时显示金额和占比', () => {
+    type Pie = { tooltip: { formatter: (p: unknown) => string }; series: { label: { show?: boolean; formatter?: (p: unknown) => string } }[] }
+    const enc = { dimension: 'CardName', value: 'Balance', scale: 10000, unit: '万' }
+    const point = { name: '甲', value: 1200000, percent: 32.5 }
+    const label = (labels?: BiEncoding['labels']) => (buildChartModel('pie', { ...enc, labels }, rows).option as Pie).series[0].label
+    expect(label().formatter!(point)).toBe('甲\n32.5%')
+    expect(label('value').formatter!(point)).toBe('甲\n120 万')
+    expect(label('both').formatter!(point)).toBe('甲\n120 万 · 32.5%')
+    expect(label('hide').show).toBe(false)
+    const tip = (buildChartModel('pie', enc, rows).option as Pie).tooltip.formatter({ ...point, marker: '' })
+    expect(tip).toBe('甲&nbsp;&nbsp;<b>120 万</b>（32.5%）')
   })
 
   it('坐标轴按 scale 缩放、不带单位；轴名显示单位', () => {

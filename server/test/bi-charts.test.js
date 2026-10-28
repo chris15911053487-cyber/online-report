@@ -125,6 +125,12 @@ test('图表校验：encoding.labels 只接受 show / hide，auto 视为不写',
   assert.equal(enc('show').value.encoding.labels, 'show');
   assert.equal(enc('hide').value.encoding.labels, 'hide');
   assert.equal(enc('auto').value.encoding.labels, undefined);
+  assert.equal(enc('value').ok, false);
+  const pie = (labels) => validateChartInput({ ...chartInput, type: 'pie', encoding: { ...chartInput.encoding, labels } }, queries);
+  assert.equal(pie('value').value.encoding.labels, 'value');
+  assert.equal(pie('both').value.encoding.labels, 'both');
+  assert.equal(pie('hide').value.encoding.labels, 'hide');
+  assert.equal(pie('show').ok, false);
   assert.equal(enc('always').ok, false);
 });
 
