@@ -24,8 +24,10 @@ import {
   type DrillFrame,
   type DrillPanelState,
 } from '../../utils/biDrill'
+import { enterLandscape } from '../../utils/landscape'
 import { useFilterOptions } from '../../utils/biOptions'
 import BiCardView from './BiCardView'
+import LandscapeViewer from './LandscapeViewer'
 import DrillPanel, { DRAWER_MIN_W } from './DrillPanel'
 import MultiSelect from './MultiSelect'
 
@@ -247,6 +249,14 @@ export function DashboardView({
   }
 
 
+  // ── 手机全屏：横屏查看器，左右滑动切换图表 / 表格卡片 ──
+  const [landscapeId, setLandscapeId] = useState<string | null>(null)
+  const swipeCards = useMemo(() => dashboard.cards.filter((c) => c.type !== 'kpi'), [dashboard.cards])
+  const openLandscape = (cardId: string) => {
+    enterLandscape() // 须在点击回调里同步调用
+    setLandscapeId(cardId)
+  }
+
   const splitOn = pcMode && split && !!panel && !!panelHost
   // 并排时看板变窄：KPI 两个一行，其余半宽以上的卡片占满一行
   const span = (w: number, type: string) => (!pcMode ? (type === 'kpi' ? 6 : 12) : splitOn ? (type === 'kpi' ? 6 : w >= 6 ? 12 : 6) : w)
@@ -273,8 +283,27 @@ export function DashboardView({
     />
   ) : null
 
+  const cardProps = (card: BiCard) => ({
+    card,
+    filters,
+    queries: dashboard.queries,
+    filterText,
+    onPick: pick,
+    onOpenPanel: onPick ? (stack: DrillFrame[]) => showPanel(openPanel(card, stack)) : undefined,
+    onOpenTab: pcMode && drillLinkKey ? (stack: DrillFrame[]) => openTab(card, stack) : undefined,
+    selectedRow: panel?.card.id === card.id ? (panel.stack[panel.base]?.fromRow ?? null) : null,
+  })
+
   return (
     <div className="flex flex-col gap-4">
+      {landscapeId && !pcMode && (
+        <LandscapeViewer
+          cards={swipeCards}
+          startId={landscapeId}
+          onClose={() => setLandscapeId(null)}
+          renderCard={(card) => <BiCardView {...cardProps(card)} embedded={{ onExit: () => setLandscapeId(null) }} />}
+        />
+      )}
       {panelEl && (pcMode && panelHost ? createPortal(panelEl, panelHost) : panelEl)}
       <div className="flex items-end justify-between gap-3 flex-wrap">
         {showHeader ? (
@@ -303,16 +332,7 @@ export function DashboardView({
             >
               {/* 图表/表格撑满行高对齐；KPI 不拉伸，避免与同行图表等高留下大片空白 */}
               <div className={`flex-1 min-w-0 flex flex-col ${card.type === 'kpi' ? '' : '[&>section]:flex-1'}`}>
-                <BiCardView
-                  card={card}
-                  filters={filters}
-                  queries={dashboard.queries}
-                  filterText={filterText}
-                  onPick={pick}
-                  onOpenPanel={onPick ? (stack) => showPanel(openPanel(card, stack)) : undefined}
-                  onOpenTab={pcMode && drillLinkKey ? (stack) => openTab(card, stack) : undefined}
-                  selectedRow={panel?.card.id === card.id ? (panel.stack[panel.base]?.fromRow ?? null) : null}
-                />
+                <BiCardView {...cardProps(card)} onRequestFullscreen={pcMode ? undefined : () => openLandscape(card.id)} />
               </div>
             </div>
           ))}

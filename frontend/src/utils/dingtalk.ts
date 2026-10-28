@@ -31,6 +31,13 @@ declare global {
       env: {
         platform: string
       }
+      /** 旋转界面（看板卡片横屏查看）；旧版钉钉可能没有 */
+      device?: {
+        screen?: {
+          rotateView?: (params: { showStatusBar?: boolean; clockwise?: boolean }) => void
+          resetView?: (params: Record<string, never>) => void
+        }
+      }
     }
   }
 }

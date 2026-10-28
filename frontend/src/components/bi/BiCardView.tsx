@@ -4,6 +4,7 @@
  * 面板开着时卡片上高亮来源项（selectedRow）。点中元素时把 BiPick 交给上层（显示点击浮层）；
  * 按住 Ctrl / ⌘ 点击直接在新标签页打开下一级（onOpenTab）。
  * 图表 / 表格卡片可单独全屏：同一个卡片原地铺满视口（不卸载，保留下钻），Esc 退出。
+ * 手机上由看板接管全屏（onRequestFullscreen → LandscapeViewer 横屏、左右滑动切换），查看器里的卡片为嵌入模式（embedded）。
  */
 import { useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Info, Maximize2, Minimize2, RotateCw } from 'lucide-react'
@@ -29,6 +30,10 @@ interface Props {
   onOpenTab?: (stack: DrillFrame[]) => void
   /** 明细面板正显示这张卡片哪一行的明细（高亮） */
   selectedRow?: BiRow | null
+  /** 全屏按钮交给上层（手机横屏查看器）；不传 = 卡片自己原地全屏 */
+  onRequestFullscreen?: () => void
+  /** 嵌入横屏查看器：铺满父容器，全屏按钮变成「退出」 */
+  embedded?: { onExit: () => void }
 }
 
 /** 涨跌颜色：up-good 涨绿跌红、up-bad 涨红跌绿；不写用中性色（主色 / 警示色） */
@@ -45,12 +50,15 @@ const hhmm = (iso?: string) => {
   return Number.isNaN(d.getTime()) ? '' : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-export default function BiCardView({ card, filters, queries, filterText, onPick, onOpenPanel, onOpenTab, selectedRow }: Props) {
+export default function BiCardView({ card, filters, queries, filterText, onPick, onOpenPanel, onOpenTab, selectedRow, onRequestFullscreen, embedded }: Props) {
   const [stack, setStack] = useState<DrillFrame[]>(() => rootStack(card))
   const view = levelView(card, stack, filters)
   // 参数变化（筛选、下钻）即取数
   const { reqKey, loading, data, error, refreshing, refresh } = useBiQuery(view.queryKey, view.params)
-  const { fullscreen, toggle: toggleFullscreen, exit: exitFullscreen } = usePageFullscreen()
+  const own = usePageFullscreen()
+  const fullscreen = !!embedded || own.fullscreen
+  const exitFullscreen = embedded ? embedded.onExit : own.exit
+  const toggleFullscreen = embedded ? embedded.onExit : onRequestFullscreen ?? own.toggle
 
   const meta = queries[view.queryKey]
   const drillLabel = nextDrillLabel(card, stack)
@@ -62,11 +70,11 @@ export default function BiCardView({ card, filters, queries, filterText, onPick,
   const title = fillPlaceholders(card.title, vars)
   const subtitle = card.subtitle ? fillPlaceholders(card.subtitle, vars) : ''
 
-  /** 进入下一级：明细面板的一级交给上层（并退出单卡全屏），其余在卡片里切换 */
+  /** 进入下一级：明细面板的一级交给上层（并退出单卡全屏；横屏查看器不关，面板盖在上面，关掉面板回到查看器），其余在卡片里切换 */
   const drillInto = (row: BiRow) => {
     const next = pushDrill(card, stack, row, view.encoding)
     if (onOpenPanel && nextOpensInPanel(card, stack)) {
-      exitFullscreen()
+      if (!embedded) exitFullscreen()
       onOpenPanel(next)
     } else {
       setStack(next)
@@ -121,13 +129,15 @@ export default function BiCardView({ card, filters, queries, filterText, onPick,
   return (
     <section
       className={
-        fullscreen
+        embedded
+          ? 'h-full bg-surface px-4 pt-3 pb-1 flex flex-col min-w-0'
+          : fullscreen
           ? 'fixed inset-0 z-[95] bg-surface p-4 lg:p-6 safe-bottom flex flex-col min-w-0'
           : 'bg-surface rounded-2xl border border-line shadow-sm p-4 flex flex-col min-w-0'
       }
       aria-label={title}
-      aria-modal={fullscreen || undefined}
-      role={fullscreen ? 'dialog' : undefined}
+      aria-modal={(fullscreen && !embedded) || undefined}
+      role={fullscreen && !embedded ? 'dialog' : undefined}
     >
       {/* 标题行 */}
       <header className="flex items-start justify-between gap-2 mb-2">
