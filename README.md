@@ -710,6 +710,7 @@ EXEC dbo.Z_ONLINE_XXX_ORDER_DETAIL @_loginUser, @OrderNo
 | 键 | 位置 | 规则 |
 |----|------|------|
 | `title` | 标题 | 值为空或 `0` 时跳过，取下一个候选（如 Z1 工序没有单号，用「工序」当标题） |
+| `titleNote` | 标题同一行的小字 | 如单号后面跟工序；与标题是同一列时不显示（Z1 用工序当标题时不重复） |
 | `badge` | 右上角标签 | 颜色可用 `badgeTones`（值 → `neutral/info/warning/success/danger`），未配置按关键字推断 |
 | `subtitle` / `subNote` | 副标题（最多两行）/ 其后小字 | |
 | `metric` | 右侧大号数字 | 优先取有值的候选，全为空时取第一个存在的列并显示「—」 |

@@ -137,7 +137,7 @@ function serializeVoiceActions(input) {
   return JSON.stringify(cleaned);
 }
 
-const MOBILE_CARD_SLOTS = ['title', 'badge', 'subtitle', 'subNote', 'metric', 'hidden'];
+const MOBILE_CARD_SLOTS = ['title', 'titleNote', 'badge', 'subtitle', 'subNote', 'metric', 'hidden'];
 const MOBILE_CARD_TONES = ['neutral', 'info', 'warning', 'success', 'danger'];
 
 function cardColList(v) {

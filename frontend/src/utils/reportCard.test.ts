@@ -4,11 +4,12 @@ import { formatCardValue, inferBadgeTone, normalizeCardConfig, resolveCard } fro
 // 生产报工（Z_ONLINE_TOOWORSIGN）的配置，列名来自各状态的真实返回
 const CFG = normalizeCardConfig({
   title: ['DocEntry', '工序'],
+  titleNote: ['工序'],
   badge: ['动作', '类型'],
   subtitle: '物料名称',
   subNote: ['物料编码'],
   metric: ['未恢复数量', '数量', '接单数量', '已接单数量', '未接单数量', '计划数量'],
-  meta: [['工序'], ['接单人员', '接单人', '报工人'], ['接单时间', '报工时间']],
+  meta: [['接单人员', '接单人', '报工人'], ['接单时间', '报工时间']],
   progress: { done: ['完工数量', '已完工数量'], total: ['接单数量', '已接单数量'] },
   hidden: ['StepCode', 'BaseOType', 'BaseOEntry', 'BaseOLine', '工序ID'],
 })!
@@ -33,6 +34,7 @@ describe('resolveCard', () => {
     const row = { DocEntry: 0, 工序: 'Z101 复卷', 动作: '未完工', 接单人员: 'manager,A083', 接单时间: '2026-07-08 08:43', 接单数量: '8.00', 完工数量: null, 暂停数量: null, ...TECH }
     const c = resolveCard(row, CFG)
     expect(c.title).toEqual({ col: '工序', value: 'Z101 复卷' })
+    expect(c.titleNote).toBeNull()
     expect(c.badge).toMatchObject({ value: '未完工', tone: 'info' })
     expect(c.subtitle).toBeNull()
     expect(c.metric).toEqual({ col: '接单数量', value: '8.00' })
@@ -46,10 +48,11 @@ describe('resolveCard', () => {
     const row = { DocEntry: 900007, 物料名称: '凯芙拉网格输送带', 工序: 'Z001 返工单', 计划数量: '1.000000', 已接单数量: null, 未接单数量: '1.00', 物料编码: 'B501-111', ...TECH }
     const c = resolveCard(row, CFG)
     expect(c.title).toEqual({ col: 'DocEntry', value: 900007 })
+    expect(c.titleNote).toEqual({ col: '工序', value: 'Z001 返工单' })
     expect(c.subNote?.value).toBe('B501-111')
     // 已接单数量排在前面但为空 → 取有值的未接单数量
     expect(c.metric?.col).toBe('未接单数量')
-    expect(c.meta.map((m) => m.col)).toEqual(['工序'])
+    expect(c.meta).toEqual([])
     expect(c.rest.map((f) => f.col)).toEqual(['计划数量'])
   })
 
@@ -63,7 +66,8 @@ describe('resolveCard', () => {
     const c = resolveCard(row, CFG)
     expect(c.metric?.col).toBe('数量')
     expect(c.badge).toMatchObject({ value: '完工', tone: 'success' })
-    expect(c.meta.map((m) => m.col)).toEqual(['工序', '报工人', '报工时间'])
+    expect(c.titleNote?.value).toBe('Z001 返工单')
+    expect(c.meta.map((m) => m.col)).toEqual(['报工人', '报工时间'])
     expect(c.rest.map((f) => f.col)).toEqual(['报工单号'])
   })
 

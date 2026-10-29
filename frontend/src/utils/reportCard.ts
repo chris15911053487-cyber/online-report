@@ -10,6 +10,8 @@
 export interface ReportCardConfig {
   /** 标题；值为空或 0 视为没有，继续找下一个候选 */
   title?: string[]
+  /** 标题同一行、紧跟标题的小字（如工序）；与标题是同一列时不显示 */
+  titleNote?: string[]
   /** 右上角状态标签 */
   badge?: string[]
   /** 状态标签配色：值 → neutral | info | warning | success | danger；未配置按关键字推断 */
@@ -39,6 +41,7 @@ export interface CardField {
 
 export interface ResolvedCard {
   title: CardField | null
+  titleNote: CardField | null
   badge: (CardField & { tone: BadgeTone }) | null
   subtitle: CardField | null
   subNote: CardField | null
@@ -61,6 +64,7 @@ export function normalizeCardConfig(raw: unknown): ReportCardConfig | null {
   const r = raw as Record<string, unknown>
   const cfg: ReportCardConfig = {
     title: strList(r.title),
+    titleNote: strList(r.titleNote),
     badge: strList(r.badge),
     subtitle: strList(r.subtitle),
     subNote: strList(r.subNote),
@@ -146,6 +150,8 @@ export function inferBadgeTone(v: unknown): BadgeTone {
 
 export function resolveCard(row: Record<string, unknown>, cfg: ReportCardConfig): ResolvedCard {
   const title = pick(row, cfg.title, { needValue: true, skipZero: true })
+  const noteField = pick(row, cfg.titleNote, { needValue: true })
+  const titleNote = noteField && noteField.col !== title?.col ? noteField : null
   const badgeField = pick(row, cfg.badge, { needValue: true })
   const subtitle = pick(row, cfg.subtitle, { needValue: true })
   const subNote = pick(row, cfg.subNote, { needValue: true })
@@ -154,7 +160,7 @@ export function resolveCard(row: Record<string, unknown>, cfg: ReportCardConfig)
   const meta: CardField[] = []
   for (const group of cfg.meta ?? []) {
     const f = pick(row, group, { needValue: true })
-    if (f && f.col !== title?.col) meta.push(f)
+    if (f && f.col !== title?.col && f.col !== titleNote?.col) meta.push(f)
   }
 
   let progress: ResolvedCard['progress'] = null
@@ -168,7 +174,7 @@ export function resolveCard(row: Record<string, unknown>, cfg: ReportCardConfig)
   }
 
   const used = new Set<string>()
-  for (const f of [title, badgeField, subtitle, subNote, metric, ...meta]) if (f) used.add(f.col.toLowerCase())
+  for (const f of [title, titleNote, badgeField, subtitle, subNote, metric, ...meta]) if (f) used.add(f.col.toLowerCase())
   if (progress) {
     used.add(progress.doneCol.toLowerCase())
     used.add(progress.totalCol.toLowerCase())
@@ -190,5 +196,5 @@ export function resolveCard(row: Record<string, unknown>, cfg: ReportCardConfig)
     ? { ...badgeField, tone: cfg.badgeTones?.[String(badgeField.value).trim()] ?? inferBadgeTone(badgeField.value) }
     : null
 
-  return { title, badge, subtitle, subNote, metric, meta, progress, rest }
+  return { title, titleNote, badge, subtitle, subNote, metric, meta, progress, rest }
 }

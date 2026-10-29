@@ -118,7 +118,7 @@ const AI_PROMPT_EXAMPLE =
   '给出具体数据，并给出风险结论和建议。'
 
 const MOBILE_CARD_PLACEHOLDER =
-  '{\n  "title": ["DocEntry", "工序"],\n  "badge": ["动作", "类型"],\n  "subtitle": ["物料名称"],\n  "subNote": ["物料编码"],\n  "metric": ["接单数量", "计划数量"],\n  "meta": [["工序"], ["接单人员", "接单人"], ["接单时间"]],\n  "progress": { "done": ["完工数量"], "total": ["接单数量"] },\n  "hidden": ["StepCode", "BaseOType", "BaseOEntry", "BaseOLine"]\n}'
+  '{\n  "title": ["DocEntry", "工序"],\n  "titleNote": ["工序"],\n  "badge": ["动作", "类型"],\n  "subtitle": ["物料名称"],\n  "subNote": ["物料编码"],\n  "metric": ["接单数量", "计划数量"],\n  "meta": [["接单人员", "接单人"], ["接单时间"]],\n  "progress": { "done": ["完工数量"], "total": ["接单数量"] },\n  "hidden": ["StepCode", "BaseOType", "BaseOEntry", "BaseOLine"]\n}'
 
 const VOICE_ACTIONS_PLACEHOLDER =
   '[\n  {\n    "patterns": ["{n}号订单", "订单{n}", "单号{n}"],\n    "fill": { "DocEntry": "{n}" },\n    "autoQuery": true\n  }\n]'

@@ -80,6 +80,9 @@ export default function ReportCardList({
                       <span className="mr-1 text-xs font-normal text-muted">{label(c.title.col)}</span>
                     ) : null}
                     {formatCardValue(c.title.value) || String(c.title.value)}
+                    {c.titleNote && (
+                      <span className="ml-2 text-sm font-medium text-fg-2">{formatCardValue(c.titleNote.value)}</span>
+                    )}
                   </>
                 ) : (
                   '—'
