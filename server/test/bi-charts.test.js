@@ -211,3 +211,25 @@ test('图表校验：涨跌着色列 / 涨跌颜色；引用检查包含这些�
   const problems = checkCardRefs({ queryKey: 'sales_by_cust', params: { period: 'x' }, encoding: { deltaColumns: ['Ghost'] }, drill: [] }, queries, '卡片');
   assert.match(problems.join(), /列「Ghost」不在查询/);
 });
+
+test('图表校验：合计方式随类型，合计列须是数值列 / 显示列', () => {
+  const q = new Map([['yoy', {
+    queryKey: 'yoy', label: '同比', params: [],
+    columns: [{ column: '月份', role: 'time' }, { column: '本期', role: 'measure' }, { column: '对比期', role: 'measure' }, { column: '增长率', role: 'measure', format: 'percent' }],
+  }]]);
+  const base = { chartKey: 'yoy_sum', label: '合计', type: 'bar', queryKey: 'yoy', params: {} };
+  const run = (encoding, type = 'bar') => validateChartInput({ ...base, type, encoding }, q);
+  const ok = run({ dimension: '月份', values: ['本期', '对比期'], sumMode: 'legend', sumColumns: ['本期'] });
+  assert.equal(ok.value.encoding.sumMode, 'legend');
+  assert.deepEqual(ok.value.encoding.sumColumns, ['本期']);
+  assert.equal(run({ dimension: '月份', value: '本期', sumMode: 'header' }, 'line').value.encoding.sumMode, 'header');
+  assert.equal(run({ dimension: '月份', value: '本期', sumMode: 'header' }, 'pie').value.encoding.sumMode, 'header');
+  assert.equal(run({ columns: [{ column: '月份' }, { column: '本期' }], sumMode: 'row', sumColumns: ['本期'] }, 'table').value.encoding.sumMode, 'row');
+  assert.equal(run({ dimension: '月份', value: '本期', sumColumns: ['本期'] }).value.encoding.sumColumns, undefined, '不显示合计时不留合计列');
+  assert.match(run({ dimension: '月份', value: '本期', sumMode: 'legend' }, 'pie').error, /合计方式须为 header/);
+  assert.match(run({ dimension: '月份', value: '本期', sumMode: 'row' }).error, /合计方式须为/);
+  assert.match(run({ value: '本期', sumMode: 'header' }, 'kpi').error, /不能设置合计/);
+  assert.match(run({ dimension: '月份', value: '本期', sumMode: 'header', sumColumns: ['对比期'] }).error, /须是数值列之一/);
+  assert.match(run({ columns: [{ column: '月份' }], sumMode: 'row', sumColumns: ['本期'] }, 'table').error, /不在表格的显示列中/);
+  assert.match(run({ dimension: '月份', value: '本期', sumMode: 'header', sumColumns: ['不存在'] }).error, /须是数值列之一|不在/);
+});

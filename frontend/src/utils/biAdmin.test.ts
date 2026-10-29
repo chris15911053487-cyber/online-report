@@ -5,6 +5,7 @@ import {
   rightAxisProblem,
   waterfallProblem,
   stackProblem,
+  sumProblem,
   suggestRightAxis,
   effectiveSource,
   newChart,
@@ -332,5 +333,23 @@ describe('瀑布图 / 数据条', () => {
     const chart = { ...newChart(), chartKey: 'c', label: '表', queryKey: 'yoy', type: 'table' as const, encoding: { barColumns: ['不存在'] } }
     const queries = new Map([['yoy', { queryKey: 'yoy', label: '同比', params: [], columns: [{ column: '月份', role: 'time' as const }] }]])
     expect(chartProblems(chart, queries).join()).toMatch(/不存在/)
+  })
+})
+
+describe('合计设置', () => {
+  it('sumProblem 与后端规则一致', () => {
+    expect(sumProblem({ dimension: 'm', values: ['a', 'b'], sumMode: 'legend', sumColumns: ['a'] }, 'bar')).toBe('')
+    expect(sumProblem({ dimension: 'm', value: 'a', sumMode: 'legend' }, 'pie')).toMatch(/合计方式须为 header/)
+    expect(sumProblem({ value: 'a', sumMode: 'header' }, 'kpi')).toMatch(/不能设置合计/)
+    expect(sumProblem({ dimension: 'm', value: 'a', sumMode: 'header', sumColumns: ['b'] }, 'line')).toMatch(/须是数值列之一/)
+    expect(sumProblem({ columns: [{ column: 'm' }], sumMode: 'row', sumColumns: ['a'] }, 'table')).toMatch(/不在表格的显示列中/)
+    expect(sumProblem({ sumMode: 'row', sumColumns: ['a'] }, 'table')).toBe('')
+  })
+
+  it('cleanEncoding：切换类型去掉不支持的合计方式，不显示合计时不留列', () => {
+    expect(cleanEncoding('pie', { dimension: 'm', value: 'a', sumMode: 'legend', sumColumns: ['a'] })).toEqual({ dimension: 'm', value: 'a' })
+    expect(cleanEncoding('line', { dimension: 'm', value: 'a', sumMode: 'header' }).sumMode).toBe('header')
+    expect(cleanEncoding('waterfall', { dimension: 'm', value: 'a', sumMode: 'header' }).sumMode).toBeUndefined()
+    expect(cleanEncoding('table', { sumMode: 'row', sumColumns: ['a'] })).toEqual({ sumMode: 'row', sumColumns: ['a'] })
   })
 })

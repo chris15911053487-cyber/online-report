@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { alignedAxisRanges, buildChartModel, columnLabel, highlightPoint, labelPlan, MAX_WATERFALL_PANELS, rightAxisColumns, valueColumns, waterfallAxisMin, waterfallColors, waterfallPanels, waterfallSteps } from './biOption'
+import { alignedAxisRanges, buildChartModel, chartTotals, defaultSumColumns, columnLabel, highlightPoint, labelPlan, MAX_WATERFALL_PANELS, rightAxisColumns, valueColumns, waterfallAxisMin, waterfallColors, waterfallPanels, waterfallSteps } from './biOption'
 import { canDrillFrom, levelView, nextDrillLabel, popDrillTo, pushDrill, rootStack, rowCaption } from './biDrill'
 import type { BiCard, BiEncoding } from './bi'
 
@@ -501,5 +501,53 @@ describe('明细面板打开时高亮来源项', () => {
     const line = buildChartModel('line', { dimension: 'Name', value: 'Amt' }, rows)
     const hl = highlightPoint(line.option, { dataIndex: 1 })
     expect((hl.series as { data: unknown[] }[])[0].data[1]).toMatchObject({ symbolSize: 12 })
+  })
+})
+
+describe('合计', () => {
+  const months = Array.from({ length: 12 }, (_, i) => ({ M: `${i + 1}月`, Amt: (i + 1) * 100, Rate: 0.1 }))
+  type Legend = { formatter?: (n: string) => string } | undefined
+
+  it('不设 sumMode 不合计', () => {
+    expect(buildChartModel('bar', { dimension: 'M', value: 'Amt' }, months).totals).toEqual([])
+  })
+
+  it('总数：topN 截断后仍按全部行合计', () => {
+    const m = buildChartModel('bar', { dimension: 'M', value: 'Amt', topN: 6, sumMode: 'header' }, months)
+    expect(m.plotted).toBe(6)
+    expect(m.totals).toEqual([{ name: 'Amt', value: 7800, text: '7,800' }])
+    expect((m.option as { legend?: unknown }).legend).toBeUndefined()
+  })
+
+  it('默认不合计百分比列与右轴列；sumColumns 可指定', () => {
+    const enc: BiEncoding = { dimension: 'M', values: ['Amt', 'Rate'], columns: [{ column: 'Rate', format: 'percent' }] }
+    expect(defaultSumColumns('bar', enc)).toEqual(['Amt'])
+    expect(defaultSumColumns('bar', { dimension: 'M', values: ['Amt', 'Rate'], rightAxis: ['Rate'] })).toEqual(['Amt'])
+    expect(chartTotals('bar', { ...enc, sumMode: 'header', sumColumns: ['Rate'] }, months)[0].text).toBe('120%')
+  })
+
+  it('图例：单系列也显示图例，系列名后带合计', () => {
+    const m = buildChartModel('line', { dimension: 'M', value: 'Amt', unit: '元', sumMode: 'legend' }, months)
+    const legend = (m.option as { legend: Legend }).legend
+    expect(legend?.formatter?.('Amt')).toBe('Amt  7,800 元')
+  })
+
+  it('多系列（长表）：每个系列各自合计，只列图上的系列', () => {
+    const long = [
+      { M: '1月', Y: '今年', V: 10 },
+      { M: '1月', Y: '去年', V: 8 },
+      { M: '2月', Y: '今年', V: 20 },
+      { M: '2月', Y: '去年', V: 6 },
+      { M: '3月', Y: '前年', V: 99 },
+    ]
+    const totals = chartTotals('bar', { dimension: 'M', value: 'V', series: 'Y', topN: 4, sumMode: 'legend' }, long)
+    expect(totals.map((t) => [t.name, t.value])).toEqual([['今年', 30], ['去年', 14]])
+  })
+
+  it('饼图：总数画在环中间；瀑布图不合计', () => {
+    const m = buildChartModel('pie', { dimension: 'M', value: 'Amt', topN: 3, sumMode: 'header' }, months)
+    expect((m.option as { title?: { text: string } }).title?.text).toBe('7,800')
+    expect(chartTotals('pie', { dimension: 'M', value: 'Amt', sumMode: 'legend' }, months)).toEqual([])
+    expect(buildChartModel('waterfall', { dimension: 'M', value: 'Amt', sumMode: 'header' }, months).totals).toEqual([])
   })
 })

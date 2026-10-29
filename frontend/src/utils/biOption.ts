@@ -9,7 +9,7 @@
  * 同时返回 rowAt(dataIndex, seriesName)：把 ECharts 点击事件映射回结果集里的那一行，
  * 供下钻（bind 取列值）和「问 AI」（组装上下文）使用。
  */
-import { formatValue, toNumber, type BiEncoding } from './bi'
+import { formatValue, sumModesFor, toNumber, type BiEncoding, type BiFormat } from './bi'
 
 export type BiRow = Record<string, unknown>
 export type BiChartType = 'bar' | 'line' | 'pie' | 'waterfall'
@@ -24,6 +24,16 @@ export interface ChartModel {
   pickIndex?: (value: number[]) => number | null
   /** 结果行 → 图上的位置（明细面板打开时高亮来源项）；不支持的图（瀑布图）不提供 */
   indexOf?: (row: BiRow) => ChartPoint | null
+  /** 合计（encoding.sumMode 为 legend / header 时）：每个系列或数值列一项，按全部行合计 */
+  totals: ChartTotal[]
+}
+
+export interface ChartTotal {
+  /** 系列名（多系列）或数值列显示名 */
+  name: string
+  value: number
+  /** 按该列格式化后的文字（含单位） */
+  text: string
 }
 
 export interface ChartPoint {
@@ -44,6 +54,51 @@ export function columnLabel(enc: BiEncoding, col: string): string {
 }
 
 const str = (v: unknown) => (v == null ? '' : String(v))
+
+/** 数值列的格式：列上单独配置的格式与整张图不同时用列的（右轴增长率等），否则用整张图的 format / unit / scale */
+function columnFormat(enc: BiEncoding, col: string): Pick<BiEncoding, 'format' | 'unit' | 'scale'> {
+  const f: BiFormat | undefined = enc.columns?.find((c) => c.column === col)?.format
+  return f && f !== enc.format ? { format: f } : enc
+}
+
+/** 默认参与合计的列：左轴（不含右轴折线）上不是百分比的数值列；长表多系列只有第一个数值列 */
+export function defaultSumColumns(type: BiChartType, enc: BiEncoding): string[] {
+  const cols = valueColumns(enc)
+  const candidates = enc.series || type === 'pie' ? cols.slice(0, 1) : cols.filter((c) => !rightAxisColumns(type, enc).includes(c))
+  return candidates.filter((c) => columnFormat(enc, c).format !== 'percent')
+}
+
+/**
+ * 图表合计：按全部行（topN 截断前）合计。
+ * - 长表多系列（series）：每个系列一项，合计第一个数值列，顺序与图上的系列一致（只列图上画出来的系列）
+ * - 其余：sumColumns（不写 = defaultSumColumns）里每列一项
+ */
+export function chartTotals(type: BiChartType, enc: BiEncoding, allRows: BiRow[]): ChartTotal[] {
+  if (!enc.sumMode || !sumModesFor(type).includes(enc.sumMode)) return []
+  const cols = valueColumns(enc)
+  const wanted = (enc.sumColumns?.length ? enc.sumColumns : defaultSumColumns(type, enc)).filter((c) => cols.includes(c))
+  const sum = (rs: BiRow[], col: string) => rs.reduce((a, r) => a + (toNumber(r[col]) ?? 0), 0)
+  if (enc.series && type !== 'pie') {
+    const col = cols[0]
+    if (!col || !wanted.includes(col)) return []
+    const plotted = new Set((enc.topN ? allRows.slice(0, enc.topN) : allRows).map((r) => str(r[enc.series!])))
+    const groups = new Map<string, BiRow[]>()
+    for (const r of allRows) {
+      const k = str(r[enc.series])
+      if (!plotted.has(k)) continue
+      if (!groups.has(k)) groups.set(k, [])
+      groups.get(k)!.push(r)
+    }
+    return [...groups].map(([name, rs]) => {
+      const value = sum(rs, col)
+      return { name, value, text: formatValue(value, enc) }
+    })
+  }
+  return wanted.map((col) => {
+    const value = sum(allRows, col)
+    return { name: columnLabel(enc, col), value, text: formatValue(value, columnFormat(enc, col)) }
+  })
+}
 
 /** 「自动」时标数值的上限：竖柱 ≤12 根、横向条形 ≤20 根（再多会挤） */
 export const AUTO_LABEL_MAX_BARS = 12
@@ -187,10 +242,14 @@ export function buildChartModel(
   const cols = valueColumns(enc)
   const tooltipValue = (v: unknown) => formatValue(v, enc)
 
+  const totals = chartTotals(type, enc, allRows)
+
   if (type === 'pie') {
     const col = cols[0] || ''
+    const total = totals[0]
     return {
       plotted: rows.length,
+      totals,
       rowAt: (i) => rows[i] ?? null,
       indexOf: (row) => indexIn(rows, row),
       option: {
@@ -200,6 +259,21 @@ export function buildChartModel(
             `${p.marker ?? ''}${escapeHtml(p.name ?? '')}&nbsp;&nbsp;<b>${escapeHtml(tooltipValue(p.value))}</b>（${pieShare(p.percent)}）`,
         },
         legend: { type: 'scroll', bottom: 0, textStyle: { fontSize: 11 } },
+        // 合计画在环中间（与 center 的 45% 对齐）
+        ...(total
+          ? {
+              title: {
+                text: total.text,
+                subtext: '合计',
+                left: 'center',
+                top: '45%',
+                textVerticalAlign: 'middle',
+                itemGap: 2,
+                textStyle: { fontSize: 14, fontWeight: 600 },
+                subtextStyle: { fontSize: 11 },
+              },
+            }
+          : {}),
         series: [
           {
             type: 'pie',
@@ -369,12 +443,25 @@ export function buildChartModel(
     }
   }
 
+  // 合计写在图例上：「今年 1,234 万」；单系列也显示图例
+  const legendTotals = enc.sumMode === 'legend' ? new Map(totals.map((t) => [t.name, t.text])) : null
+  const showLegend = series.length > 1 || !!legendTotals?.size
+  const legend = showLegend
+    ? {
+        top: 0,
+        type: 'scroll',
+        textStyle: { fontSize: 11 },
+        ...(legendTotals?.size ? { formatter: (name: string) => (legendTotals.has(name) ? `${name}  ${legendTotals.get(name)}` : name) } : {}),
+      }
+    : undefined
+
   return {
     plotted: rows.length,
     rowAt,
     indexOf,
+    totals,
     option: {
-      grid: { left: 8, right: plan !== 'none' && horizontal ? 40 : 16, top: series.length > 1 ? 32 : plan !== 'none' && !horizontal ? 24 : 20, bottom: 8, containLabel: true },
+      grid: { left: 8, right: plan !== 'none' && horizontal ? 40 : 16, top: showLegend ? 32 : plan !== 'none' && !horizontal ? 24 : 20, bottom: 8, containLabel: true },
       tooltip: {
         trigger: 'axis',
         axisPointer: { type: type === 'bar' ? 'shadow' : 'line' },
@@ -382,7 +469,7 @@ export function buildChartModel(
         // 百分比堆叠：占比 + 原值
         ...(percent ? { formatter: (ps: TooltipParam[]) => percentTooltip(ps, rawData, isRight, enc, rightFormat) } : {}),
       },
-      legend: series.length > 1 ? { top: 0, type: 'scroll', textStyle: { fontSize: 11 } } : undefined,
+      legend,
       xAxis: horizontal ? valueAxis : categoryAxis,
       yAxis: horizontal ? categoryAxis : right.length ? [valueAxis, rightAxis] : valueAxis,
       series,
@@ -671,6 +758,7 @@ function buildWaterfallModel(enc: BiEncoding, allRows: BiRow[], opts: { clickabl
 
   return {
     plotted: all.length,
+    totals: [],
     rowAt: (i) => at[i]?.row ?? null,
     // 点在柱子之间的空白处：按所在的栏和项目算
     pickIndex: (v) => {

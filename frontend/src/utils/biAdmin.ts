@@ -3,7 +3,7 @@
  * 图表默认配置、看板引用展开、引用完整性检查。
  * 与后端 bi-queries.js / bi-charts.js / bi-dashboards.js 的规则保持一致。
  */
-import { defaultChartSize } from './bi'
+import { defaultChartSize, sumModesFor } from './bi'
 import type {
   BiCard,
   BiCardRef,
@@ -466,10 +466,10 @@ export function cleanEncoding(type: BiCardType, enc: BiEncoding): BiEncoding {
     type === 'kpi'
       ? ['value', 'compare', 'label', 'format', 'unit', 'scale', 'trend']
       : type === 'table'
-        ? ['columns', 'dimension', 'deltaColumns', 'trend', 'barColumns', 'barShared']
+        ? ['columns', 'dimension', 'deltaColumns', 'trend', 'barColumns', 'barShared', 'sumMode', 'sumColumns']
         : type === 'waterfall'
           ? ['dimension', 'value', 'horizontal', 'series', 'total', 'subtotals', 'fromZero', 'trend', 'format', 'unit', 'scale', 'labels', 'columns']
-          : ['dimension', 'value', 'values', 'series', 'format', 'unit', 'scale', 'topN', 'horizontal', 'stack', 'labels', 'columns', 'rightAxis']
+          : ['dimension', 'value', 'values', 'series', 'format', 'unit', 'scale', 'topN', 'horizontal', 'stack', 'labels', 'columns', 'rightAxis', 'sumMode', 'sumColumns']
   for (const k of keep) {
     const v = enc[k]
     if (v === undefined || v === '' || (Array.isArray(v) && v.length === 0)) continue
@@ -486,6 +486,9 @@ export function cleanEncoding(type: BiCardType, enc: BiEncoding): BiEncoding {
   // 瀑布图只有一个数值列：多选时取第一个
   if (type === 'waterfall' && !out.value && enc.values?.length) out.value = enc.values[0]
   if (type === 'table' && !out.barColumns?.length) delete out.barShared
+  // 合计：该类型不支持的方式去掉（如柱图切成饼图时的「图例」），不显示合计时不留列
+  if (out.sumMode && !sumModesFor(type).includes(out.sumMode)) delete out.sumMode
+  if (!out.sumMode) delete out.sumColumns
   return out
 }
 
@@ -511,6 +514,22 @@ export function rightAxisProblem(enc: BiEncoding, type: BiCardType): string {
   if (stray.length) return `右轴列「${stray.join('、')}」须是数值列之一`
   if (values.every((c) => enc.rightAxis!.includes(c))) return '至少留一个数值列在左轴'
   return ''
+}
+
+/** 合计的结构问题（与后端 bi-charts.js 的 sumProblem 一致）；没有问题返回 '' */
+export function sumProblem(enc: BiEncoding, type: BiCardType): string {
+  if (!enc.sumMode) return ''
+  if (!sumModesFor(type).includes(enc.sumMode)) return type === 'kpi' || type === 'waterfall' ? '该类型不能设置合计' : `该类型的合计方式须为 ${sumModesFor(type).join(' / ')}`
+  const cols = enc.sumColumns || []
+  if (!cols.length) return ''
+  if (type === 'table') {
+    const shown = enc.columns?.map((c) => c.column)
+    const stray = shown ? cols.filter((c) => !shown.includes(c)) : []
+    return stray.length ? `合计列「${stray.join('、')}」不在表格的显示列中` : ''
+  }
+  const values = enc.values?.length ? enc.values : enc.value ? [enc.value] : []
+  const stray = cols.filter((c) => !values.includes(c))
+  return stray.length ? `合计列「${stray.join('、')}」须是数值列之一` : ''
 }
 
 /** 堆叠的结构问题（与后端 bi-charts.js 的 stackProblem 一致）；没有问题返回 '' */
@@ -555,6 +574,7 @@ function encodingColumns(enc: BiEncoding): string[] {
   for (const v of enc.rightAxis || []) cols.push(v)
   for (const v of enc.deltaColumns || []) cols.push(v)
   for (const v of enc.barColumns || []) cols.push(v)
+  for (const v of enc.sumColumns || []) cols.push(v)
   for (const c of enc.columns || []) cols.push(c.column)
   return cols
 }
@@ -614,6 +634,8 @@ export function cardProblems(
     if (ra) problems.push(`${where}${ra}`)
     const sp = stackProblem(enc, type)
     if (sp) problems.push(`${where}${sp}`)
+    const sm = sumProblem(enc, type)
+    if (sm) problems.push(`${where}${sm}`)
   }
   checkLevel('', q, card.params, card.encoding, card.type, [])
   let source = q

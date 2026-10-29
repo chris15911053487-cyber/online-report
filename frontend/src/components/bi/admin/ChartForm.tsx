@@ -5,7 +5,7 @@
  */
 import { useState } from 'react'
 import { ArrowDown, ArrowUp, Plus, Search, Trash2 } from 'lucide-react'
-import { defaultChartSize, type BiCardType, type BiChartDef, type BiColumnRole, type BiColumnSemantic, type BiDrillLevel, type BiDrillOpen, type BiEncoding, type BiFormat, type BiLabelMode, type BiStackMode, type BiValue, type BiTrend } from '../../../utils/bi'
+import { defaultChartSize, sumModesFor, withColumnSemantics, type BiCardType, type BiChartDef, type BiColumnRole, type BiColumnSemantic, type BiDrillLevel, type BiDrillOpen, type BiEncoding, type BiFormat, type BiLabelMode, type BiStackMode, type BiSumMode, type BiValue, type BiTrend } from '../../../utils/bi'
 import {
   COLUMN_ROLE_LABEL,
   FORMAT_LABEL,
@@ -22,7 +22,7 @@ import { cn, compactInputClass } from '../../../ui/classes'
 import type { QueryOption } from './types'
 import ParamValueInput from './ParamValueInput'
 import QueryPickerModal from './QueryPickerModal'
-import { MAX_WATERFALL_PANELS } from '../../../utils/biOption'
+import { MAX_WATERFALL_PANELS, defaultSumColumns } from '../../../utils/biOption'
 import { drillOpenMode } from '../../../utils/biDrill'
 
 const CARD_TYPES: { value: BiCardType; label: string }[] = [
@@ -50,6 +50,14 @@ const PIE_LABEL_MODES: { value: BiLabelMode; label: string }[] = [
   { value: 'both', label: '金额 + 比例' },
   { value: 'hide', label: '不显示' },
 ]
+const SUM_MODE_LABEL: Record<BiSumMode, string> = { legend: '在图例上', header: '总数', row: '底部合计行' }
+const SUM_MODE_HINT: Partial<Record<BiCardType, string>> = {
+  bar: '在图例上：每个系列名后面写合计；总数：显示在标题下方。按全部数据合计（不受「只显示前」影响）',
+  line: '在图例上：每个系列名后面写合计；总数：显示在标题下方。按全部数据合计（不受「只显示前」影响）',
+  pie: '总数画在环的中间，按全部数据合计（不受「只显示前」影响）',
+  table: '表格底部加一行合计（按已显示的行）',
+}
+
 const TRENDS: { value: BiTrend | 'neutral'; label: string }[] = [
   { value: 'neutral', label: '中性' },
   { value: 'up-good', label: '上涨为好' },
@@ -259,6 +267,42 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
     </Row>
   )
 
+  // 合计：方式随类型变；可选的列 = 柱 / 线的左轴数值列（长表多系列只合计第一列，不用选）、表格的度量列
+  const sumModes = sumModesFor(type)
+  const sumCandidates =
+    type === 'table'
+      ? (enc.columns?.length ? enc.columns.map((c) => c.column) : columns.map((c) => c.column)).filter((c) => measures.some((m) => m.column === c))
+      : type === 'pie' || enc.series
+        ? []
+        : valueList.filter((c) => !enc.rightAxis?.includes(c))
+  const sumDefault =
+    type === 'table'
+      ? sumCandidates.filter((c) => columns.find((x) => x.column === c)?.format !== 'percent')
+      : type === 'bar' || type === 'line' || type === 'pie'
+        ? defaultSumColumns(type, withColumnSemantics(enc, columns))
+        : []
+  const sumRows = sumModes.length > 0 && (
+    <>
+      <Row label="合计" hint={SUM_MODE_HINT[type]}>
+        <Segmented
+          size="sm"
+          options={[{ value: 'none', label: '不显示' }, ...sumModes.map((m) => ({ value: m, label: type === 'pie' ? '环中间显示' : SUM_MODE_LABEL[m] }))]}
+          value={enc.sumMode || 'none'}
+          onChange={(v) => set(v === 'none' ? { sumMode: undefined, sumColumns: undefined } : { sumMode: v as BiSumMode })}
+        />
+      </Row>
+      {enc.sumMode && sumCandidates.length > 1 && (
+        <Row label="合计列" hint="默认勾上金额、数量这类列；增长率、毛利率这类百分比加起来没有意义，默认不合计">
+          <ChipSelect
+            options={sumCandidates.map((c) => ({ value: c, label: columns.find((x) => x.column === c)?.label || c }))}
+            selected={enc.sumColumns?.length ? enc.sumColumns.filter((c) => sumCandidates.includes(c)) : sumDefault}
+            onChange={(sel) => set({ sumColumns: sel.length ? sel : undefined })}
+          />
+        </Row>
+      )}
+    </>
+  )
+
   const formatRows = type !== 'table' && (
     <>
       <Row label="格式">
@@ -353,6 +397,7 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
             />
           </Row>
         )}
+        {sumRows}
       </div>
     )
   }
@@ -429,6 +474,7 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
                   ...(sel.length > 1 ? { values: sel, value: undefined } : { value: sel[0], values: undefined }),
                   rightAxis: enc.series || enc.horizontal ? undefined : suggestRightAxis(sel, enc, columns),
                   ...(!enc.series && sel.length < 2 ? { stack: undefined } : {}),
+                  ...(enc.sumColumns ? { sumColumns: enc.sumColumns.filter((c) => sel.includes(c)).length ? enc.sumColumns.filter((c) => sel.includes(c)) : undefined } : {}),
                 })
               }
               empty="查询没有度量列"
@@ -485,6 +531,7 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
           <Segmented size="sm" options={LABEL_MODES} value={enc.labels || 'auto'} onChange={(v) => set({ labels: v === 'auto' ? undefined : v })} />
         </Row>
       )}
+      {sumRows}
       {formatRows}
     </div>
   )

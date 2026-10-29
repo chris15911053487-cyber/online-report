@@ -9,7 +9,8 @@
 import { useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Info, Maximize2, Minimize2, RotateCw } from 'lucide-react'
 import { usePageFullscreen } from '../../hooks/usePageFullscreen'
-import { BI_CARD_HEIGHT, changeRatio, dataBarScale, fillPlaceholders, formatValue, toNumber, withColumnSemantics, type BiCard, type BiColumnDef, type BiFilterValues, type BiQueryMeta, type BiTrend } from '../../utils/bi'
+import { BI_CARD_HEIGHT, changeRatio, dataBarScale, fillPlaceholders, formatValue, toNumber, withColumnSemantics, type BiCard, type BiColumnDef, type BiColumnSemantic, type BiFilterValues, type BiQueryMeta, type BiTrend } from '../../utils/bi'
+import { summableColumns, sumColumns } from '../../utils/biTable'
 import { buildChartModel, columnLabel, highlightPoint, sameRow, type BiRow } from '../../utils/biOption'
 import { canDrillFrom, levelView, nextDrillLabel, nextOpensInPanel, popDrillTo, pushDrill, rootStack, type DrillFrame } from '../../utils/biDrill'
 import type { BiPick } from '../../utils/biContext'
@@ -122,6 +123,12 @@ export default function BiCardView({ card, filters, queries, filterText, onPick,
     [chart, selectedRow],
   )
 
+  // 合计显示在标题下方（柱 / 线；饼图画在环中间）。单项只写「合计 金额」，多项带系列名
+  const headerTotals =
+    chart && !error && encoding.sumMode === 'header' && view.type !== 'pie' && chart.totals.length
+      ? `合计 ${chart.totals.length === 1 ? chart.totals[0].text : chart.totals.map((t) => `${t.name} ${t.text}`).join(' · ')}`
+      : ''
+
   const height = BI_CARD_HEIGHT[card.layout.h] ?? BI_CARD_HEIGHT[2]
   // 全屏时图表 / 表格铺满内容区（内容区是 flex-1，高度确定）
   const bodyHeight: number | string = fullscreen ? '100%' : height
@@ -151,6 +158,11 @@ export default function BiCardView({ card, filters, queries, filterText, onPick,
             )}
           </h3>
           {subtitle && stack.length === 1 && <p className="text-[11.5px] text-subtle truncate">{subtitle}</p>}
+          {headerTotals && (
+            <p className="text-[11.5px] text-muted truncate num" title={headerTotals}>
+              {headerTotals}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-1.5 shrink-0 text-[10.5px] text-subtle">
           {data?.stale && <span className="text-warning" title="缓存已过期，后台正在更新">更新中</span>}
@@ -234,6 +246,8 @@ export default function BiCardView({ card, filters, queries, filterText, onPick,
                     encoding={encoding}
                     maxHeight={bodyHeight}
                     selectedRow={selectedRow}
+                    semantics={semantics}
+                    truncated={!!data.truncated}
                     onRow={clickable ? (row, x, y, newTab) => pick(row, x, y, newTab) : undefined}
                   />
                 )}
@@ -299,6 +313,8 @@ function TableBody({
   encoding,
   maxHeight,
   selectedRow,
+  semantics,
+  truncated,
   onRow,
 }: {
   rows: BiRow[]
@@ -306,9 +322,19 @@ function TableBody({
   encoding: BiCard['encoding']
   maxHeight: number | string
   selectedRow?: BiRow | null
+  semantics?: BiColumnSemantic[]
+  truncated: boolean
   onRow?: (row: BiRow, x: number, y: number, newTab: boolean) => void
 }) {
   const cols: BiColumnDef[] = encoding.columns?.length ? encoding.columns : columns.map((c) => ({ column: c }))
+  // 底部合计行：sumColumns 不写时取可合计的度量列（与明细面板一致）
+  const sumCols =
+    encoding.sumMode !== 'row'
+      ? []
+      : encoding.sumColumns?.length
+        ? encoding.sumColumns.filter((c) => cols.some((x) => x.column === c))
+        : summableColumns(cols, rows, semantics)
+  const totals = sumCols.length ? sumColumns(rows, sumCols) : null
   const delta = new Set(encoding.deltaColumns || [])
   const barCols = (encoding.barColumns || []).filter((c) => cols.some((x) => x.column === c))
   const barMax = dataBarScale(rows, barCols, encoding.barShared)
@@ -380,6 +406,20 @@ function TableBody({
             </tr>
           ))}
         </tbody>
+        {totals && (
+          <tfoot className="sticky bottom-0 z-[1]">
+            <tr>
+              {cols.map((c, i) => (
+                <td
+                  key={c.column}
+                  className={`bg-surface-2 border-t border-line px-2.5 py-1.5 whitespace-nowrap font-medium ${c.column in totals ? 'text-right tabular-nums text-fg' : 'text-muted'}`}
+                >
+                  {c.column in totals ? formatValue(totals[c.column], { format: c.format }) : i === 0 ? (truncated ? '合计（已显示的行）' : '合计') : ''}
+                </td>
+              ))}
+            </tr>
+          </tfoot>
+        )}
       </table>
     </div>
   )

@@ -48,6 +48,20 @@ export interface BiEncoding {
   barColumns?: string[]
   /** 表格数据条：true = 各列同一比例（同单位的金额列互相比较），不写 = 每列按本列最大值 */
   barShared?: boolean
+  /** 合计：legend 写在图例上（每个系列一个合计）、header 显示在标题下方（饼图画在环中间）、row 表格底部合计行；不写 = 不显示。按全部行合计（不受 topN 截断） */
+  sumMode?: BiSumMode
+  /** 参与合计的数值列；不写 = 默认（图表：左轴非百分比的数值列；表格：可合计的度量列） */
+  sumColumns?: string[]
+}
+
+export type BiSumMode = 'legend' | 'header' | 'row'
+
+/** 各类型可选的合计方式（与后端 bi-charts.js 的 SUM_MODES 一致）；空 = 该类型不支持合计 */
+export function sumModesFor(type: BiCardType): BiSumMode[] {
+  if (type === 'bar' || type === 'line') return ['legend', 'header']
+  if (type === 'pie') return ['header']
+  if (type === 'table') return ['row']
+  return []
 }
 
 export type BiLabelMode = 'auto' | 'show' | 'hide' | 'value' | 'both'

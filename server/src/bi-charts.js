@@ -103,6 +103,26 @@ function stackProblem(enc, type) {
   return '';
 }
 
+/** 各类型可选的合计方式（与前端 utils/bi.ts 的 sumModesFor 一致） */
+const SUM_MODES = { bar: ['legend', 'header'], line: ['legend', 'header'], pie: ['header'], table: ['row'] };
+
+/** 合计的结构问题（与前端 utils/biAdmin.ts 的 sumProblem 一致）；没有问题返回 '' */
+function sumProblem(enc, type) {
+  if (!enc.sumMode) return '';
+  const modes = SUM_MODES[type] || [];
+  if (!modes.includes(enc.sumMode)) return modes.length ? `该类型的合计方式须为 ${modes.join(' / ')}` : '该类型不能设置合计';
+  const cols = enc.sumColumns || [];
+  if (!cols.length) return '';
+  if (type === 'table') {
+    const shown = enc.columns ? enc.columns.map((c) => c.column) : null;
+    const stray = shown ? cols.filter((c) => !shown.includes(c)) : [];
+    return stray.length ? `合计列「${stray.join('、')}」不在表格的显示列中` : '';
+  }
+  const values = enc.values && enc.values.length ? enc.values : enc.value ? [enc.value] : [];
+  const stray = cols.filter((c) => !values.includes(c));
+  return stray.length ? `合计列「${stray.join('、')}」须是数值列之一` : '';
+}
+
 /** 瀑布图的结构问题（与前端 utils/biAdmin.ts 的 waterfallProblem 一致）；没有问题返回 '' */
 function waterfallProblem(enc, type) {
   if (type !== 'waterfall') {
@@ -183,11 +203,14 @@ function normalizeEncoding(input, type, where) {
     if (list.length) out[field] = list;
     return { ok: true };
   };
-  for (const [field, max] of [['rightAxis', 10], ['deltaColumns', 50], ['barColumns', 50]]) {
+  for (const [field, max] of [['rightAxis', 10], ['deltaColumns', 50], ['barColumns', 50], ['sumColumns', 50]]) {
     const r = listField(field, max);
     if (!r.ok) return r;
   }
   if (e.barShared) out.barShared = true;
+  // 合计：legend 图例上 / header 标题下方（饼图环中间）/ row 表格合计行；不显示合计时不留合计列
+  if (e.sumMode != null && e.sumMode !== '' && e.sumMode !== 'none') out.sumMode = String(e.sumMode);
+  if (!out.sumMode) delete out.sumColumns;
   // 瀑布图：末尾合计柱的名称、画成小计柱的项目（维度列的值，不是列名）
   if (e.total != null && String(e.total).trim()) out.total = str(e.total, 32);
   if (e.subtotals != null) {
@@ -218,6 +241,8 @@ function normalizeEncoding(input, type, where) {
   }
   const sp = stackProblem(out, type);
   if (sp) return fail(`${where} ${sp}`);
+  const sm = sumProblem(out, type);
+  if (sm) return fail(`${where} ${sm}`);
   const wp = waterfallProblem(out, type);
   if (wp) return fail(`${where} ${wp}`);
   return { ok: true, value: out };
@@ -328,6 +353,7 @@ function encodingColumns(enc) {
   for (const v of enc.rightAxis || []) cols.push(v);
   for (const v of enc.deltaColumns || []) cols.push(v);
   for (const v of enc.barColumns || []) cols.push(v);
+  for (const v of enc.sumColumns || []) cols.push(v);
   for (const c of enc.columns || []) cols.push(c.column);
   return cols;
 }

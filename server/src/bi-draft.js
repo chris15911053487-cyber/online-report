@@ -193,6 +193,7 @@ ${SQL_RULES}
 - encoding：kpi 用 {"value": 度量列}；bar/line/pie 用 {"dimension": 维度列, "value": 度量列}，可加 "horizontal": true（横向条形，适合排名）、"labels": "show"/"hide"（柱/线上是否标数值，不写 = 自动；饼图改用 "value" 标金额 / "both" 标金额 + 比例 / "hide"，不写 = 标比例）、"stack": "normal"/"percent"（仅 bar 且有多个数值列或 series 时：看合计用 normal，看构成占比用 percent）、"topN"
 - waterfall：查询每行一个项目（按 SortNo 排好序），第一行是起点（如收入），之后增加为正、减少为负（成本、费用在 SQL 里取负）；encoding {"dimension": 项目列, "value": 金额列, "total": "营业利润"}（末尾自动加合计柱），中间小计行写 "subtotals": ["毛利"]（该行数值可为 NULL）；成本类用 "trend": "up-bad"；多年对比利润构成时查询加年份列（按 年份, 序号 排序），encoding 加 "horizontal": true, "series": 年份列（每年一栏并排，最多 6 栏）；要每项柱子都从 0 画起（不接着累计、负数在 0 另一侧）时加 "fromZero": true
 - table 可加 "barColumns": [数值列...]（单元格内数据条，适合按年 / 月对比多个金额）；同单位的多列加 "barShared": true（各列同一比例）
+- 合计：按月 / 按类别的金额、数量图表可加 "sumMode"：bar/line 用 "legend"（写在图例上）或 "header"（标题下方显示总数），pie 用 "header"（环中间），table 用 "row"（底部合计行）；"sumColumns": [列...] 指定合计列（不写 = 金额 / 数量类列，百分比不合计）
 - 同比 / 环比查询：按月趋势用 bar {"dimension": "Month", "values": ["Cur", "Prev", "GrowthRate"], "rightAxis": ["GrowthRate"]}（增长率画折线走右轴）；按客户 / 产品用 table {"deltaColumns": ["GrowthRate"], "trend": "up-good"}（增长率涨绿跌红；成本类用 "up-bad"）；KPI 用 {"value": "Cur", "compare": "Prev", "trend": "up-good"}
 - 列名必须是 SQL 的输出列别名
 - params 只写固定值（一般留空 {}）；@period 等参数由看板上的同名筛选提供
