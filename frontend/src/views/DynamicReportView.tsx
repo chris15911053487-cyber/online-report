@@ -17,6 +17,7 @@ import TextOverlay from '../components/TextOverlay'
 import { openBarcodeScan } from '../utils/barcodeScan'
 import ReportCardList from '../components/ReportCardList'
 import { cn } from '../ui/classes'
+import { DatePicker, SelectPicker } from '../ui/pickers'
 import { normalizeCardConfig } from '../utils/reportCard'
 import { useIsPc } from '../hooks/useMediaQuery'
 
@@ -1410,18 +1411,13 @@ export default function DynamicReportView() {
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
             <label className="flex items-center gap-1 text-xs text-muted">
               每页
-              <select
-                className="rounded border border-line px-2 py-1 text-xs"
-                value={pageSize}
-                onChange={(e) => changePageSize(Number(e.target.value))}
+              <SelectPicker
+                className="w-auto rounded border border-line px-2 py-1 text-xs"
+                value={String(pageSize)}
+                options={PAGE_SIZE_OPTIONS.map((n) => ({ value: String(n), label: `${n} 条` }))}
+                onChange={(v) => changePageSize(Number(v))}
                 aria-label="每页条数"
-              >
-                {PAGE_SIZE_OPTIONS.map((s) => (
-                  <option key={s} value={s}>
-                    {s} 条
-                  </option>
-                ))}
-              </select>
+              />
             </label>
             {mp > 1 && (
               <label className="flex items-center gap-1 text-xs text-muted">
@@ -1740,77 +1736,29 @@ function FilterFieldInput({
     ? { onBlur: () => fireComplete(undefined) }
     : {}
 
-  if (f.optionsSql || f.optionsFromSql) {
-    if (sqlLoading) {
-      return (
-        <label className="block">
-          {labelEl}
-          <select className={inputCls} disabled>
-            <option>加载中…</option>
-          </select>
-        </label>
-      )
-    }
-    if (sqlError) {
-      return (
-        <label className="block">
-          {labelEl}
-          <select className={inputCls} disabled>
-            <option>（加载失败）</option>
-          </select>
-        </label>
-      )
-    }
-    const items = sqlOptions ?? []
-    return (
-      <label className="block">
-        {labelEl}
-        <select
-          className={inputCls}
-          value={value}
-          onChange={(e) => notifyChange(e.target.value, true)}
-          data-voice-label={f.label || f.name}
-          data-voice-action="select"
-          data-voice-field={f.name}
-        >
-          {showAll && <option value="">{f.allLabel || '（全部）'}</option>}
-          {items.map((op, i) => {
-            const cv =
-              op.code != null && typeof op.code !== 'object' ? String(op.code) : ''
-            return (
-              <option key={`${cv}-${i}`} value={cv}>
-                {op.name != null ? String(op.name) : ''}
-              </option>
-            )
-          })}
-        </select>
-      </label>
-    )
-  }
+  const voice = { 'data-voice-label': f.label || f.name, 'data-voice-action': 'select', 'data-voice-field': f.name }
+  const toPickerOptions = (list: { code?: unknown; name?: unknown }[]) =>
+    list.map((op) => ({
+      value: op.code != null && typeof op.code !== 'object' ? String(op.code) : '',
+      label: op.name != null ? String(op.name) : '',
+    }))
 
-  if (Array.isArray(f.options) && f.options.length > 0) {
+  if (f.optionsSql || f.optionsFromSql || (Array.isArray(f.options) && f.options.length > 0)) {
+    const fromSql = !!(f.optionsSql || f.optionsFromSql)
     return (
       <label className="block">
         {labelEl}
-        <select
+        <SelectPicker
           className={inputCls}
-          value={value}
-          onChange={(e) => notifyChange(e.target.value, true)}
-          data-voice-label={f.label || f.name}
-          data-voice-action="select"
-          data-voice-field={f.name}
-        >
-          {showAll && <option value="">{f.allLabel || '（全部）'}</option>}
-          {f.options.map((op, i) => {
-            const cv =
-              op.code != null && typeof op.code !== 'object' ? String(op.code) : ''
-            return (
-              <option key={`${cv}-${i}`} value={cv}>
-                {op.name != null ? String(op.name) : ''}
-              </option>
-            )
-          })}
-        </select>
+          value={value == null ? '' : String(value)}
+          options={toPickerOptions(fromSql ? (sqlOptions ?? []) : (f.options ?? []))}
+          emptyLabel={showAll ? f.allLabel || '（全部）' : undefined}
+          loading={fromSql && sqlLoading}
+          error={fromSql && sqlError ? '选项加载失败' : undefined}
+          title={f.label || f.name}
+          onChange={(v) => notifyChange(v, true)}
+          voice={voice}
+        />
       </label>
     )
   }
@@ -1834,15 +1782,13 @@ function FilterFieldInput({
     return (
       <label className="block">
         {labelEl}
-        <input
-          type={t === 'date' ? 'date' : 'datetime-local'}
+        <DatePicker
+          mode={t === 'date' ? 'date' : 'datetime'}
           className={inputCls}
-          value={value}
-          onChange={(e) => notifyChange(e.target.value, true)}
-          {...inputCompleteHandlers}
-          data-voice-label={f.label || f.name}
-          data-voice-action="fill"
-          data-voice-field={f.name}
+          value={value == null ? '' : String(value)}
+          title={f.label || f.name}
+          onChange={(v) => notifyChange(v, true)}
+          voice={{ ...voice, 'data-voice-action': 'fill' }}
         />
       </label>
     )

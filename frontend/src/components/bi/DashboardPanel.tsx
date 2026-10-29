@@ -8,6 +8,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { DatePicker, SelectPicker } from '../../ui/pickers'
 import { Loader2 } from 'lucide-react'
 import { apiFetch } from '../../utils/api'
 import { openHistoryOverlay, type OverlayHandle } from '../../router'
@@ -392,30 +393,33 @@ function FilterInput({
   const id = `bi-filter-${filter.name}`
   const cls = 'h-8 px-2.5 rounded-lg border border-line bg-surface text-[12.5px] text-fg-2 focus:outline-none focus:border-primary'
   const fromQuery = !filter.options?.length && !!filter.optionsQuery
+  // 自绘下拉 / 日期框没有原生控件那样按最长选项撑开的宽度，给个下限
+  const pickCls = `${cls} min-w-[8rem] max-w-[16rem]`
   let control: React.ReactNode
   if (filter.type === 'select' && fromQuery && !options) {
     // 来自查询的选项还没取到（或无权读取）：取不到时退回文本输入，多个值用逗号分隔
     control = optionsError ? (
       <TextFilter id={id} className={cls} value={Array.isArray(value) ? value.join(',') : value} onCommit={onChange} title={`选项加载失败：${optionsError}`} placeholder={filter.multiple ? '多个用逗号分隔' : undefined} />
     ) : (
-      <select id={id} className={cls} disabled>
-        <option>加载中…</option>
-      </select>
+      <SelectPicker id={id} className={pickCls} value="" options={[]} loading onChange={() => {}} />
     )
   } else if (filter.type === 'select' && filter.multiple) {
-    control = <MultiSelect id={id} className={cls} options={options || []} value={Array.isArray(value) ? value : value == null ? null : [String(value)]} onChange={onChange} />
+    control = <MultiSelect id={id} className={cls} title={filter.label} options={options || []} value={Array.isArray(value) ? value : value == null ? null : [String(value)]} onChange={onChange} />
   } else if (filter.type === 'select') {
     control = (
-      <select id={id} className={cls} value={value == null ? '' : String(value)} onChange={(e) => {
-        const opt = options?.find((o) => String(o.value) === e.target.value)
-        onChange(opt ? opt.value : e.target.value || null)
-      }}>
-        {/* 来自查询的下拉：可不选（= 全部）；固定选项照旧必选其一 */}
-        {fromQuery && <option value="">全部</option>}
-        {options?.map((o) => (
-          <option key={String(o.value)} value={String(o.value)}>{o.label}</option>
-        ))}
-      </select>
+      <SelectPicker
+        id={id}
+        className={pickCls}
+        value={value == null ? '' : String(value)}
+        options={(options ?? []).map((o) => ({ value: String(o.value), label: o.label }))}
+        // 来自查询的下拉：可不选（= 全部）；固定选项照旧必选其一
+        emptyLabel={fromQuery ? '全部' : undefined}
+        title={filter.label}
+        onChange={(v) => {
+          const opt = options?.find((o) => String(o.value) === v)
+          onChange(opt ? opt.value : v || null)
+        }}
+      />
     )
   } else if (filter.type === 'year') {
     // 年份：近 10 年下拉；当前值不在范围内时也列出
@@ -424,15 +428,11 @@ function FilterInput({
     const cur = value == null ? '' : String(value)
     if (cur && !years.includes(cur)) years.unshift(cur)
     control = (
-      <select id={id} className={cls} value={cur} onChange={(e) => onChange(e.target.value || null)}>
-        {years.map((y) => (
-          <option key={y} value={y}>{y} 年</option>
-        ))}
-      </select>
+      <SelectPicker id={id} className={pickCls} value={cur} options={years.map((y) => ({ value: y, label: `${y} 年` }))} title={filter.label} onChange={(v) => onChange(v || null)} />
     )
   } else if (filter.type === 'month' || filter.type === 'date') {
     control = (
-      <input id={id} type={filter.type} className={cls} value={value == null ? '' : String(value)} onChange={(e) => onChange(e.target.value || null)} />
+      <DatePicker id={id} mode={filter.type} className={pickCls} value={value == null ? '' : String(value)} title={filter.label} onChange={(v) => onChange(v || null)} />
     )
   } else {
     // 文本：回车或失焦才生效，避免每个字都触发全部卡片重查

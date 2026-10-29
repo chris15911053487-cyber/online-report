@@ -134,6 +134,7 @@ cd frontend && npm run lint
 - 运行时：`theme/index.ts`（`useTheme`、`setThemePref`、跟随系统、`tv('primary')` 内联样式取色、`readChartPalette`）；`theme/sync.ts` 与服务端同步（`GET /ui/config` 公司默认、`GET/PUT /me/preferences` 用户选择、`PUT /admin/ui-settings`）
 - ECharts 统一经 `utils/chartTheme.ts` 的 `themedChartOption()` 套主题色，并用 `useThemeChange` 在切换时重绘
 - 通用组件：`frontend/src/ui/`（`Button`、`Card`、`Section`、`PageHeader`、`Badge`、`Segmented`、`Tabs`、`Field/Input/Select/Textarea`、`ListRow`、`Modal`、`EmptyState`、`KpiCard` 等；`ui/classes.ts` 有 `cn` 与表单/表格类名常量）
+- 下拉选择 / 日期：用 `ui/pickers.tsx` 的 `SelectPicker` / `DatePicker`（手机底部面板、PC 浮层，跟主题），面向用户的页面不要再用原生 `<select>` / `<input type="date">`；要支持语音填写传 `voice`（渲染隐藏原生控件给 `voice.js` 用）
 
 ### 生产部署
 

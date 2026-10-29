@@ -28,8 +28,8 @@
     background-color: rgb(var(--c-surface));
     color: rgb(var(--c-fg));
   }
-  input[type='checkbox'],
-  input[type='radio'] {
+  /* 勾选框、单选框、日期框弹出的日历等原生控件的强调色跟随主题（替代浏览器默认蓝） */
+  :root {
     accent-color: rgb(var(--c-primary));
   }
   ::selection {

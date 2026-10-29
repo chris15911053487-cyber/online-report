@@ -5,7 +5,8 @@ import { apiFetch } from '../../utils/api'
 import { fmtWallClock } from '../../utils/messages'
 import { dueLabel, dueTone, snoozeChoices, TASK_EVENT_LABELS, TASK_STATUS_LABELS } from '../../utils/tasks'
 import { Badge, Button, EmptyState, Field, Input, Modal, Segmented, Skeleton, Textarea } from '../../ui'
-import { cn } from '../../ui/classes'
+import { cn, inputClass } from '../../ui/classes'
+import { DatePicker } from '../../ui/pickers'
 import ChatMarkdown from '../ChatMarkdown'
 import type { TaskDetail, TaskEvent, TaskItem, TaskListResult } from '../../types'
 
@@ -345,7 +346,7 @@ function SnoozeDialog({ today, busy, onClose, onSubmit }: { today: string; busy:
           ))}
         </div>
         <Field label="延后到" hint="到这一天恢复为待处理，最多 90 天">
-          <Input type="date" value={until} min={today ? choices[0]?.value : undefined} onChange={(e) => setUntil(e.target.value)} />
+          <DatePicker className={inputClass} value={until} min={today ? choices[0]?.value : undefined} clearable={false} title="延后到" onChange={setUntil} />
         </Field>
         <Field label="原因（可选）">
           <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="如：等物料到货" />
