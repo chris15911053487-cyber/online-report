@@ -688,7 +688,7 @@ EXEC dbo.Z_ONLINE_XXX_ORDER_DETAIL @_loginUser, @OrderNo
 }
 ```
 
-**响应**：`{ routeKey, label, tables: [{ index, columns, rows }] }`（多结果集按表分段展示）。
+**响应**：`{ routeKey, label, tables: [{ index, columns, rows }] }`。前端按结果集分段（`utils/detailTables.ts`）：单行 → 字段网格；多行 → PC 表格 / 手机小卡片；`_` 开头的列不显示，`_title` 列作段标题（默认「订单信息」「明细」）；整列为空的列隐藏，日期 / 数字格式化，列名走 `column_labels_json`。
 
 与普通报表「行详情」的区别：
 

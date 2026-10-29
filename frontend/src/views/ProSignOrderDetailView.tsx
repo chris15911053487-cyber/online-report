@@ -1,18 +1,25 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useStore } from '../store'
 import { apiFetch } from '../utils/api'
-import { getRowValue, reportColumnHeaderText } from '../utils/helpers'
-
-type DetailTable = {
-  index?: number
-  columns: string[]
-  rows: Record<string, any>[]
-}
+import { reportColumnHeaderText } from '../utils/helpers'
+import { useIsPc } from '../hooks/useMediaQuery'
+import { Badge, Card, EmptyState, Notice } from '../ui'
+import { cn, tableClass, tdClass, thClass } from '../ui/classes'
+import {
+  type DetailTable,
+  detailTableTitle,
+  formatDetailValue,
+  isNumericColumn,
+  splitCardColumns,
+  visibleColumns,
+} from '../utils/detailTables'
 
 export default function ProSignOrderDetailView() {
   const { proSignOrderDetailOrderNo, activeMenu, user, goBack, showToast } = useStore()
 
   const orderNo = proSignOrderDetailOrderNo || ''
+  const labels = activeMenu?.columnLabels ?? {}
+  const isPc = useIsPc()
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -83,93 +90,140 @@ export default function ProSignOrderDetailView() {
 
   if (error) {
     return (
-      <div className="p-4 text-center">
-        <div className="rounded-2xl bg-danger-soft border border-danger/25 text-danger p-4 text-sm whitespace-pre-wrap inline-block text-left">
-          {error}
-        </div>
-        <button
-          onClick={goBack}
-          className="mt-4 text-primary underline text-sm"
-          type="button"
-        >
+      <div className="px-4 py-4 lg:px-6 max-w-2xl">
+        <Notice tone="danger" className="whitespace-pre-wrap">{error}</Notice>
+        <button onClick={goBack} className="mt-4 text-primary underline text-sm" type="button">
           返回
         </button>
       </div>
     )
   }
 
+  const label = (c: string) => reportColumnHeaderText(c, labels)
+
   return (
-    <div className="min-h-screen bg-surface-2 pb-6">
-      <div className="sticky top-0 z-10 bg-surface border-b border-line px-4 py-3 flex items-center gap-3">
-        <button onClick={goBack} className="text-primary text-sm shrink-0" type="button">
-          ← 返回
-        </button>
-        <h2 className="text-base font-semibold truncate">订单详情</h2>
+    <div className="px-3 py-3 lg:px-6 lg:py-5 space-y-3 lg:space-y-4 pb-8">
+      <div className="flex items-baseline gap-2 px-1">
+        <span className="text-xs text-muted">订单号</span>
+        <span className="font-display text-lg font-semibold text-fg num break-all">{orderNo || '—'}</span>
       </div>
 
-      <div className="px-4 py-3">
-        <div className="text-sm text-fg-2 mb-3">
-          订单号：<span className="font-mono">{orderNo || '—'}</span>
-        </div>
-
-        {tables.length === 0 ? (
-          <div className="text-center text-subtle py-10 text-sm">无详情数据</div>
-        ) : (
-          <div className="space-y-4">
-            {tables.map((t, i) => {
-              const cols = Array.isArray(t.columns) ? t.columns : []
-              const rows = Array.isArray(t.rows) ? t.rows : []
-              return (
-                <div
-                  key={i}
-                  className="rounded-2xl bg-surface shadow-sm border border-line overflow-hidden"
-                >
-                  <div className="px-4 py-2 bg-surface-2 border-b border-line text-xs font-medium text-muted">
-                    {t.index != null ? `表 ${t.index}` : `表 ${i + 1}`}
-                  </div>
-
-                  {rows.length === 0 || cols.length === 0 ? (
-                    <div className="p-4 text-center text-subtle text-sm">无数据</div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="bg-surface border-b border-line">
-                            {cols.map((c) => (
-                              <th
-                                key={c}
-                                className="text-left px-3 py-2 text-xs font-semibold text-fg-2 whitespace-nowrap"
-                              >
-                                {reportColumnHeaderText(c, {})}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {rows.map((r, ri) => (
-                            <tr key={ri} className={ri % 2 === 0 ? 'bg-surface' : 'bg-surface-2/60'}>
-                              {cols.map((c, ci) => {
-                                const v = getRowValue(r, c)
-                                const d = v == null || v === '' ? '—' : String(v)
-                                return (
-                                  <td key={ci} className="px-3 py-2 break-all">
-                                    {d}
-                                  </td>
-                                )
-                              })}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
+      {tables.length === 0 || tables.every((t) => !t.rows?.length) ? (
+        <Card><EmptyState title="无详情数据" /></Card>
+      ) : (
+        tables.map((t, i) => {
+          const rows = Array.isArray(t.rows) ? t.rows : []
+          if (rows.length === 0) return null
+          const cols = visibleColumns(t)
+          const title = detailTableTitle(t, i)
+          return (
+            <Card key={t.index ?? i} className="overflow-hidden">
+              <div className="flex items-center gap-2 px-4 py-2.5 border-b border-line">
+                <h3 className="text-sm font-semibold text-fg">{title}</h3>
+                {rows.length > 1 && <Badge>{rows.length} 条</Badge>}
+              </div>
+              {rows.length === 1 ? (
+                <FieldGrid row={rows[0]} cols={cols} label={label} skipValue={orderNo} />
+              ) : isPc ? (
+                <RowsTable rows={rows} cols={cols} label={label} />
+              ) : (
+                <RowCards rows={rows} cols={cols} label={label} />
+              )}
+            </Card>
+          )
+        })
+      )}
     </div>
   )
 }
 
+type LabelFn = (c: string) => string
+
+/** 单行结果：字段名在上、值在下的网格；长文本占整行，空值不显示 */
+function FieldGrid({ row, cols, label, skipValue }: { row: Record<string, unknown>; cols: string[]; label: LabelFn; /** 页头已显示的值（订单号）不再重复 */ skipValue?: string }) {
+  const items = cols
+    .map((c) => ({ c, v: formatDetailValue(row[c]) }))
+    .filter((x) => x.v !== '' && x.v !== skipValue)
+  return (
+    <dl className="grid grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-3 px-4 py-3">
+      {items.map(({ c, v }) => (
+        <div key={c} className={cn('min-w-0', v.length > 24 && 'col-span-2')}>
+          <dt className="text-xs text-muted">{label(c)}</dt>
+          <dd className="mt-0.5 text-sm text-fg break-words">{v}</dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+/** 多行结果（PC）：表格，表头吸顶，数字列右对齐 */
+function RowsTable({ rows, cols, label }: { rows: Record<string, unknown>[]; cols: string[]; label: LabelFn }) {
+  const numeric = new Set(cols.filter((c) => isNumericColumn(c, rows)))
+  return (
+    <div className="overflow-auto max-h-[70vh]">
+      <table className={tableClass}>
+        <thead className="sticky top-0 z-[1]">
+          <tr>
+            {cols.map((c) => (
+              <th key={c} className={cn(thClass, numeric.has(c) && 'text-right')}>{label(c)}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, ri) => (
+            <tr key={ri} className="hover:bg-surface-2/60">
+              {cols.map((c) => (
+                <td key={c} className={cn(tdClass, 'whitespace-nowrap', numeric.has(c) && 'text-right num')}>
+                  {formatDetailValue(r[c]) || <span className="text-subtle">—</span>}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/** 多行结果（手机）：每行一张小卡——抬头（编码 / 名称 / 规格）、数量区、其余字段；空值不显示 */
+function RowCards({ rows, cols, label }: { rows: Record<string, unknown>[]; cols: string[]; label: LabelFn }) {
+  const { lead, nums, others } = splitCardColumns(cols, rows)
+  // 一个文本列：直接作标题；两个以上：第一列（编码）小字在上，第二列（名称）作标题，其余跟在后面
+  const [codeCol, nameCol, ...subCols] = lead.length === 1 ? [undefined, lead[0]] : lead
+  return (
+    <div className="divide-y divide-line">
+      {rows.map((row, ri) => {
+        const v = (c?: string) => (c ? formatDetailValue(row[c]) : '')
+        const sub = subCols.map(v).filter(Boolean).join(' · ')
+        const rest = others.map((c) => ({ c, v: v(c) })).filter((x) => x.v !== '')
+        return (
+          <div key={ri} className="px-4 py-3">
+            {v(codeCol) && <div className="text-xs text-muted num break-all">{v(codeCol)}</div>}
+            {v(nameCol) && <div className="text-sm font-medium text-fg break-words">{v(nameCol)}</div>}
+            {sub && <div className="text-xs text-muted mt-0.5 break-words">{sub}</div>}
+            {nums.length > 0 && (
+              <dl className="mt-2 grid grid-cols-3 gap-2 rounded-lg bg-surface-2 px-3 py-2">
+                {nums.map((c) => (
+                  <div key={c} className="min-w-0">
+                    <dt className="text-[11px] text-muted truncate">{label(c)}</dt>
+                    <dd className="num text-base font-semibold text-fg">{v(c) || '—'}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+            {rest.length > 0 && (
+              <dl className="mt-2 space-y-1">
+                {rest.map(({ c, v: val }) => (
+                  <div key={c} className="flex gap-2 text-xs">
+                    <dt className="text-muted shrink-0">{label(c)}</dt>
+                    <dd className="text-fg-2 break-words min-w-0">{val}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
