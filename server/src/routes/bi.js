@@ -3,6 +3,7 @@
  *
  * 用户侧：
  *   - GET  /agents/:agentKey/dashboard  进入 Agent 时取其关联看板（按 Agent 门禁 + 查询角色裁剪卡片）
+ *   - GET  /home/dashboards             首页工作台：homeRoles 命中当前用户角色的看板（同样按查询角色裁剪）
  *   - POST /bi/query                    卡片 / 下钻取数（命名查询 + 参数），走结果缓存
  *   - POST /bi/options                  下拉选项来自查询：执行来源查询（默认参数），按取值 / 显示列去重
  *   - POST /bi/export                   下钻明细导出 Excel（前端传看到的行；需 export-excel 角色 + 查询可见）
@@ -40,6 +41,7 @@ const {
   upsertDashboard,
   deleteDashboard,
   filterDashboardForRoles,
+  pickHomeDashboards,
   loadExpandedDashboard,
 } = require('../bi-dashboards');
 const {
@@ -123,6 +125,20 @@ async function biRoutes(fastify) {
       return reply.code(404).send({ error: '关联的看板不存在或未启用', code: 'BI_NO_DASHBOARD' });
     }
     return { dashboard: filterDashboardForRoles(loaded.dashboard, loaded.queries, roles) };
+  });
+
+  fastify.get('/home/dashboards', { preHandler: [fastify.authenticate] }, async (request) => {
+    const pool = await getPool();
+    const roles = await rolesOf(pool, request);
+    const picked = pickHomeDashboards(await listAllDashboards(pool), roles);
+    if (picked.length === 0) return { dashboards: [] };
+    const [charts, queries] = await Promise.all([listAllCharts(pool), listAllQueries(pool)]);
+    const queryMap = new Map(queries.map((q) => [q.queryKey, q]));
+    const dashboards = picked
+      .map((d) => filterDashboardForRoles(expandDashboard(d, charts, queryMap), queries, roles))
+      // 卡片全都无权看的看板不出现在首页（不显示一个空页签）
+      .filter((d) => d.cards.length > 0);
+    return { dashboards };
   });
 
   fastify.post('/bi/query', { preHandler: [fastify.authenticate] }, async (request, reply) => {
@@ -367,10 +383,11 @@ async function biRoutes(fastify) {
 
   fastify.post('/admin/bi/dashboards', { preHandler: [fastify.requireAdmin] }, async (request, reply) => {
     const pool = await getPool();
-    const [charts, queries] = await Promise.all([listAllCharts(pool), listAllQueries(pool)]);
+    const [charts, queries, knownRoles] = await Promise.all([listAllCharts(pool), listAllQueries(pool), loadKnownRoleKeys(pool)]);
     const parsed = validateDashboardInput(request.body || {}, {
       charts: new Map(charts.map((c) => [c.chartKey, c])),
       queries: new Map(queries.map((q) => [q.queryKey, q])),
+      knownRoles,
     });
     if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
     return { dashboard: await upsertDashboard(pool, parsed.value, operatorOf(request)) };

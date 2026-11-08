@@ -32,6 +32,10 @@ export interface BiDashboardAdmin {
   filters: BiFilter[]
   /** 卡片 = 对图表库的引用 */
   cards: BiCardRef[]
+  /** 哪些角色登录后在首页看到这个看板；空 = 不上首页 */
+  homeRoles?: string[]
+  /** 首页排序，越小越靠前 */
+  homeSort?: number
   enabled: boolean
   usedByAgents?: string[]
   updatedAt?: string | null
@@ -83,5 +87,7 @@ export const EMPTY_DASHBOARD: BiDashboardAdmin = {
   description: '',
   filters: [],
   cards: [],
+  homeRoles: [],
+  homeSort: 0,
   enabled: true,
 }

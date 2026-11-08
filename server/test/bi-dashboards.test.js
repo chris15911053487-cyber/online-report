@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { validateDashboardInput, filterDashboardForRoles } = require('../src/bi-dashboards');
+const { validateDashboardInput, filterDashboardForRoles, pickHomeDashboards } = require('../src/bi-dashboards');
 
 const knownCharts = new Set(['ar_kpi', 'ar_by_cust']);
 const base = {
@@ -84,4 +84,31 @@ test('按角色裁剪（作用于展开后的卡片）：删无权卡片；下�
 
   const admin = filterDashboardForRoles(dashboard, queries, ['admin']);
   assert.deepEqual(admin.cards.map((c) => c.id), ['a', 'b'], '停用/已删除的查询对管理员也隐藏');
+});
+
+test('首页显示：homeRoles 规范化、角色须存在、排序夹紧', () => {
+  const r = validateDashboardInput({ ...base, homeRoles: ['Sales', 'sales', 'leader'], homeSort: '3.7' }, { charts: knownCharts });
+  assert.equal(r.ok, true, r.error);
+  assert.deepEqual(r.value.homeRoles, ['sales', 'leader']);
+  assert.equal(r.value.homeSort, 3);
+  const none = validateDashboardInput(base, { charts: knownCharts });
+  assert.deepEqual(none.value.homeRoles, []);
+  assert.equal(none.value.homeSort, 0);
+  const unknown = validateDashboardInput({ ...base, homeRoles: ['ghost'] }, { charts: knownCharts, knownRoles: new Set(['sales']) });
+  assert.match(unknown.error, /ghost/);
+  assert.match(validateDashboardInput({ ...base, homeRoles: 'sales' }, { charts: knownCharts }).error, /homeRoles/);
+});
+
+test('pickHomeDashboards：角色有交集、已启用，按 homeSort 再按名称', () => {
+  const d = (dashboardKey, label, homeRoles, homeSort = 0, enabled = true) => ({ dashboardKey, label, homeRoles, homeSort, enabled });
+  const all = [
+    d('boss', '经营概览', ['leader'], 1),
+    d('prod', '生产进度', ['operator', 'prod-lead'], 0),
+    d('sales', '订单进度', ['sales'], 0),
+    d('off', '停用的', ['operator'], 0, false),
+    d('plain', '不上首页', []),
+  ];
+  assert.deepEqual(pickHomeDashboards(all, ['operator']).map((x) => x.dashboardKey), ['prod']);
+  assert.deepEqual(pickHomeDashboards(all, ['LEADER', 'sales']).map((x) => x.dashboardKey), ['sales', 'boss']);
+  assert.deepEqual(pickHomeDashboards(all, ['admin']), [], '管理员不自动看到所有首页看板');
 });

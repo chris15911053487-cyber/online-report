@@ -11,7 +11,7 @@ import { useStore } from '../../../store'
 import { apiFetch } from '../../../utils/api'
 import type { BiColumnRole, BiColumnSemantic, BiFormat, BiParamDef } from '../../../utils/bi'
 import SqlEditor from '../../SqlEditor'
-import { COLUMN_ROLE_LABEL, FORMAT_LABEL, bareTableRefs, extractSqlParams, mergeDetectedColumns, optionsToText, paramDefProblems, sessionParamsUsed, syncParamsWithSql, textToOptions } from '../../../utils/biAdmin'
+import { COLUMN_ROLE_LABEL, FORMAT_LABEL, USER_ATTR_DENY_RE, bareTableRefs, extractSqlParams, mergeDetectedColumns, optionsToText, paramDefProblems, sessionParamsUsed, syncParamsWithSql, textToOptions, userAttrColumn } from '../../../utils/biAdmin'
 import { AdminPage, Badge, Button, Checkbox, ChipSelect, Code, EditorActions, Field, IconButton, Input, Notice, ResultTable, Section, Segmented, Textarea } from '../../../ui'
 import { compactInputClass, tableClass, tdClass, thClass } from '../../../ui/classes'
 import { errMsg, type BiQueryAdmin, type QueryOption, type TestResult } from './types'
@@ -422,10 +422,18 @@ export default function QueryEditor({
                 表名 {bareTables.map((n) => `@${n}`).join('、')} 需要加方括号，写成 {bareTables.map((n) => `[@${n}]`).join('、')}：SAP 自定义表以 @ 开头，不加括号数据库会当成变量报错（这里也不会把它当参数）。
               </Notice>
             )}
-            {sessionUsed.length > 0 && (
+            {sessionUsed.length > 0 ? (
               <p className="mt-2 text-xs text-muted">
                 按登录用户取数：{sessionUsed.map((n) => `@${n}`).join('、')} 由系统按看板的查看人自动代入（试运行用你自己的账号）；结果按人缓存，不同用户互不共享。
+                {sessionUsed.some((n) => userAttrColumn(n)) && ' @_user_ 开头的取当前用户在用户表 OUSR 上该字段的值，没填的用户会看到提示而不是空数据。'}
               </p>
+            ) : (
+              <p className="mt-2 text-xs text-subtle">
+                只看本人的数据：SQL 里写 @_loginUser（登录用户编码），或 @_user_字段名 取当前用户在 OUSR 上的字段（如 @_user_U_SlpCode 对应 SAP 销售员），系统自动代入。
+              </p>
+            )}
+            {sessionUsed.some((n) => USER_ATTR_DENY_RE.test(userAttrColumn(n) || '')) && (
+              <Notice tone="danger" className="mt-2">不允许按登录用户的口令 / 设备类字段取数，保存会被拒绝。</Notice>
             )}
             {d.sqlText.trim() && (
               <div className="flex gap-2 mt-3">

@@ -121,3 +121,10 @@ IF OBJECT_ID(N'dbo.bi_dashboards', N'U') IS NOT NULL AND COL_LENGTH(N'dbo.bi_das
 BEGIN
   ALTER TABLE dbo.bi_dashboards ADD updated_by NVARCHAR(64) NULL, updated_by_name NVARCHAR(128) NULL;
 END;
+
+-- 首页显示：home_roles_json = 哪些角色登录后在首页看到这个看板（JSON 数组；NULL / [] = 不上首页），
+-- home_sort 越小越靠前（一个人命中多个看板时按它排成页签）
+IF OBJECT_ID(N'dbo.bi_dashboards', N'U') IS NOT NULL AND COL_LENGTH(N'dbo.bi_dashboards', N'home_roles_json') IS NULL
+BEGIN
+  ALTER TABLE dbo.bi_dashboards ADD home_roles_json NVARCHAR(MAX) NULL, home_sort INT NOT NULL CONSTRAINT DF_bi_dashboards_home_sort DEFAULT 0;
+END;

@@ -1,5 +1,5 @@
 /**
- * 看板编辑器：基本信息 + 全局筛选（表格）+ 看板画布（真实排版与数据，拖动换位置 / 改宽高）+ 右侧卡片设置。
+ * 看板编辑器：基本信息（含首页显示给哪些角色）+ 全局筛选（表格）+ 看板画布（真实排版与数据，拖动换位置 / 改宽高）+ 右侧卡片设置。
  *
  * - 卡片 = 从图表库选一张图表；图表的参数默认由同名筛选自动提供，需要时再覆盖（筛选 / 固定值）、改标题与尺寸
  * - 筛选可从图表查询的参数一键生成；改名 / 删除同步更新卡片里的覆盖引用
@@ -13,12 +13,13 @@ import { useStore } from '../../../store'
 import { apiFetch } from '../../../utils/api'
 import { parseJsonField, toJsonText, type BiCard, type BiCardRef, type BiCardType, type BiChartDef, type BiFilter, type BiParamDef, type BiQueryMeta, type BiValue } from '../../../utils/bi'
 import { effectiveSource, filterFromParam, nextRefId, optionsToText, paramDefsOfCards, paramOptionsFor, refProblems, renameFilterRefs, resolveCard, suggestFilterParams, textToOptions, type QueryRef } from '../../../utils/biAdmin'
-import { AdminPage, Badge, Button, Card, Checkbox, EditorActions, EmptyState, Field, IconButton, Input, JsonField, Notice, Section, Segmented, Textarea } from '../../../ui'
+import { AdminPage, Badge, Button, Card, Checkbox, ChipSelect, EditorActions, EmptyState, Field, IconButton, Input, JsonField, Notice, Section, Segmented, Textarea } from '../../../ui'
 import { cn, compactInputClass, tableClass, tdClass, thClass } from '../../../ui/classes'
 import AddChartModal from './AddChartModal'
 import DashboardCanvas from './DashboardCanvas'
 import ParamValueInput from './ParamValueInput'
 import { errMsg, type BiDashboardAdmin, type QueryOption } from './types'
+import { useRoleLabels } from '../../../hooks/useAppRoles'
 
 const TYPE_LABEL: Record<BiCardType, string> = { kpi: 'KPI', bar: '柱状', line: '折线', pie: '饼图', waterfall: '瀑布', table: '表格' }
 const FILTER_TYPES: { value: BiFilter['type']; label: string }[] = [
@@ -467,6 +468,9 @@ export default function DashboardEditor({
   const [adding, setAdding] = useState(false)
   const patch = (p: Partial<BiDashboardAdmin>) => setD((cur) => ({ ...cur, ...p }))
 
+  const { appRoles, roleOptions } = useRoleLabels()
+  const homeRoles = d.homeRoles || []
+  const homeRoleKeys = useMemo(() => [...new Set([...appRoles.map((r) => r.roleKey), ...(d.homeRoles || [])])], [appRoles, d.homeRoles])
   const queryMap = useMemo(() => new Map<string, QueryRef>(availableQueries.map((q) => [q.queryKey, q])), [availableQueries])
   const chartMap = useMemo(() => new Map(availableCharts.map((c) => [c.chartKey, c])), [availableCharts])
   const problems = useMemo(() => d.cards.map((r) => refProblems(r, chartMap.get(r.chartKey), d.filters, queryMap)), [d.cards, d.filters, chartMap, queryMap])
@@ -600,7 +604,7 @@ export default function DashboardEditor({
   return (
     <AdminPage
       title={isNew ? '新增看板' : `编辑看板：${d.label || d.dashboardKey}`}
-      description="看板只负责组合：选图表、设筛选、排版；在「Agent 配置」里关联到 Agent"
+      description="看板只负责组合：选图表、设筛选、排版；在「Agent 配置」里关联到 Agent，或在下方设为首页工作台"
       onBack={() => onDone(false)}
       withActionBar
       actions={
@@ -628,6 +632,18 @@ export default function DashboardEditor({
             <Field label="说明" className="sm:col-span-2">
               <Textarea rows={2} value={d.description} onChange={(e) => patch({ description: e.target.value })} />
             </Field>
+            <Field
+              label="显示在首页"
+              className="sm:col-span-2"
+              hint="选中的角色登录后在首页「我的工作台」看到这个看板；一人命中多个看板时按排序分页签。卡片仍按查询的可见角色过滤；只看本人数据在查询 SQL 里用 @_loginUser / @_user_字段。"
+            >
+              <ChipSelect options={roleOptions(homeRoleKeys)} selected={homeRoles} onChange={(roles) => patch({ homeRoles: roles })} empty="暂无角色" />
+            </Field>
+            {homeRoles.length > 0 && (
+              <Field label="首页排序" hint="越小越靠前">
+                <Input type="number" value={String(d.homeSort ?? 0)} onChange={(e) => patch({ homeSort: Number(e.target.value) || 0 })} />
+              </Field>
+            )}
             <Checkbox label="启用" checked={d.enabled} onChange={(e) => patch({ enabled: e.target.checked })} />
           </div>
         </Section>

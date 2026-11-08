@@ -410,8 +410,9 @@ export default function BiAdminView() {
                   </span>
                   <span>
                     关联 Agent：
-                    {d.usedByAgents?.length ? d.usedByAgents.join('、') : <span className="text-warning">未关联（在「Agent 配置」里选择）</span>}
+                    {d.usedByAgents?.length ? d.usedByAgents.join('、') : d.homeRoles?.length ? '无' : <span className="text-warning">未关联（在「Agent 配置」里选择，或设为首页显示）</span>}
                   </span>
+                  {!!d.homeRoles?.length && <span>首页显示给：{formatRoles(d.homeRoles)}</span>}
                   <UpdatedMeta item={d} />
                 </>
               }

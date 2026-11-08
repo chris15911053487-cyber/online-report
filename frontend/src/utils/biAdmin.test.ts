@@ -40,6 +40,10 @@ describe('SQL 参数', () => {
     expect(extractSqlParams(sql)).toEqual(['period'])
     expect(sessionParamsUsed(sql)).toEqual(['_loginUser', '_loginDisplayName'])
     expect(sessionParamsUsed(`SELECT '@_loginUser'`)).toEqual([])
+    // 用户属性 @_user_<OUSR字段>：与服务端同规则，同字段大小写不同只算一次，不算参数
+    const attrSql = 'SELECT 1 FROM ORDR WHERE SlpCode = @_user_U_SlpCode AND x = @_USER_u_slpcode AND y = @p'
+    expect(sessionParamsUsed(attrSql)).toEqual(['_user_U_SlpCode'])
+    expect(extractSqlParams(attrSql)).toEqual(['p'])
     expect(syncParamsWithSql([], sql).params.map((p) => p.name)).toEqual(['period'])
     // 旧数据里误声明的系统变量参数直接去掉（不显示「SQL 未使用」，也不用手动删）
     const legacy = syncParamsWithSql([{ name: '_loginUser', type: 'string' }, { name: 'period', type: 'string' }], sql)

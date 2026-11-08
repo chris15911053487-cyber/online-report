@@ -172,6 +172,22 @@ test('会话变量 @_loginUser：不算参数、声明了也忽略、toPublicQue
   assert.equal('perUser' in pub({ ...base, sqlText: 'SELECT 1' }), false);
 });
 
+test('用户属性 @_user_<OUSR字段>：算会话变量不算参数；口令类字段保存时拒绝', () => {
+  const { sessionParamsUsed, userAttrColumn } = require('../src/bi-queries');
+  const sqlText = 'SELECT DocNum FROM ORDR WHERE SlpCode = @_user_U_SlpCode AND Owner = @_loginUser AND x = @_USER_u_slpcode';
+  assert.deepEqual(validateReadonlySql(sqlText).params, []);
+  assert.deepEqual(sessionParamsUsed(sqlText), ['_loginUser', '_user_U_SlpCode'], '同一字段大小写不同只算一次');
+  assert.equal(userAttrColumn('@_user_Department'), 'Department');
+  assert.equal(userAttrColumn('_user_'), null);
+  assert.equal(userAttrColumn('_loginUser'), null);
+  const q = { queryKey: 'my_so', label: '我的订单', sqlText, params: [] };
+  assert.equal(validateQueryInput(q).ok, true);
+  const bad = validateQueryInput({ ...q, sqlText: 'SELECT 1 WHERE @_user_PASSWORD = 1' });
+  assert.equal(bad.ok, false);
+  assert.match(bad.error, /PASSWORD/);
+  assert.equal(validateQueryInput({ ...q, sqlText: 'SELECT 1 WHERE @_user_MobileIMEI = 1' }).ok, false);
+});
+
 test('自定义表 @U_xxx：加方括号 / 双引号正常；不加括号给出明确提示，不当成参数', () => {
   const { bareTableRefs, stripSqlForScan } = require('../src/bi-queries');
   for (const s of [

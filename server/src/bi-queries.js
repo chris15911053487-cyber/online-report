@@ -130,15 +130,26 @@ function stripSqlForScan(text) {
  * 不需要也不允许声明成参数，客户端传同名参数无效。
  *   @_loginUser         登录用户编码（OUSR.USER_CODE）
  *   @_loginDisplayName  显示名（无则同编码）
+ *   @_user_<字段>        当前用户在 OUSR 上该字段的值（如 @_user_U_SlpCode = 本人对应的 SAP 销售员），
+ *                       用来把「只看我的」扩展到销售员、部门、车间等任意映射；密码类字段不允许
  */
 const SESSION_PARAMS = [
   { name: '_loginUser', maxLen: 128 },
   { name: '_loginDisplayName', maxLen: 256 },
 ];
 const SESSION_PARAM_KEYS = new Set(SESSION_PARAMS.map((p) => p.name.toLowerCase()));
+const USER_ATTR_RE = /^_user_([A-Za-z][A-Za-z0-9_]{0,63})$/i;
+// 不允许按这些字段取值（口令、设备号、令牌）：即便只绑定本人的值，也不让它出现在任何查询里
+const USER_ATTR_DENY_RE = /pass|pwd|imei|token|secret|salt|hash/i;
+
+/** @_user_<字段> 的 OUSR 字段名；不是用户属性变量返回 null */
+function userAttrColumn(name) {
+  const m = USER_ATTR_RE.exec(String(name || '').replace(/^@/, ''));
+  return m ? m[1] : null;
+}
 
 function isSessionParam(name) {
-  return SESSION_PARAM_KEYS.has(String(name || '').replace(/^@/, '').toLowerCase());
+  return SESSION_PARAM_KEYS.has(String(name || '').replace(/^@/, '').toLowerCase()) || userAttrColumn(name) != null;
 }
 
 /** 扫描 SQL 里引用的 @名称（排除 @@系统变量），返回去重后的原始大小写名称（含会话变量） */
@@ -178,7 +189,7 @@ function extractSqlParams(scanned) {
 const sessionUseCache = new Map(); // sqlText -> 规范名数组
 
 /**
- * SQL 用到了哪些会话变量（规范名，如 ['_loginUser']）。去掉注释 / 字符串后再扫，注释里提到不算。
+ * SQL 用到了哪些会话变量（规范名，如 ['_loginUser', '_user_U_SlpCode']）。去掉注释 / 字符串后再扫，注释里提到不算。
  * 结果按 SQL 文本缓存（定义很少变，看板每张卡片都要判断）。
  */
 function sessionParamsUsed(sqlText) {
@@ -186,8 +197,11 @@ function sessionParamsUsed(sqlText) {
   const hit = sessionUseCache.get(text);
   if (hit) return hit;
   const scanned = stripSqlForScan(text);
-  const used = new Set(scanSqlParamNames(scanned == null ? text : scanned).map((n) => n.toLowerCase()));
+  const names = scanSqlParamNames(scanned == null ? text : scanned);
+  const used = new Set(names.map((n) => n.toLowerCase()));
   const out = SESSION_PARAMS.filter((p) => used.has(p.name.toLowerCase())).map((p) => p.name);
+  // 用户属性按 SQL 里第一次出现的写法（扫描已按小写去重）
+  for (const n of names) if (userAttrColumn(n)) out.push(`_user_${userAttrColumn(n)}`);
   if (sessionUseCache.size > 1000) sessionUseCache.clear();
   sessionUseCache.set(text, out);
   return out;
@@ -339,6 +353,9 @@ function validateQueryInput(input) {
   const sqlText = String(input?.sqlText || '').trim();
   const ro = validateReadonlySql(sqlText);
   if (!ro.ok) return ro;
+
+  const denied = sessionParamsUsed(sqlText).map(userAttrColumn).filter((c) => c && USER_ATTR_DENY_RE.test(c));
+  if (denied.length > 0) return { ok: false, error: `不允许按登录用户的「${denied.join('、')}」取数（口令 / 设备类字段）` };
 
   const params = normalizeParamDefs(input?.params);
   if (!params.ok) return params;
@@ -547,6 +564,8 @@ module.exports = {
   QUERY_KEY_RE,
   PARAM_TYPES,
   SESSION_PARAMS,
+  USER_ATTR_DENY_RE,
+  userAttrColumn,
   isSessionParam,
   sessionParamsUsed,
   stripSqlForScan,

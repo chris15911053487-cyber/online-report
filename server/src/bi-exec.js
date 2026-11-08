@@ -2,8 +2,8 @@
  * BI 命名查询执行器：参数化执行 + 结果缓存。
  *
  * - 参数：按查询定义的类型转换并 .input() 绑定，未声明的入参忽略，缺必填报错；
- * - 会话变量：SQL 里的 @_loginUser / @_loginDisplayName 按调用方传入的当前用户绑定（客户端不可改），
- *   用到时缓存 key 额外含用户；
+ * - 会话变量：SQL 里的 @_loginUser / @_loginDisplayName / @_user_<OUSR字段> 按调用方传入的当前用户绑定
+ *   （客户端不可改；用户属性执行时从 OUSR 现查），用到时缓存 key 额外含用户；
  * - 限行：流式读取，最多 BI_MAX_ROWS 行（默认 2000），超过只标记 truncated；
  * - 缓存 key = 查询 + 规范化参数 + 排序后的角色集合：不同角色组合绝不共享结果
  *   （同一条查询将来可能按角色返回不同列/行，例如成本字段，宁可多查也不串数据）；
@@ -14,7 +14,7 @@
  */
 const { sql } = require('./db');
 const { runSqlLimited } = require('./agent-sql');
-const { onQueryChanged, SESSION_PARAMS, sessionParamsUsed } = require('./bi-queries');
+const { onQueryChanged, SESSION_PARAMS, sessionParamsUsed, userAttrColumn, USER_ATTR_DENY_RE } = require('./bi-queries');
 const { BiParamError, coerceParam, resolveParams, MAX_STRING_PARAM } = require('./bi-params');
 
 function envInt(name, fallback, min = 0) {
@@ -35,10 +35,48 @@ function normalizeSession(session) {
 }
 
 /**
- * 绑定 SQL 用到的会话变量（@_loginUser / @_loginDisplayName）。
+ * 读当前用户在 OUSR 上的属性（@_user_<字段>）。字段名已经过 userAttrColumn 校验（字母数字下划线），
+ * 加方括号拼进列清单；字段不存在报参数错误（给管理员看得懂的提示），不当作 SQL 故障。
+ */
+async function loadUserAttrs(pool, userCode, columns) {
+  const denied = columns.filter((c) => USER_ATTR_DENY_RE.test(c));
+  if (denied.length > 0) throw new BiParamError(`不允许按登录用户的「${denied.join('、')}」取数`);
+  let row;
+  try {
+    const rs = await pool
+      .request()
+      .input('u', sql.NVarChar(128), userCode)
+      .query(`SELECT ${columns.map((c) => `[${c}]`).join(', ')} FROM dbo.OUSR WHERE [USER_CODE] = @u`);
+    row = rs.recordset && rs.recordset[0];
+  } catch (err) {
+    const n = err?.number ?? err?.originalError?.info?.number;
+    if (n === 207) throw new BiParamError(`用户表 OUSR 没有字段：${columns.join('、')}（@_user_ 后须为 OUSR 字段名）`);
+    throw err;
+  }
+  const out = {};
+  for (const c of columns) {
+    const v = row ? row[c] : null;
+    // 取不到值绝不绑空：空值要么查不到数据（用户以为没任务），要么 IS NULL 写法把别人的数据带出来
+    if (v == null || (typeof v === 'string' && v.trim() === '')) {
+      throw new BiParamError(`您的账号未设置「${c}」，无法按本人取数，请联系管理员在用户资料中补充`);
+    }
+    out[c] = v;
+  }
+  return out;
+}
+
+function userAttrSqlType(v) {
+  if (typeof v === 'number') return Number.isSafeInteger(v) ? sql.BigInt : sql.Decimal(38, 10);
+  if (typeof v === 'boolean') return sql.Bit;
+  if (v instanceof Date) return sql.DateTime2(0);
+  return sql.NVarChar(256);
+}
+
+/**
+ * 绑定 SQL 用到的会话变量（@_loginUser / @_loginDisplayName / @_user_<字段>）。
  * 用到了却没有登录用户 → 报参数错误，绝不绑空值把别人的数据查出来或静默返回空。
  */
-function bindSession(request, query, session) {
+async function bindSession(pool, request, query, session) {
   const used = sessionParamsUsed(query.sqlText);
   if (used.length === 0) return;
   const s = normalizeSession(session);
@@ -47,6 +85,13 @@ function bindSession(request, query, session) {
     if (!used.includes(def.name)) continue;
     const v = def.name === '_loginUser' ? s.userCode : s.displayName;
     request.input(def.name, sql.NVarChar(def.maxLen), v.slice(0, def.maxLen));
+  }
+  const attrs = used.filter((n) => userAttrColumn(n));
+  if (attrs.length === 0) return;
+  const values = await loadUserAttrs(pool, s.userCode, attrs.map(userAttrColumn));
+  for (const n of attrs) {
+    const v = values[userAttrColumn(n)];
+    request.input(n, userAttrSqlType(v), typeof v === 'string' ? v.slice(0, 256) : v);
   }
 }
 
@@ -82,7 +127,7 @@ async function executeQuery(pool, query, params, opts = {}) {
     else if (def.type === 'list' && v != null) bound = JSON.stringify(v);
     request.input(def.name, sqlTypeFor(def, v), bound);
   }
-  bindSession(request, query, opts.session);
+  await bindSession(pool, request, query, opts.session);
   // hardCap = maxRows + 1：只需知道「是否超出」，不为统计总数扫完大结果集
   const r = await runSqlLimited(request, query.sqlText, { limit: maxRows, hardCap: maxRows + 1 });
   return {
@@ -102,7 +147,8 @@ function cacheKey(query, params, roles, session) {
   const r = [...new Set((roles || []).map((x) => String(x).toLowerCase()))].sort().join(',');
   const used = sessionParamsUsed(query.sqlText);
   const s = used.length > 0 ? normalizeSession(session) : null;
-  const u = s ? `|u=${JSON.stringify(used.map((n) => (n === '_loginUser' ? s.userCode : s.displayName)))}` : '';
+  // 用户属性（@_user_*）的值随用户而定：key 含用户编码即可区分
+  const u = s ? `|u=${JSON.stringify(used.map((n) => (n === '_loginDisplayName' ? s.displayName : s.userCode)))}` : '';
   return `${query.queryKey}|${query.updatedAt || ''}|${JSON.stringify(params)}|${r}${u}`;
 }
 

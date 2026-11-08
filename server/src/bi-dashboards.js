@@ -3,12 +3,13 @@
  *
  * 看板只描述「组合与排版」：全局筛选 + 卡片；卡片引用图表库（chartKey），图表再引用查询库，看板不含 SQL 与列映射。
  * 运行时经 bi-charts.js expandDashboard() 展开为完整卡片。
- * 访问控制：看板本身不设角色，经由关联的 Agent（canUseAgent）进入；
+ * 访问控制：看板本身不设角色，经由关联的 Agent（canUseAgent）进入，或按 homeRoles 显示在首页；
  * 每张卡片 / 每级下钻再按其查询的 roles 过滤——用户看不到无权查询的卡片。
  */
 const { sql } = require('./db');
 const { SQL_CHINA_LOCAL_NOW_EXPR } = require('./china-datetime');
 const { canUseQuery, toPublicQuery, listAllQueries } = require('./bi-queries');
+const { normalizeRoleKeys } = require('./roles');
 const { normalizeParamMap, checkCardRefs, expandDashboard, listAllCharts } = require('./bi-charts');
 
 const DASHBOARD_KEY_RE = /^[a-z][a-z0-9_-]{0,63}$/;
@@ -177,6 +178,13 @@ function validateDashboardInput(input, ctx = {}) {
   const knownCharts = chartMap ? new Set(chartMap.keys()) : ctx.charts instanceof Set ? ctx.charts : null;
   const cards = normalizeCardRefs(input?.cards, filters.value, knownCharts);
   if (!cards.ok) return cards;
+  if (input?.homeRoles != null && !Array.isArray(input.homeRoles)) return fail('homeRoles 须为角色数组');
+  const homeRoles = normalizeRoleKeys(input?.homeRoles || []);
+  if (ctx.knownRoles instanceof Set) {
+    const unknown = homeRoles.filter((r) => !ctx.knownRoles.has(r));
+    if (unknown.length > 0) return fail(`首页显示的角色不存在：${unknown.join('、')}`);
+  }
+  const homeSort = Math.max(-9999, Math.min(9999, Math.trunc(Number(input?.homeSort) || 0)));
   if (chartMap && ctx.queries instanceof Map) {
     const expanded = expandDashboard({ filters: filters.value, cards: cards.value }, chartMap, ctx.queries);
     const problems = checkDashboardRefs(expanded, ctx.queries);
@@ -190,6 +198,8 @@ function validateDashboardInput(input, ctx = {}) {
       description,
       filters: filters.value,
       cards: cards.value,
+      homeRoles,
+      homeSort,
       enabled: input?.enabled !== false,
     },
   };
@@ -203,38 +213,38 @@ function rowToDashboard(row) {
     description: String(row.description || ''),
     filters: safeParseJson(row.filters_json, []),
     cards: safeParseJson(row.cards_json, []),
+    homeRoles: normalizeRoleKeys(safeParseJson(row.home_roles_json, [])),
+    homeSort: Number(row.home_sort) || 0,
     enabled: !!row.enabled,
     updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : null,
     updatedBy: row.updated_by_name || row.updated_by || null,
   };
 }
 
-const COLS = 'id, dashboard_key, label, description, filters_json, cards_json, enabled, updated_at, updated_by, updated_by_name';
+const COLS_V1 = 'id, dashboard_key, label, description, filters_json, cards_json, enabled, updated_at, updated_by, updated_by_name';
+const COLS = `${COLS_V1}, home_roles_json, home_sort`;
+const isMissingColumn = (err) => sqlErrorNumber(err) === 207;
 
-async function listAllDashboards(pool) {
+/** 读看板；首页列（home_*）尚未迁移时回退旧列，不影响看板本身 */
+async function selectDashboards(pool, where = '', bind = (r) => r) {
   try {
-    const rs = await pool.request().query(`SELECT ${COLS} FROM dbo.bi_dashboards ORDER BY dashboard_key ASC`);
-    return (rs.recordset || []).map(rowToDashboard);
+    return (await bind(pool.request()).query(`SELECT ${COLS} FROM dbo.bi_dashboards ${where}`)).recordset || [];
   } catch (err) {
     if (isMissingTable(err)) return [];
-    throw err;
+    if (!isMissingColumn(err)) throw err;
+    return (await bind(pool.request()).query(`SELECT ${COLS_V1} FROM dbo.bi_dashboards ${where}`)).recordset || [];
   }
+}
+
+async function listAllDashboards(pool) {
+  return (await selectDashboards(pool, 'ORDER BY dashboard_key ASC')).map(rowToDashboard);
 }
 
 async function getDashboard(pool, dashboardKey) {
   const k = str(dashboardKey, 64).toLowerCase();
   if (!k) return null;
-  try {
-    const rs = await pool
-      .request()
-      .input('k', sql.NVarChar(64), k)
-      .query(`SELECT ${COLS} FROM dbo.bi_dashboards WHERE dashboard_key = @k`);
-    const row = rs.recordset && rs.recordset[0];
-    return row ? rowToDashboard(row) : null;
-  } catch (err) {
-    if (isMissingTable(err)) return null;
-    throw err;
-  }
+  const rows = await selectDashboards(pool, 'WHERE dashboard_key = @k', (r) => r.input('k', sql.NVarChar(64), k));
+  return rows[0] ? rowToDashboard(rows[0]) : null;
 }
 
 /** @param {{ code: string, name: string } | null} [by] 操作人 */
@@ -247,6 +257,8 @@ async function upsertDashboard(pool, value, by = null) {
     .input('filters_json', sql.NVarChar(sql.MAX), JSON.stringify(value.filters))
     .input('cards_json', sql.NVarChar(sql.MAX), JSON.stringify(value.cards))
     .input('enabled', sql.Bit, value.enabled)
+    .input('home_roles_json', sql.NVarChar(sql.MAX), value.homeRoles?.length ? JSON.stringify(value.homeRoles) : null)
+    .input('home_sort', sql.Int, value.homeSort || 0)
     .input('updated_by', sql.NVarChar(64), by?.code || null)
     .input('updated_by_name', sql.NVarChar(128), by?.name || null)
     .query(`
@@ -254,11 +266,11 @@ async function upsertDashboard(pool, value, by = null) {
       USING (SELECT @dashboard_key AS dashboard_key) AS s ON t.dashboard_key = s.dashboard_key
       WHEN MATCHED THEN UPDATE SET
         label = @label, description = @description, filters_json = @filters_json,
-        cards_json = @cards_json, enabled = @enabled, updated_at = ${SQL_CHINA_LOCAL_NOW_EXPR},
-        updated_by = @updated_by, updated_by_name = @updated_by_name
+        cards_json = @cards_json, enabled = @enabled, home_roles_json = @home_roles_json, home_sort = @home_sort,
+        updated_at = ${SQL_CHINA_LOCAL_NOW_EXPR}, updated_by = @updated_by, updated_by_name = @updated_by_name
       WHEN NOT MATCHED THEN
-        INSERT (dashboard_key, label, description, filters_json, cards_json, enabled, updated_by, updated_by_name)
-        VALUES (@dashboard_key, @label, @description, @filters_json, @cards_json, @enabled, @updated_by, @updated_by_name);
+        INSERT (dashboard_key, label, description, filters_json, cards_json, enabled, home_roles_json, home_sort, updated_by, updated_by_name)
+        VALUES (@dashboard_key, @label, @description, @filters_json, @cards_json, @enabled, @home_roles_json, @home_sort, @updated_by, @updated_by_name);
     `);
   return getDashboard(pool, value.dashboardKey);
 }
@@ -308,6 +320,17 @@ function filterDashboardForRoles(dashboard, queries, roles) {
 }
 
 /**
+ * 首页看板：已启用、homeRoles 与用户角色有交集，按 homeSort、名称排序。
+ * 只按角色挑看板；卡片仍由调用方经 filterDashboardForRoles 按查询角色裁剪。
+ */
+function pickHomeDashboards(dashboards, roles) {
+  const mine = new Set(normalizeRoleKeys(roles || []));
+  return dashboards
+    .filter((d) => d.enabled && (d.homeRoles || []).some((r) => mine.has(r)))
+    .sort((a, b) => (a.homeSort || 0) - (b.homeSort || 0) || a.label.localeCompare(b.label, 'zh-CN'));
+}
+
+/**
  * 读看板并把图表引用展开成完整卡片（运行时：Agent 看板、AI 查询目录都用它）。
  * 返回 { dashboard: 展开后的看板, queries: 全部查询 }；看板不存在返回 null。
  */
@@ -329,5 +352,6 @@ module.exports = {
   upsertDashboard,
   deleteDashboard,
   filterDashboardForRoles,
+  pickHomeDashboards,
   loadExpandedDashboard,
 };

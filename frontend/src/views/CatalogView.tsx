@@ -7,6 +7,7 @@ import { cn, inputClass } from '../ui/classes'
 import { menuIcon, menuKindLabel } from '../utils/menuIcon'
 import { getRecentMenus } from '../utils/recentMenus'
 import { isPlainClick, menuPath } from '../router'
+import HomeDashboards from '../components/bi/HomeDashboards'
 
 /** 菜单多于这个数才显示搜索框 */
 const SEARCH_THRESHOLD = 8
@@ -119,6 +120,9 @@ export default function CatalogView() {
           <ChevronRight className="w-4 h-4 text-muted flex-shrink-0" />
         </button>
       )}
+
+      {/* 我的工作台：按角色配置的 BI 看板（没有配置则不显示） */}
+      <HomeDashboards />
 
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_18rem] lg:gap-6 lg:items-start">
         {/* 业务模块 */}

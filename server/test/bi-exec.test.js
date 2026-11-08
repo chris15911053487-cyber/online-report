@@ -260,3 +260,50 @@ test('executeQuery：绑定 SQL 用到的会话变量，客户端同名参数无
 
   await assert.rejects(executeQuery(pool, q, {}, {}), BiParamError);
 });
+
+test('executeQuery：@_user_<字段> 从 OUSR 读当前用户的值并按类型绑定；未设置 / 字段不存在报参数错误', async () => {
+  const make = (row, err) => {
+    const inputs = [];
+    const lookups = [];
+    const handlers = {};
+    const request = {
+      input: (name, _type, value) => { inputs.push([name, value]); return request; },
+      on: (ev, fn) => { handlers[ev] = fn; return request; },
+      cancel: () => {},
+      query: (text) => {
+        if (/FROM dbo\.OUSR/.test(text || '')) {
+          lookups.push(text);
+          return err ? Promise.reject(err) : Promise.resolve({ recordset: row ? [row] : [] });
+        }
+        setImmediate(() => { handlers.recordset({ v: {} }); handlers.done(); });
+      },
+    };
+    return { pool: { request: () => request }, inputs, lookups };
+  };
+  const q = { queryKey: 'my_so', sqlText: 'SELECT 1 FROM ORDR WHERE SlpCode = @_user_U_SlpCode AND d = @_user_Dept', params: [] };
+  const session = { session: { username: 'U001' } };
+
+  const ok = make({ U_SlpCode: 7, Dept: '销售一部' });
+  await executeQuery(ok.pool, q, { _user_U_SlpCode: 999 }, session);
+  assert.match(ok.lookups[0], /SELECT \[U_SlpCode\], \[Dept\] FROM dbo\.OUSR WHERE \[USER_CODE\] = @u/);
+  assert.deepEqual(ok.inputs, [['u', 'U001'], ['_user_U_SlpCode', 7], ['_user_Dept', '销售一部']], '客户端同名参数无效');
+
+  await assert.rejects(executeQuery(make({ U_SlpCode: null, Dept: 'x' }).pool, q, {}, session), /未设置「U_SlpCode」/);
+  await assert.rejects(executeQuery(make(null).pool, q, {}, session), BiParamError, '用户不在 OUSR 也不绑空');
+  const missing = Object.assign(new Error('Invalid column name'), { number: 207 });
+  await assert.rejects(executeQuery(make(null, missing).pool, q, {}, session), /OUSR 没有字段/);
+  await assert.rejects(executeQuery(make({}).pool, q, {}, {}), /登录用户/);
+});
+
+test('缓存：用了 @_user_* 的查询按用户区分', async () => {
+  const sessions = [];
+  const exec = createBiExecutor({
+    now: () => 1,
+    execute: async (_p, _q, _params, opts) => { sessions.push(opts.session.username); return { columns: [], rows: [], rowCount: 0, truncated: false }; },
+  });
+  const q = { queryKey: 'my_so', sqlText: 'SELECT 1 WHERE SlpCode = @_user_U_SlpCode', params: [], cacheSecs: 60 };
+  await exec.run({ pool: {}, query: q, roles: ['sales'], session: { username: 'A' } });
+  await exec.run({ pool: {}, query: q, roles: ['sales'], session: { username: 'B' } });
+  await exec.run({ pool: {}, query: q, roles: ['sales'], session: { username: 'A' } });
+  assert.deepEqual(sessions, ['A', 'B']);
+});

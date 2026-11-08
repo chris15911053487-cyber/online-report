@@ -75,7 +75,16 @@ function stripForScan(text: string): string {
 /** 系统变量：服务端按当前登录用户自动绑定（与 server/src/bi-queries.js SESSION_PARAMS 一致），不是参数 */
 export const SESSION_PARAMS = ['_loginUser', '_loginDisplayName'] as const
 const SESSION_PARAM_KEYS = new Set(SESSION_PARAMS.map((n) => n.toLowerCase()))
-export const isSessionParam = (name: string) => SESSION_PARAM_KEYS.has(name.replace(/^@/, '').toLowerCase())
+/** @_user_<OUSR字段>：当前用户在 OUSR 上该字段的值（如 @_user_U_SlpCode），与服务端 userAttrColumn 同规则 */
+const USER_ATTR_RE = /^_user_([A-Za-z][A-Za-z0-9_]{0,63})$/i
+/** 不允许按这些字段取数（与服务端 USER_ATTR_DENY_RE 一致） */
+export const USER_ATTR_DENY_RE = /pass|pwd|imei|token|secret|salt|hash/i
+export function userAttrColumn(name: string): string | null {
+  const m = USER_ATTR_RE.exec(name.replace(/^@/, ''))
+  return m ? m[1] : null
+}
+const isSessionKey = (k: string) => SESSION_PARAM_KEYS.has(k) || userAttrColumn(k) != null
+export const isSessionParam = (name: string) => isSessionKey(name.replace(/^@/, '').toLowerCase())
 
 /** SQL 中引用的 @参数（排除 @@系统变量、@_loginUser 等会话变量、没加方括号的 @自定义表名），按出现顺序去重（大小写不敏感，保留首次写法） */
 export function extractSqlParams(sql: string): string[] {
@@ -86,7 +95,7 @@ export function extractSqlParams(sql: string): string[] {
   let m: RegExpExecArray | null
   while ((m = re.exec(scanned))) {
     const k = m[2].toLowerCase()
-    if (!names.has(k) && !SESSION_PARAM_KEYS.has(k) && !tables.has(k)) names.set(k, m[2])
+    if (!names.has(k) && !isSessionKey(k) && !tables.has(k)) names.set(k, m[2])
   }
   return [...names.values()]
 }
@@ -107,14 +116,19 @@ export function bareTableRefs(sql: string): string[] {
   return [...out.values()]
 }
 
-/** SQL 用到了哪些会话变量（规范写法，如 ['_loginUser']；注释、字符串里的不算） */
+/** SQL 用到了哪些会话变量（规范写法，如 ['_loginUser', '_user_U_SlpCode']；注释、字符串里的不算） */
 export function sessionParamsUsed(sql: string): string[] {
   const scanned = stripForScan(sql || '')
-  const used = new Set<string>()
+  const used = new Map<string, string>()
   const re = /(^|[^@\w])@([A-Za-z_][A-Za-z0-9_]*)/g
   let m: RegExpExecArray | null
-  while ((m = re.exec(scanned))) used.add(m[2].toLowerCase())
-  return SESSION_PARAMS.filter((n) => used.has(n.toLowerCase()))
+  while ((m = re.exec(scanned))) if (!used.has(m[2].toLowerCase())) used.set(m[2].toLowerCase(), m[2])
+  const out: string[] = SESSION_PARAMS.filter((n) => used.has(n.toLowerCase()))
+  for (const n of used.values()) {
+    const col = userAttrColumn(n)
+    if (col) out.push(`_user_${col}`)
+  }
+  return out
 }
 
 /** 按参数名猜类型：日期类名 → date；数量类 → number；其余 string（期间 YYYY-MM 也是 string） */
