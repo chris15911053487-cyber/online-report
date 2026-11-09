@@ -825,7 +825,7 @@ addCmd(['打开消息', '未读消息'], function () {
 
 ### 对话框按住说话
 
-AI 助手（`AiChatView`）和 Agent 对话手机端（`AgentRunView`）输入框左侧有麦克风钮（`components/HoldToTalk.tsx`）：按住录音、松开识别、上滑取消；结果**追加到输入框**，不自动发送。录音 / WAV 编码 / 调 `POST /speech/recognize` 在 `utils/voiceRecorder.ts`（与 `voice.js` 同一套 16k 单声道 WAV），单次最长 60 秒（百度短语音上限），短于 0.5 秒视为误触。App 壳（`window.ReactNativeWebView`）内不显示，走原生语音钮。
+AI 助手（`AiChatView`）和 Agent 对话手机端（`AgentRunView`）输入框右侧、发送钮旁有麦克风钮（`components/HoldToTalk.tsx`）：按住录音、松开识别、上滑取消；结果**追加到输入框**，不自动发送。录音 / WAV 编码 / 调 `POST /speech/recognize` 在 `utils/voiceRecorder.ts`（与 `voice.js` 同一套 16k 单声道 WAV），单次最长 60 秒（百度短语音上限），短于 0.5 秒视为误触。App 壳（`window.ReactNativeWebView`）内不显示，走原生语音钮。
 
 对话页**可见时**注册 `window.__voiceChatInput(text)`（两个页面都保活，隐藏时注销）；`voice.js` 的 `execVoiceText` 发现该钩子就把文字填进输入框，不再做指令匹配——浮动语音钮和 App 原生钮（`__voiceExec`）在对话页里也是填输入框。
 

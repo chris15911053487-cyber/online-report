@@ -861,7 +861,6 @@ export default function AiChatView() {
             </div>
           )}
           <div className="flex gap-2 items-end">
-            <HoldToTalk onText={appendVoiceText} disabled={loading} className="mb-0.5" />
             <textarea
               ref={inputRef}
               value={input}
@@ -884,6 +883,7 @@ export default function AiChatView() {
               disabled={loading}
               className="flex-1 resize-none rounded-xl border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/25 disabled:bg-surface-2"
             />
+            <HoldToTalk onText={appendVoiceText} disabled={loading} className="mb-0.5" />
             <button
               type="button"
               onClick={() => {

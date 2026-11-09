@@ -1421,7 +1421,6 @@ export default function AgentRunView() {
                 border: `1px solid ${mobileInputFocused ? tv('primary') : 'transparent'}`,
               }}
             >
-              <HoldToTalk onText={appendMobileVoice} disabled={sending} className="-ml-2" />
               <input
                 ref={mobileInputRef}
                 type="text"
@@ -1437,6 +1436,7 @@ export default function AgentRunView() {
                 className="flex-1 bg-transparent outline-none min-w-0 disabled:opacity-50"
                 style={{ fontSize: 14, color: tv('fg') }}
               />
+              <HoldToTalk onText={appendMobileVoice} disabled={sending} />
               <button
                 onClick={() => sending ? abortRef.current?.abort() : void doSend(mobileInput)}
                 className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all"
