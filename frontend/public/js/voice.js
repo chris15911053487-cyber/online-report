@@ -17,12 +17,15 @@
   /** 底部 Tab：中文说法 → data-nav-tab */
   var NAV_TAB_BY_LABEL = {
     '菜单': 'catalog',
+    '工作台': 'catalog',
     '目录': 'catalog',
     '首页': 'catalog',
     '主页': 'catalog',
     '主界面': 'catalog',
     '返回': 'catalog',
     'AI': 'ai',
+    'AI 助手': 'ai',
+    'AI助手': 'ai',
     'ai': 'ai',
     '人工智能': 'ai',
     '智能助手': 'ai',
@@ -205,6 +208,23 @@
 
   function execVoiceText(text, options) {
     options = options || {};
+
+    // 对话页（AI 助手、Agent 对话）可见时：识别文本直接填入输入框（钩子由页面在可见时注册、隐藏时注销），
+    // 不再走指令匹配——在对话页里说话就是想跟 AI 说。
+    if (text && typeof window.__voiceChatInput === 'function') {
+      var filled = false;
+      try {
+        filled = window.__voiceChatInput(text) === true;
+      } catch (e) { /* hook 异常时回退到指令匹配 */ }
+      if (filled) {
+        if (options.onSuccess) {
+          options.onSuccess(text, { keywords: [] }, '已填入对话输入框');
+        } else {
+          showToast('已填入对话输入框');
+        }
+        return true;
+      }
+    }
 
     // 优先尝试菜单上配置的「语音动作模板」（方案 B：可带参数操作菜单）
     var tpl = tryVoiceActionTemplates(text);
@@ -928,7 +948,7 @@
   }
 
   // ==================== 全局指令（固定 Tab / 特殊操作；业务菜单由 refreshDynamicCatalogCommands 同步） ====================
-  addCmd(['返回', '主界面', '菜单', '目录', '首页', '主页', '返回主菜单', '回到主菜单', '返回菜单', '回到菜单', '主菜单', '回首页'], function () {
+  addCmd(['返回', '主界面', '工作台', '菜单', '目录', '首页', '主页', '返回主菜单', '回到主菜单', '返回菜单', '回到菜单', '主菜单', '回首页'], function () {
     goToNavTab('菜单');
   }, { label: '菜单' });
 

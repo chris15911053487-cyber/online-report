@@ -26,6 +26,7 @@ import { useStore } from '../store'
 import { tv } from '../theme'
 import { useIsPc } from '../hooks/useMediaQuery'
 import { usePageFullscreen } from '../hooks/usePageFullscreen'
+import HoldToTalk from '../components/HoldToTalk'
 import { apiFetch } from '../utils/api'
 import { attachToolResults, createLiveFeed, streamAgentChat, type LiveState } from '../utils/agentStream'
 import ChartRenderer from '../components/ChartRenderer'
@@ -608,6 +609,28 @@ export default function AgentRunView() {
   const [pendingContext, setPendingContext] = useState<BiContextPayload | null>(null)
   const pcInputRef = useRef<HTMLInputElement>(null)
   const mobileInputRef = useRef<HTMLInputElement>(null)
+
+  // 语音填入输入框：手机「对话」页签可见时，悬浮语音钮 / App 原生语音钮识别的文字经 voice.js 填到这里。
+  // 页面保活，隐藏时必须注销，否则别的页面的语音指令会被吞掉
+  const appendMobileVoice = useCallback((text: string) => {
+    setMobileInput((prev) => prev + text)
+    mobileInputRef.current?.focus()
+  }, [])
+  const voiceInputActive = pageVisible && !isPc && mobileTab === 'chat'
+  useEffect(() => {
+    if (!voiceInputActive) return
+    const w = window as Window & { __voiceChatInput?: (text: string) => boolean }
+    const hook = (text: string) => {
+      const t = String(text || '').trim()
+      if (!t) return false
+      appendMobileVoice(t)
+      return true
+    }
+    w.__voiceChatInput = hook
+    return () => {
+      if (w.__voiceChatInput === hook) delete w.__voiceChatInput
+    }
+  }, [voiceInputActive, appendMobileVoice])
 
   const chatEndRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<AbortController | null>(null)
@@ -1398,6 +1421,7 @@ export default function AgentRunView() {
                 border: `1px solid ${mobileInputFocused ? tv('primary') : 'transparent'}`,
               }}
             >
+              <HoldToTalk onText={appendMobileVoice} disabled={sending} className="-ml-2" />
               <input
                 ref={mobileInputRef}
                 type="text"

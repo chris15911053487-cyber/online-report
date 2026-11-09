@@ -5,6 +5,7 @@ import AgentLiveTrace from '../components/AgentLiveTrace'
 import PinToDashboard from '../components/bi/PinToDashboard'
 import AgentTracePanel, { parseAgentTrace, type AgentTimings, type AgentToolStep } from '../components/AgentTracePanel'
 import ChatMarkdown, { bareDocUrls } from '../components/ChatMarkdown'
+import HoldToTalk from '../components/HoldToTalk'
 import { useStore } from '../store'
 import { apiFetch, apiUrl, authHeaders } from '../utils/api'
 import { attachToolResults, createLiveFeed, stripActionsBlock, streamAgentChat, type LiveState } from '../utils/agentStream'
@@ -163,6 +164,7 @@ export default function AiChatView() {
   const [feedback, setFeedback] = useState<Record<number, 'up' | 'down'>>({})
   const [quotedMsg, setQuotedMsg] = useState<{ index: number; text: string } | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
   const abortRef = useRef<AbortController | null>(null)
   /** 流式进行中的实时步骤与文本；null = 当前没有进行中的对话 */
   const [live, setLive] = useState<LiveState | null>(null)
@@ -199,19 +201,27 @@ export default function AiChatView() {
     }
   }, [])
 
-  // 语音输入：对话页挂载期间，悬浮语音按钮识别出的文本由 voice.js 经此钩子填入输入框
+  // 语音输入：按住说话钮，以及悬浮语音钮 / App 原生语音钮（voice.js 经 __voiceChatInput 钩子）识别的文字都填进输入框，不自动发送。
+  // 页面保活，只在可见时注册钩子，否则别的页面的语音指令会被吞掉
+  const appendVoiceText = useCallback((text: string) => {
+    setInput((prev) => prev + text)
+    inputRef.current?.focus()
+  }, [])
+  const pageVisible = useStore((s) => s.currentView === 'ai')
   useEffect(() => {
-    const w = window as Window & { __voiceAiChatInput?: (text: string) => boolean }
-    w.__voiceAiChatInput = (text: string) => {
+    if (!pageVisible) return
+    const w = window as Window & { __voiceChatInput?: (text: string) => boolean }
+    const hook = (text: string) => {
       const t = String(text || '').trim()
       if (!t) return false
-      setInput((prev) => (prev ? `${prev}${t}` : t))
+      appendVoiceText(t)
       return true
     }
+    w.__voiceChatInput = hook
     return () => {
-      delete w.__voiceAiChatInput
+      if (w.__voiceChatInput === hook) delete w.__voiceChatInput
     }
-  }, [])
+  }, [pageVisible, appendVoiceText])
 
   const navStoreBase = { setView, navigateTo, navMenus, openProSign, showToast }
 
@@ -851,7 +861,9 @@ export default function AiChatView() {
             </div>
           )}
           <div className="flex gap-2 items-end">
+            <HoldToTalk onText={appendVoiceText} disabled={loading} className="mb-0.5" />
             <textarea
+              ref={inputRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {

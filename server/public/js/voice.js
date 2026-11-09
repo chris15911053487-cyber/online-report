@@ -209,12 +209,12 @@
   function execVoiceText(text, options) {
     options = options || {};
 
-    // AI 对话页打开时：识别文本直接填入聊天输入框（钩子由 AiChatView 挂载/卸载），
+    // 对话页（AI 助手、Agent 对话）可见时：识别文本直接填入输入框（钩子由页面在可见时注册、隐藏时注销），
     // 不再走指令匹配——在对话页里说话就是想跟 AI 说。
-    if (text && typeof window.__voiceAiChatInput === 'function') {
+    if (text && typeof window.__voiceChatInput === 'function') {
       var filled = false;
       try {
-        filled = window.__voiceAiChatInput(text) === true;
+        filled = window.__voiceChatInput(text) === true;
       } catch (e) { /* hook 异常时回退到指令匹配 */ }
       if (filled) {
         if (options.onSuccess) {
