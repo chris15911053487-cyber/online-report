@@ -1,23 +1,13 @@
-const fs = require('fs');
-const path = require('path');
 const { recognize } = require('../baidu-asr');
 const { getPool, sql } = require('../db');
 
 async function speechRoutes(fastify) {
   // 调试端点：前端各步骤状态写入 voice_logs，方便排查流程中断位置
-  fastify.post('/speech/debug', async (request, reply) => {
+  fastify.post('/speech/debug', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const { text } = request.body || {};
     if (!text) return reply.code(400).send({ error: '缺少 text' });
 
-    let userCode = null;
-    try {
-      const authHeader = request.headers.authorization;
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.slice(7);
-        const decoded = fastify.jwt.verify(token);
-        userCode = decoded.username || null;
-      }
-    } catch (_) {}
+    const userCode = request.user?.username || null;
 
     try {
       const pool = await getPool();
@@ -31,36 +21,17 @@ async function speechRoutes(fastify) {
     return { ok: true };
   });
 
-  fastify.post('/speech/recognize', async (request, reply) => {
+  // 百度短语音上限 60 秒：16k 16bit 单声道约 1.9MB，base64 后约 2.6MB，超过 Fastify 默认的 1MB
+  fastify.post('/speech/recognize', { preHandler: [fastify.authenticate], bodyLimit: 4 * 1024 * 1024 }, async (request, reply) => {
     const { audio, format, rate } = request.body || {};
 
     if (!audio || typeof audio !== 'string') {
       return reply.code(400).send({ error: '缺少音频数据' });
     }
 
-    // 尝试从 JWT 提取用户（不强制要求登录）
-    let userCode = null;
-    try {
-      const authHeader = request.headers.authorization;
-      if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.slice(7);
-        const decoded = fastify.jwt.verify(token);
-        userCode = decoded.username || null;
-      }
-    } catch (_) {
-      // token 无效或过期，userCode 保持 null
-    }
+    const userCode = request.user?.username || null;
 
     try {
-      // 保存最近一次录音到 public/debug-audio.wav 供调试播放
-      try {
-        const buf = Buffer.from(audio, 'base64');
-        const debugPath = path.join(__dirname, '..', '..', 'public', 'debug-audio.wav');
-        fs.writeFileSync(debugPath, buf);
-      } catch (e) {
-        fastify.log.warn({ err: e }, 'Failed to save debug audio');
-      }
-
       // Calculate original byte length from base64
       const padding = (audio.endsWith('==') ? 2 : audio.endsWith('=') ? 1 : 0);
       const audioBytes = (audio.length / 4) * 3 - padding;

@@ -22,7 +22,6 @@
 │  后端 (speech.js + baidu-asr.js)                   │
 │                                                    │
 │  /api/speech/recognize                             │
-│    → 保存 debug-audio.wav 到 public/               │
 │    → 调用百度 ASR REST API                         │
 │    → 写入识别结果到 voice_logs 表                   │
 │    → 返回 { text: "识别文字" }                      │
@@ -303,8 +302,9 @@ const body = JSON.stringify({
 | 设施 | 说明 |
 |------|------|
 | `voice_logs` 表 | 记录每次识别的文本、用户、调试标签 |
-| `debug-audio.wav` | 最近一次录音保存到 `public/` 目录，可直接播放验证音质 |
-| `/api/speech/debug` | 前端各阶段写入调试标签（`[START]`、`[REC_OK]`、`[AUDIO]`、`[ASR_FAIL]` 等） |
+| `/api/speech/debug` | 前端各阶段写入调试标签（`[START]`、`[REC_OK]`、`[AUDIO]`、`[ASR_FAIL]` 等）；需登录 |
+
+> 两个接口都需要登录（JWT）。录音不再落盘（原 `public/debug-audio.wav` 可被公开下载，已移除）；要排查音质时临时在本地加日志，不要写进公开目录。
 
 ---
 
@@ -328,7 +328,7 @@ const body = JSON.stringify({
 排查步骤：
 1. 访问 `https://www.onlinemictest.com/` 测试麦克风硬件
 2. 检查系统偏好设置 → 隐私与安全性 → 麦克风 → 浏览器是否授权
-3. 检查 `debug-audio.wav` 文件是否有声音
+3. 查 `voice_logs` 里的 `[AUDIO] ... peak=` 调试标签：peak 接近 0 说明没录到声音
 
 ### 6.3 Baidu ASR 返回 "我不知道" 或识别不准确
 
