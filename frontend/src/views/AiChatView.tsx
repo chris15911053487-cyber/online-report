@@ -6,6 +6,7 @@ import PinToDashboard from '../components/bi/PinToDashboard'
 import AgentTracePanel, { parseAgentTrace, type AgentTimings, type AgentToolStep } from '../components/AgentTracePanel'
 import ChatMarkdown, { bareDocUrls } from '../components/ChatMarkdown'
 import HoldToTalk from '../components/HoldToTalk'
+import { useVoiceDraft, type VoiceSendFields } from '../hooks/useVoiceDraft'
 import { voiceInputSupported } from '../utils/voiceRecorder'
 import { useStore } from '../store'
 import { apiFetch, apiUrl, authHeaders } from '../utils/api'
@@ -204,10 +205,12 @@ export default function AiChatView() {
 
   // 语音输入：按住说话钮，以及悬浮语音钮 / App 原生语音钮（voice.js 经 __voiceChatInput 钩子）识别的文字都填进输入框，不自动发送。
   // 页面保活，只在可见时注册钩子，否则别的页面的语音指令会被吞掉
-  const appendVoiceText = useCallback((text: string) => {
+  const voiceDraft = useVoiceDraft()
+  const appendVoiceText = useCallback((text: string, logId?: number | null) => {
     setInput((prev) => prev + text)
+    voiceDraft.mark(logId)
     inputRef.current?.focus()
-  }, [])
+  }, [voiceDraft])
   const pageVisible = useStore((s) => s.currentView === 'ai')
   // 学微信：输入框为空时发送钮的位置显示「按住说话」
   const [voiceOk] = useState(voiceInputSupported)
@@ -275,7 +278,7 @@ export default function AiChatView() {
   }, [])
 
   const sendText = useCallback(
-    async (text: string, opts?: { freshThread?: boolean }) => {
+    async (text: string, opts?: { freshThread?: boolean; voice?: VoiceSendFields }) => {
       const trimmed = text.trim()
       if (!trimmed || loading) return
       const cid = opts?.freshThread ? newConversationId() : conversationId
@@ -292,7 +295,7 @@ export default function AiChatView() {
       const controller = new AbortController()
       abortRef.current = controller
       try {
-        const data = await runAgent({ conversationId: cid, message: trimmed }, controller.signal)
+        const data = await runAgent({ conversationId: cid, message: trimmed, ...opts?.voice }, controller.signal)
         applyAgentResponse(nextMsgs, data)
         void refreshConversations()
       } catch (e: unknown) {
@@ -423,12 +426,12 @@ export default function AiChatView() {
   const send = useCallback(() => {
     if (quotedMsg) {
       const prefix = `> ${quotedMsg.text.slice(0, 100)}${quotedMsg.text.length > 100 ? '…' : ''}\n\n`
-      void sendText(prefix + input)
+      void sendText(prefix + input, { voice: voiceDraft.take() })
       setQuotedMsg(null)
     } else {
-      void sendText(input)
+      void sendText(input, { voice: voiceDraft.take() })
     }
-  }, [input, sendText, quotedMsg])
+  }, [input, sendText, quotedMsg, voiceDraft])
 
   const stop = useCallback(() => {
     abortRef.current?.abort()
@@ -867,7 +870,10 @@ export default function AiChatView() {
             <textarea
               ref={inputRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                setInput(e.target.value)
+                if (!e.target.value) voiceDraft.reset()
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()

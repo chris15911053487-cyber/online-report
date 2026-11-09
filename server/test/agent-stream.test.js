@@ -37,6 +37,12 @@ stub('help-knowledge.js', {
   buildHelpSystemPrompt: () => 'sys',
 });
 stub('ai.js', { aiService: { generateChat: async () => ({ success: true, content: '降级回答', provider: 'x', model: 'y' }) } });
+const voiceFinals = [];
+stub('voice-logs.js', {
+  recordVoiceFinal: async (_pool, v) => { voiceFinals.push(v); return true; },
+  insertVoiceLog: async () => 1,
+  normalizeVoiceLogId: (x) => x,
+});
 stub('ai-scoped-token.js', { signScopedToken: () => 'tok', verifyScopedToken: () => ({ ok: false }), userFromScopedPayload: () => ({}) });
 
 const { agentChatCore, parseSseBlock } = require('../src/agent-chat-core');
@@ -286,7 +292,27 @@ test('看板上下文与 mode：规范化后透传给 ai-agent（流式与非流
   assert.equal('mode' in lastRequest.body, false, '未知 mode 不传');
 });
 
-test('路由：/ai/agent/chat 与 /ai/agent/chat/stream 都把 context/mode 交给 ai-agent', async () => {
+test('语音输入：inputMode=voice 透传给 ai-agent，落历史的是原话；带 voiceLogId 时记下实际发出的文字', async () => {
+  behavior = async (req, res) => {
+    startSse(res);
+    sse(res, { type: 'final', data: { status: 'final', message: 'ok' } });
+    res.end();
+  };
+  voiceFinals.length = 0;
+  await agentChatCore({ ...base, message: '看下上个月的数据', inputMode: 'voice', voiceLogId: 7, onEvent: () => {} });
+  assert.equal(lastRequest.body.inputMode, 'voice');
+  assert.equal(lastRequest.body.input.content, '看下上个月的数据');
+  assert.equal(store.messages[0].content, '看下上个月的数据');
+  assert.deepEqual(voiceFinals, [{ logId: 7, userCode: 'U1', finalText: '看下上个月的数据' }]);
+
+  voiceFinals.length = 0;
+  await agentChatCore({ ...base, inputMode: 'keyboard', onEvent: () => {} });
+  assert.equal('inputMode' in lastRequest.body, false, '未知 inputMode 不传');
+  assert.equal(voiceFinals.length, 0);
+});
+
+test('路由：/ai/agent/chat 与 /ai/agent/chat/stream 都把 context/mode/inputMode 交给 ai-agent', async () => {
+  voiceFinals.length = 0;
   const Fastify = require('fastify');
   const app = Fastify();
   app.decorate('authenticate', async (request) => { request.user = { username: 'U1', displayName: '张三', roles: ['operator'] }; });
@@ -303,7 +329,7 @@ test('路由：/ai/agent/chat 与 /ai/agent/chat/stream 都把 context/mode 交�
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'final', message: 'ok' }));
   };
-  const body = JSON.stringify({ conversationId: 'conv-9', message: '解读', context: { cardTitle: '应收', intent: 'explain' }, mode: 'fast' });
+  const body = JSON.stringify({ conversationId: 'conv-9', message: '解读', context: { cardTitle: '应收', intent: 'explain' }, mode: 'fast', inputMode: 'voice', voiceLogId: 3 });
   try {
     for (const p of ['/ai/agent/chat', '/ai/agent/chat/stream']) {
       lastRequest = null;
@@ -312,7 +338,9 @@ test('路由：/ai/agent/chat 与 /ai/agent/chat/stream 都把 context/mode 交�
       assert.equal(res.status, 200, p);
       assert.deepEqual(lastRequest.body.context, { cardTitle: '应收', intent: 'explain' }, p);
       assert.equal(lastRequest.body.mode, 'fast', p);
+      assert.equal(lastRequest.body.inputMode, 'voice', p);
     }
+    assert.equal(voiceFinals.filter((v) => v.logId === 3).length, 2, '两个入口都记下实际发出的文字');
   } finally {
     await app.close();
   }

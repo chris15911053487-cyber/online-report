@@ -16,7 +16,8 @@ const {
 } = require('./ai-conversations');
 const { retrieveRelevantChunks, suggestNavActions } = require('./help-knowledge');
 const { aiService } = require('./ai');
-const { normalizeBiContext, normalizeMode } = require('./bi-context');
+const { normalizeBiContext, normalizeMode, normalizeInputMode } = require('./bi-context');
+const { recordVoiceFinal } = require('./voice-logs');
 
 function agentBaseUrl() {
   return String(process.env.AI_AGENT_URL || 'http://ai-agent:8080').replace(/\/+$/, '');
@@ -162,6 +163,7 @@ async function agentChatCore(opts) {
   const { userCode, displayName, conversationId, agentKey, message, resume, log, onEvent, signal } = opts;
   const context = normalizeBiContext(opts.context);
   const mode = normalizeMode(opts.mode);
+  const inputMode = normalizeInputMode(opts.inputMode);
   if (!isValidConversationId(conversationId)) {
     return { error: 'conversationId 不合法', code: 'AGENT_BAD_CONV_ID' };
   }
@@ -184,6 +186,12 @@ async function agentChatCore(opts) {
       return { error: '会话不属于当前用户', code: 'AGENT_CONV_FORBIDDEN' };
     }
     log?.error?.({ err }, 'agentChatCore persist user msg');
+  }
+
+  // 语音输入：记下用户实际发出的文字（与识别结果对比 = 识别错误样本）
+  if (!isResume && opts.voiceLogId) {
+    recordVoiceFinal(pool, { logId: opts.voiceLogId, userCode, finalText: message })
+      .catch((err) => log?.warn?.({ err: err.message }, 'record voice final'));
   }
 
   // 组装上下文
@@ -220,6 +228,7 @@ async function agentChatCore(opts) {
         agentPrompt: agentPrompt || undefined,
         context: context || undefined,
         mode,
+        inputMode,
       };
       const { ok, data, cancelled } = onEvent
         ? await postAgentStream('/chat/stream', agentPayload, scopedToken, { signal, onEvent })

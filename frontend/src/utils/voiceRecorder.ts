@@ -215,12 +215,19 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary)
 }
 
-export async function recognizeSpeech(samples: Float32Array): Promise<string> {
+/** 识别结果；logId 是后端 voice_logs 记录 id，发送时带回去记下实际发出的文字 */
+export interface SpeechResult {
+  text: string
+  logId: number | null
+}
+
+export async function recognizeSpeech(samples: Float32Array): Promise<SpeechResult> {
   const audio = arrayBufferToBase64(pcmChunksToWav([samples], ASR_SAMPLE_RATE))
   const data = await apiFetch('/speech/recognize', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ audio, format: 'wav', rate: ASR_SAMPLE_RATE }),
+    body: JSON.stringify({ audio, format: 'wav', rate: ASR_SAMPLE_RATE, source: 'chat' }),
   })
-  return String(data?.text || '').trim()
+  const logId = Number(data?.logId)
+  return { text: String(data?.text || '').trim(), logId: Number.isSafeInteger(logId) && logId > 0 ? logId : null }
 }

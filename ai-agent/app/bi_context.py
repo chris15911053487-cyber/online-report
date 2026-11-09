@@ -51,8 +51,18 @@ def format_bi_context(ctx: dict | None) -> str:
     return "\n".join(lines)
 
 
-def compose_user_message(content: str, ctx: dict | None) -> str:
-    """有上下文时：上下文说明 + 用户原话；否则原样返回。"""
+# 语音输入的消息：识别容易把「上个月」听成「三个月」、物料 / 客户名变同音字，让模型先说清楚理解的条件
+VOICE_HINT = (
+    "（本条来自语音识别，可能有同音字，如 上个月/三个月、物料名或客户名。"
+    "涉及时间范围、数量、对象等关键条件时，在回答第一句写明你按什么条件查的；"
+    "整句明显不通顺时先向用户确认再查。）"
+)
+
+
+def compose_user_message(content: str, ctx: dict | None, input_mode: str | None = None) -> str:
+    """有上下文时：上下文说明 + 用户原话；语音输入时末尾加识别提示；否则原样返回。"""
+    if input_mode == "voice":
+        content = f"{content}\n\n{VOICE_HINT}"
     block = format_bi_context(ctx)
     if not block:
         return content

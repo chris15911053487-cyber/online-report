@@ -101,4 +101,9 @@ function normalizeMode(raw) {
   return raw === 'fast' ? 'fast' : undefined;
 }
 
-module.exports = { normalizeBiContext, normalizeMode, MAX_JSON_CHARS };
+/** 输入方式："voice" = 本条来自语音识别（ai-agent 据此在本轮用户消息末尾加同音字提示） */
+function normalizeInputMode(raw) {
+  return raw === 'voice' ? 'voice' : undefined;
+}
+
+module.exports = { normalizeBiContext, normalizeMode, normalizeInputMode, MAX_JSON_CHARS };

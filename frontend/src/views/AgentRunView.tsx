@@ -27,6 +27,7 @@ import { tv } from '../theme'
 import { useIsPc } from '../hooks/useMediaQuery'
 import { usePageFullscreen } from '../hooks/usePageFullscreen'
 import HoldToTalk from '../components/HoldToTalk'
+import { useVoiceDraft, type VoiceSendFields } from '../hooks/useVoiceDraft'
 import { voiceInputSupported } from '../utils/voiceRecorder'
 import { apiFetch } from '../utils/api'
 import { attachToolResults, createLiveFeed, streamAgentChat, type LiveState } from '../utils/agentStream'
@@ -613,10 +614,12 @@ export default function AgentRunView() {
 
   // 语音填入输入框：手机「对话」页签可见时，悬浮语音钮 / App 原生语音钮识别的文字经 voice.js 填到这里。
   // 页面保活，隐藏时必须注销，否则别的页面的语音指令会被吞掉
-  const appendMobileVoice = useCallback((text: string) => {
+  const voiceDraft = useVoiceDraft()
+  const appendMobileVoice = useCallback((text: string, logId?: number | null) => {
     setMobileInput((prev) => prev + text)
+    voiceDraft.mark(logId)
     mobileInputRef.current?.focus()
-  }, [])
+  }, [voiceDraft])
   // 学微信：输入框为空时发送钮的位置显示「按住说话」
   const [voiceOk] = useState(voiceInputSupported)
   const voiceInputActive = pageVisible && !isPc && mobileTab === 'chat'
@@ -685,8 +688,9 @@ export default function AgentRunView() {
     /**
      * @param opts.context 看板上下文；未传时使用输入框上方挂着的胶囊（pendingContext）
      * @param opts.mode    'fast' = 快模型（点击「AI 解读」）
+     * @param opts.voice   输入框文字来自语音识别时的标记（useVoiceDraft().take()）
      */
-    async (text: string, opts: { context?: BiContextPayload | null; mode?: 'fast' } = {}) => {
+    async (text: string, opts: { context?: BiContextPayload | null; mode?: 'fast'; voice?: VoiceSendFields } = {}) => {
       const trimmed = text.trim()
       if (!trimmed || sending) return
       const ctx = opts.context !== undefined ? opts.context : pendingContext
@@ -713,6 +717,7 @@ export default function AgentRunView() {
             message: trimmed,
             context: ctx ? toWireContext(ctx) : undefined,
             mode: opts.mode,
+            ...opts.voice,
           },
           ctrl.signal,
         )
@@ -1428,11 +1433,14 @@ export default function AgentRunView() {
                 ref={mobileInputRef}
                 type="text"
                 value={mobileInput}
-                onChange={(e) => setMobileInput(e.target.value)}
+                onChange={(e) => {
+                  setMobileInput(e.target.value)
+                  if (!e.target.value) voiceDraft.reset()
+                }}
                 onFocus={() => setMobileInputFocused(true)}
                 onBlur={() => setMobileInputFocused(false)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void doSend(mobileInput) }
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!sending) void doSend(mobileInput, { voice: voiceDraft.take() }) }
                 }}
                 placeholder={sending ? '思考中…' : agent ? `问问${agent.label}…` : '输入问题…'}
                 disabled={sending}
@@ -1443,7 +1451,7 @@ export default function AgentRunView() {
                 <HoldToTalk onText={appendMobileVoice} prominent className="w-9 h-9 -my-0.5 rounded-full" />
               ) : (
                 <button
-                  onClick={() => sending ? abortRef.current?.abort() : void doSend(mobileInput)}
+                  onClick={() => sending ? abortRef.current?.abort() : void doSend(mobileInput, { voice: voiceDraft.take() })}
                   className="w-9 h-9 -my-0.5 rounded-full flex items-center justify-center flex-shrink-0 transition-all"
                   style={{
                     background: sending

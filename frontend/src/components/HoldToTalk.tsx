@@ -27,7 +27,8 @@ export default function HoldToTalk({
   prominent,
   className = 'w-8 h-8 rounded-full',
 }: {
-  onText: (text: string) => void
+  /** logId：后端识别记录 id（发送时带回，记下实际发出的文字） */
+  onText: (text: string, logId: number | null) => void
   disabled?: boolean
   /** 主按钮样式（输入框为空时顶替发送钮，学微信） */
   prominent?: boolean
@@ -86,8 +87,8 @@ export default function HoldToTalk({
     setPhase('recognizing')
     try {
       const samples = await rec.stop()
-      const text = await recognizeSpeech(samples)
-      if (text) onText(text)
+      const { text, logId } = await recognizeSpeech(samples)
+      if (text) onText(text, logId)
       else showToast('没听清，请再说一遍')
     } catch (e) {
       showToast((e as Error).message || '语音识别失败')

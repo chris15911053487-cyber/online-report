@@ -312,6 +312,7 @@ def run_turn(
     recorder=None,
     context: dict | None = None,
     mode: str | None = None,
+    input_mode: str | None = None,
 ):
     graph = get_graph(mode)
     recorder = recorder or TurnRecorder()
@@ -331,8 +332,8 @@ def run_turn(
         result = graph.invoke(Command(resume=input_obj.get("value")), config)
     else:
         raw_content = str(input_obj.get("content", ""))
-        # 看板点击上下文注入本轮用户消息（不进 system prompt，保持前缀缓存）
-        content = compose_user_message(raw_content, context)
+        # 看板点击上下文、语音识别提示注入本轮用户消息（不进 system prompt，保持前缀缓存）
+        content = compose_user_message(raw_content, context, input_mode)
         existing = False
         try:
             state = graph.get_state(config)

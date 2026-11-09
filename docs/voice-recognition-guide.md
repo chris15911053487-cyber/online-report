@@ -72,6 +72,11 @@ VOICE_ENABLED=true
 # 百度 ASR 密钥（必须）
 BAIDU_ASR_API_KEY=你的API_KEY
 BAIDU_ASR_SECRET_KEY=你的SECRET_KEY
+
+# 识别模型（可选，见第 11 节）
+BAIDU_ASR_MODE=standard   # standard 标准版 1537 | pro 极速版 80001（需单独开通、按次收费）
+BAIDU_ASR_LM_ID=          # 语音自训练平台的模型 id
+BAIDU_ASR_DEV_PID=        # 覆盖 dev_pid（用自训练模型时按控制台给出的填）
 ```
 
 ### 3.2 数据库表（voice_logs）
@@ -86,6 +91,8 @@ CREATE TABLE dbo.voice_logs (
     created_at DATETIME DEFAULT GETDATE()
 );
 ```
+
+服务启动时自动执行 `migrate-voice-logs.sql` 与 `migrate-voice-logs-final.sql`，后者补两列：`final_text`（对话框里用户实际发出的文字）、`source`（`chat` 对话框按住说话 / `float` 悬浮钮）。`final_text` 与 `recognized_text` 不同 = 用户改过 = 识别错误样本。
 
 ### 3.3 前端引入方式
 
@@ -332,7 +339,7 @@ const body = JSON.stringify({
 
 ### 6.3 Baidu ASR 返回 "我不知道" 或识别不准确
 
-- WAV 采样率必须是 8000 或 16000（强制在 AudioContext 构造时指定）
+- WAV 采样率必须是 8000 或 16000（优先在 AudioContext 构造时指定 16000；内核不支持时按设备采样率录，识别前在 JS 里降采样到 16k）
 - 确认 `len` 参数等于 base64 解码前的原始字节数
 - `dev_pid` 要与语种匹配：1537（普通话）、1737（英语）、1637（粤语）
 
@@ -580,4 +587,42 @@ voice.js 会自动识别，无需改 voice.js 代码。
 4. 编辑距离模糊匹配
 
 匹配到后设值并 dispatch `change`。
+
+---
+
+## 11. 提升识别准确率
+
+典型问题：「看下**上个月**的数据」被识别成「**三个月**」（平翘舌 + 前后鼻音）。「三个月」本身是合法说法，**不能用替换表硬改**，分三层处理：
+
+### 11.1 录音质量（已默认开启）
+
+- `getUserMedia` 开启 `noiseSuppression` / `echoCancellation` / `autoGainControl`、单声道
+- 浏览器不支持 16k AudioContext 时降采样到 16k 再上传
+- 对话框按住说话：麦克风出数据后才提示「请说话」（避免开头吞字）；松开后多录 300ms（避免结尾吞字）
+- 上传前裁掉首尾静音（各留 200ms）
+
+实现：`frontend/src/utils/voiceRecorder.ts`，悬浮钮 `voice.js` 同一套。
+
+### 11.2 识别模型：极速版 + 自训练平台
+
+1. **极速版**：百度控制台开通「短语音识别极速版」后设 `BAIDU_ASR_MODE=pro`（走 `pro_api`，dev_pid 80001），准确率与速度明显好于标准版，按次收费。
+2. **语音自训练平台**（主力）：用本厂语料让模型更偏向常说的话。
+   - 导出语料：`cd server && npm run export-asr-corpus -- asr-corpus.txt`（`scripts/export-asr-corpus.js` + `src/asr-corpus.js`）。内容：时间句式（「看下上个月的数据」等，「上个月」权重最高）、菜单名、Agent 名与快捷问法、BI 示例问法、客户名（OCRD）、物料名（OITM）、用户改过的语音输入（`voice_logs.final_text`）。**含客户 / 物料名，只传百度控制台，不要提交**（已 gitignore `asr-corpus*.txt`）。
+   - 百度智能云控制台 → 语音技术 → 语音自训练平台 → 新建模型 → 选基础模型（标准版或极速版，与 `BAIDU_ASR_MODE` 一致）→ 上传语料 → 训练 → 上线。
+   - 把模型的 `lm_id` 填 `BAIDU_ASR_LM_ID`；控制台若给出专用 dev_pid，填 `BAIDU_ASR_DEV_PID`。重启服务生效。
+   - 业务词变了（新客户、新物料）或积累了一批改字记录后，重新导出、重新训练。
+
+### 11.3 Agent 兜底
+
+对话框里语音填入的文字发送时带 `inputMode: 'voice'`，ai-agent 在**本轮用户消息末尾**加一句提示（`ai-agent/app/bi_context.py` 的 `VOICE_HINT`；不落历史、不进 system prompt）：可能有同音字，涉及时间范围、数量、对象等关键条件时，回答第一句写明按什么条件查的。这样即使识别成「三个月」，用户在回答第一句就能看出来。
+
+### 11.4 看效果
+
+```sql
+-- 对话框里被用户改过的识别结果（识别错误样本）
+SELECT TOP 200 created_at, user_code, recognized_text, final_text
+FROM dbo.voice_logs
+WHERE final_text IS NOT NULL AND final_text <> recognized_text
+ORDER BY id DESC;
+```
 

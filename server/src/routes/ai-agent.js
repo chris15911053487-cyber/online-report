@@ -33,7 +33,8 @@ const { listSkillsForRoles, canUseSkill, checkSqlTablesAllowed, getSkill } = req
 const { runSqlLimited } = require('../agent-sql');
 const { resolveAgentContext } = require('../agent-context');
 const { agentChatCore } = require('../agent-chat-core');
-const { normalizeBiContext, normalizeMode } = require('../bi-context');
+const { normalizeBiContext, normalizeMode, normalizeInputMode } = require('../bi-context');
+const { recordVoiceFinal } = require('../voice-logs');
 const { getQuery: getBiQuery, canUseQuery: canUseBiQuery } = require('../bi-queries');
 const { runNamedQuery, BiParamError } = require('../bi-exec');
 const {
@@ -248,6 +249,11 @@ async function aiAgentRoutes(fastify) {
         }
         request.log.error({ err }, 'ai/agent/chat persist user msg');
       }
+      // 语音输入：记下用户实际发出的文字（与识别结果对比 = 识别错误样本）
+      if (!isResume && body.voiceLogId) {
+        recordVoiceFinal(pool, { logId: body.voiceLogId, userCode, finalText: message })
+          .catch((err) => request.log.warn({ err: err.message }, 'record voice final'));
+      }
 
       // 组装上下文：历史 + skill 清单（按角色过滤=第 1 层权限）
       let history = [];
@@ -290,6 +296,7 @@ async function aiAgentRoutes(fastify) {
               agentPrompt: agentPrompt || undefined,
               context: normalizeBiContext(body.context) || undefined,
               mode: normalizeMode(body.mode),
+              inputMode: normalizeInputMode(body.inputMode),
             },
             scopedToken,
             { signal: clientAbort.signal }
@@ -415,6 +422,8 @@ async function aiAgentRoutes(fastify) {
           signal: ac.signal,
           context: body.context,
           mode: body.mode,
+          inputMode: body.inputMode,
+          voiceLogId: body.voiceLogId,
         });
         if (result.status === 'cancelled') {
           // 客户端已走，无需再写
