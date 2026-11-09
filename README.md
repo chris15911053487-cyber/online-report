@@ -840,7 +840,7 @@ AI 助手（`AiChatView`）和 Agent 对话手机端（`AgentRunView`）输入�
 
 ### 识别准确率
 
-录音端开浏览器降噪 / 自动增益、降采样兜底、首尾吞字处理、静音裁剪；识别端可切极速版并挂自训练模型；Agent 端对语音输入的消息加同音字提示（回答第一句写明按什么条件查的）；`voice_logs.final_text` 记下用户实际发出的文字，用于找识别错误样本、补语料。详见 [`docs/voice-recognition-guide.md` §11](docs/voice-recognition-guide.md)。
+录音端开浏览器降噪 / 自动增益、降采样兜底、首尾吞字处理、静音裁剪；识别端可切极速版并挂自训练模型；Agent 端对语音输入的消息加同音字提示（回答第一句写明按什么条件查的）；`voice_logs.final_text` 记下用户实际发出的文字，用于找识别错误样本、补语料。详见 [`docs/voice-recognition-guide.md` §11](docs/voice-recognition-guide.md)；百度自训练平台的完整操作见 [`docs/baidu-asr-self-training.md`](docs/baidu-asr-self-training.md)。
 
 ## 钉钉 H5 微应用 SSO 免登
 
