@@ -6,6 +6,7 @@ import PinToDashboard from '../components/bi/PinToDashboard'
 import AgentTracePanel, { parseAgentTrace, type AgentTimings, type AgentToolStep } from '../components/AgentTracePanel'
 import ChatMarkdown, { bareDocUrls } from '../components/ChatMarkdown'
 import HoldToTalk from '../components/HoldToTalk'
+import { voiceInputSupported } from '../utils/voiceRecorder'
 import { useStore } from '../store'
 import { apiFetch, apiUrl, authHeaders } from '../utils/api'
 import { attachToolResults, createLiveFeed, stripActionsBlock, streamAgentChat, type LiveState } from '../utils/agentStream'
@@ -208,6 +209,8 @@ export default function AiChatView() {
     inputRef.current?.focus()
   }, [])
   const pageVisible = useStore((s) => s.currentView === 'ai')
+  // 学微信：输入框为空时发送钮的位置显示「按住说话」
+  const [voiceOk] = useState(voiceInputSupported)
   useEffect(() => {
     if (!pageVisible) return
     const w = window as Window & { __voiceChatInput?: (text: string) => boolean }
@@ -883,28 +886,31 @@ export default function AiChatView() {
               disabled={loading}
               className="flex-1 resize-none rounded-xl border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/25 disabled:bg-surface-2"
             />
-            <HoldToTalk onText={appendVoiceText} disabled={loading} className="mb-0.5" />
-            <button
-              type="button"
-              onClick={() => {
-                if (loading) {
-                  stop()
-                  return
+            {voiceOk && !loading && !input.trim() ? (
+              <HoldToTalk onText={appendVoiceText} prominent className="h-9 w-[3.75rem] rounded-xl" />
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  if (loading) {
+                    stop()
+                    return
+                  }
+                  if (showSlashMenu) {
+                    if (slashMatches.length > 0) selectSlashSkill(slashMatches[0])
+                    return
+                  }
+                  void send()
+                }}
+                disabled={loading ? false : !input.trim() || (showSlashMenu && slashMatches.length === 0)}
+                className={
+                  'shrink-0 rounded-xl px-4 py-2 text-sm font-medium text-white disabled:opacity-40 disabled:cursor-not-allowed ' +
+                  (loading ? 'bg-danger active:bg-danger' : 'bg-primary active:bg-primary-hover')
                 }
-                if (showSlashMenu) {
-                  if (slashMatches.length > 0) selectSlashSkill(slashMatches[0])
-                  return
-                }
-                void send()
-              }}
-              disabled={loading ? false : !input.trim() || (showSlashMenu && slashMatches.length === 0)}
-              className={
-                'shrink-0 rounded-xl px-4 py-2 text-sm font-medium text-white disabled:opacity-40 disabled:cursor-not-allowed ' +
-                (loading ? 'bg-danger active:bg-danger' : 'bg-primary active:bg-primary-hover')
-              }
-            >
-              {loading ? '⏹ 停止' : showSlashMenu ? '调用' : '发送'}
-            </button>
+              >
+                {loading ? '⏹ 停止' : showSlashMenu ? '调用' : '发送'}
+              </button>
+            )}
           </div>
         </div>
       </div>

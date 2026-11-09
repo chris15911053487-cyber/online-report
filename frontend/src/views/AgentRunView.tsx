@@ -27,6 +27,7 @@ import { tv } from '../theme'
 import { useIsPc } from '../hooks/useMediaQuery'
 import { usePageFullscreen } from '../hooks/usePageFullscreen'
 import HoldToTalk from '../components/HoldToTalk'
+import { voiceInputSupported } from '../utils/voiceRecorder'
 import { apiFetch } from '../utils/api'
 import { attachToolResults, createLiveFeed, streamAgentChat, type LiveState } from '../utils/agentStream'
 import ChartRenderer from '../components/ChartRenderer'
@@ -616,6 +617,8 @@ export default function AgentRunView() {
     setMobileInput((prev) => prev + text)
     mobileInputRef.current?.focus()
   }, [])
+  // 学微信：输入框为空时发送钮的位置显示「按住说话」
+  const [voiceOk] = useState(voiceInputSupported)
   const voiceInputActive = pageVisible && !isPc && mobileTab === 'chat'
   useEffect(() => {
     if (!voiceInputActive) return
@@ -1436,29 +1439,32 @@ export default function AgentRunView() {
                 className="flex-1 bg-transparent outline-none min-w-0 disabled:opacity-50"
                 style={{ fontSize: 14, color: tv('fg') }}
               />
-              <HoldToTalk onText={appendMobileVoice} disabled={sending} />
-              <button
-                onClick={() => sending ? abortRef.current?.abort() : void doSend(mobileInput)}
-                className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all"
-                style={{
-                  background: sending
-                    ? tv('danger-soft')
-                    : mobileInput.trim() ? tv('primary') : tv('subtle'),
-                  color: tv('primary-fg'),
-                  border: 'none',
-                  opacity: (!sending && !mobileInput.trim()) ? 0.5 : 1,
-                }}
-              >
-                {sending ? (
-                  <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 14, height: 14 }}>
-                    <rect x="6" y="6" width="12" height="12" rx="2" />
-                  </svg>
-                ) : (
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
-                    <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
-                  </svg>
-                )}
-              </button>
+              {voiceOk && !sending && !mobileInput.trim() ? (
+                <HoldToTalk onText={appendMobileVoice} prominent className="w-9 h-9 -my-0.5 rounded-full" />
+              ) : (
+                <button
+                  onClick={() => sending ? abortRef.current?.abort() : void doSend(mobileInput)}
+                  className="w-9 h-9 -my-0.5 rounded-full flex items-center justify-center flex-shrink-0 transition-all"
+                  style={{
+                    background: sending
+                      ? tv('danger-soft')
+                      : mobileInput.trim() ? tv('primary') : tv('subtle'),
+                    color: tv('primary-fg'),
+                    border: 'none',
+                    opacity: (!sending && !mobileInput.trim()) ? 0.5 : 1,
+                  }}
+                >
+                  {sending ? (
+                    <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 14, height: 14 }}>
+                      <rect x="6" y="6" width="12" height="12" rx="2" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
+                      <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+                    </svg>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>

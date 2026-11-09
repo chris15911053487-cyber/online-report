@@ -24,10 +24,14 @@ type Phase = 'idle' | 'recording' | 'recognizing'
 export default function HoldToTalk({
   onText,
   disabled,
-  className,
+  prominent,
+  className = 'w-8 h-8 rounded-full',
 }: {
   onText: (text: string) => void
   disabled?: boolean
+  /** 主按钮样式（输入框为空时顶替发送钮，学微信） */
+  prominent?: boolean
+  /** 尺寸与圆角 */
   className?: string
 }) {
   const showToast = useStore((s) => s.showToast)
@@ -157,8 +161,10 @@ export default function HoldToTalk({
         onPointerCancel={() => holdingRef.current && void finish(true)}
         onContextMenu={(e) => e.preventDefault()}
         className={cn(
-          'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 select-none touch-none transition-colors disabled:opacity-40',
-          phase === 'recording' ? 'bg-primary text-primary-fg' : 'text-muted active:bg-surface-2',
+          'flex items-center justify-center flex-shrink-0 select-none touch-none transition-colors disabled:opacity-40',
+          phase === 'recording'
+            ? 'bg-primary-hover text-primary-fg'
+            : prominent ? 'bg-primary text-primary-fg' : 'text-muted active:bg-surface-2',
           className,
         )}
         style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none' }}
