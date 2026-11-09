@@ -92,6 +92,8 @@ const SQL_AGENTS_PATH = path.join(__dirname, '..', 'sql', 'migrate-agents.sql');
 const SQL_BI_PATH = path.join(__dirname, '..', 'sql', 'migrate-bi.sql');
 const SQL_UI_SETTINGS_PATH = path.join(__dirname, '..', 'sql', 'migrate-ui-settings.sql');
 const SQL_REMOVE_LEGACY_MENUS_PATH = path.join(__dirname, '..', 'sql', 'migrate-remove-legacy-menus.sql');
+const SQL_VOICE_LOGS_PATH = path.join(__dirname, '..', 'sql', 'migrate-voice-logs.sql');
+const SQL_VOICE_LOGS_FINAL_PATH = path.join(__dirname, '..', 'sql', 'migrate-voice-logs-final.sql');
 
 /**
  * 启动时自动执行 migrate-nav-menu-items-only.sql（需账号有建表权限）。
@@ -139,6 +141,8 @@ async function ensureNavMenuSchema(getPool, log) {
     SQL_BI_PATH, // BI 看板：查询库、看板表、agents.dashboard_key（须在 agents 表之后）
     SQL_UI_SETTINGS_PATH, // 界面设置：公司默认主题 + 用户偏好
     SQL_REMOVE_LEGACY_MENUS_PATH, // 删除早期内置菜单 orders / menu-settings
+    SQL_VOICE_LOGS_PATH, // 语音识别日志 voice_logs（原来只在 init-db 建）
+    SQL_VOICE_LOGS_FINAL_PATH, // voice_logs.final_text / source：用户实际发出的文字（须在 voice_logs 之后）
   ];
 
   let pool;

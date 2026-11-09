@@ -8,3 +8,6 @@ dist/
 .DS_Store
 server/public/apk/*.apk
 *.swp
+
+# 语音自训练语料（含客户 / 物料名，只传百度控制台）
+asr-corpus*.txt
