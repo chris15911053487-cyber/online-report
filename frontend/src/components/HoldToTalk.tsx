@@ -40,6 +40,8 @@ export default function HoldToTalk({
   const [cancelArmed, setCancelArmed] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const [level, setLevel] = useState(0)
+  /** 麦克风已出数据：此前提示「准备中」，避免一按就说、开头被吞 */
+  const [ready, setReady] = useState(false)
 
   const recRef = useRef<Recording | null>(null)
   const holdingRef = useRef(false)
@@ -81,10 +83,10 @@ export default function HoldToTalk({
       if (!cancel) showToast('说话时间太短')
       return
     }
-    const { chunks, sampleRate } = rec.stop()
     setPhase('recognizing')
     try {
-      const text = await recognizeSpeech(chunks, sampleRate)
+      const samples = await rec.stop()
+      const text = await recognizeSpeech(samples)
       if (text) onText(text)
       else showToast('没听清，请再说一遍')
     } catch (e) {
@@ -104,6 +106,7 @@ export default function HoldToTalk({
     setCancelArmed(false)
     setElapsed(0)
     setLevel(0)
+    setReady(false)
     setPhase('recording')
     let rec: Recording
     try {
@@ -121,12 +124,14 @@ export default function HoldToTalk({
       return
     }
     recRef.current = rec
+    setReady(true)
     startAtRef.current = Date.now()
     tickRef.current = window.setInterval(() => {
       setElapsed(Date.now() - startAtRef.current)
       setLevel(rec.level())
     }, 100)
-    maxTimerRef.current = window.setTimeout(() => void finish(false), MAX_RECORD_MS)
+    // 松开后还会多录一小段，提前一点结束，保证不超过百度上限
+    maxTimerRef.current = window.setTimeout(() => void finish(false), MAX_RECORD_MS - 1000)
   }
 
   const onPointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
@@ -145,7 +150,7 @@ export default function HoldToTalk({
 
   if (!supported) return null
 
-  const secondsLeft = Math.ceil((MAX_RECORD_MS - elapsed) / 1000)
+  const secondsLeft = Math.ceil((MAX_RECORD_MS - 1000 - elapsed) / 1000)
   const bars = [0.5, 0.8, 1, 0.8, 0.5]
 
   return (
@@ -199,10 +204,14 @@ export default function HoldToTalk({
                 ))}
               </div>
               <div className="text-sm font-medium">
-                {cancelArmed ? '松开 取消' : '松开 结束 · 上滑 取消'}
+                {cancelArmed ? '松开 取消' : ready ? '请说话' : '准备中…'}
               </div>
               <div className="text-xs opacity-75 num">
-                {secondsLeft <= 5 ? `${secondsLeft} 秒后自动结束` : `${Math.floor(elapsed / 1000)}″`}
+                {!ready
+                  ? '稍等，提示「请说话」再开口'
+                  : secondsLeft <= 5
+                    ? `${secondsLeft} 秒后自动结束`
+                    : `${Math.floor(elapsed / 1000)}″ · 松开结束 · 上滑取消`}
               </div>
             </div>
           </div>,

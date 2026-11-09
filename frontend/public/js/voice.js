@@ -1304,7 +1304,10 @@
 
   // ---- 录音 ----
   function startRecording(cb) {
-    navigator.mediaDevices.getUserMedia({ audio: true })
+    // 浏览器自带降噪 / 回声消除 / 自动增益：车间噪音、离麦远时识别率差别很大
+    navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+    })
       .then(function (stream) {
         var audioTrack = stream.getAudioTracks()[0];
         // 强制启用音轨，确保未被浏览器静音
@@ -1313,8 +1316,9 @@
 
         try {
           var Ctor = window.AudioContext || window.webkitAudioContext;
-          // 强制 16000 采样率，百度 ASR 只支持 8000/16000
-          var ctx = new Ctor({ sampleRate: 16000 });
+          // 优先 16000 采样率（百度 ASR 只支持 8000/16000）；内核不支持时按默认采样率录，识别前再降采样
+          var ctx;
+          try { ctx = new Ctor({ sampleRate: 16000 }); } catch (e16) { ctx = new Ctor(); }
           var actualRate = ctx.sampleRate;
           var source = ctx.createMediaStreamSource(stream);
           var processor = ctx.createScriptProcessor(4096, 1, 1);
@@ -1328,6 +1332,8 @@
               outCh[i] = inCh[i];
             }
             chunks.push(new Float32Array(inCh));
+            // 麦克风真正出数据后才提示开口，避免开头吞字
+            if (chunks.length === 1 && state === 'recording') showBubble('请说话…', false);
           };
 
           source.connect(processor);
@@ -1370,8 +1376,54 @@
     }).catch(function () { /* ignore */ });
   }
 
+  // ---- 识别前处理：降采样到 16k、裁掉首尾静音（与 frontend/src/utils/voiceRecorder.ts 一致）----
+  function mergeChunks(chunks) {
+    var len = 0, i;
+    for (i = 0; i < chunks.length; i++) len += chunks[i].length;
+    var out = new Float32Array(len), off = 0;
+    for (i = 0; i < chunks.length; i++) { out.set(chunks[i], off); off += chunks[i].length; }
+    return out;
+  }
+
+  function resampleTo16k(samples, rate) {
+    if (!rate || rate === 16000) return samples;
+    var ratio = rate / 16000;
+    var outLen = Math.floor(samples.length / ratio);
+    var out = new Float32Array(outLen);
+    for (var i = 0; i < outLen; i++) {
+      var from = Math.floor(i * ratio);
+      var to = Math.max(from + 1, Math.min(samples.length, Math.floor((i + 1) * ratio)));
+      var sum = 0;
+      for (var j = from; j < to; j++) sum += samples[j];
+      out[i] = sum / (to - from);
+    }
+    return out;
+  }
+
+  function trimSilence(samples, rate) {
+    var frame = Math.max(1, Math.round(rate * 0.02));
+    var frames = Math.floor(samples.length / frame);
+    if (!frames) return samples;
+    var rms = new Float32Array(frames), max = 0, f, i;
+    for (f = 0; f < frames; f++) {
+      var sum = 0;
+      for (i = f * frame; i < (f + 1) * frame; i++) sum += samples[i] * samples[i];
+      rms[f] = Math.sqrt(sum / frame);
+      if (rms[f] > max) max = rms[f];
+    }
+    var threshold = Math.max(0.01, max * 0.1), first = -1, last = -1;
+    for (f = 0; f < frames; f++) {
+      if (rms[f] >= threshold) { if (first < 0) first = f; last = f; }
+    }
+    if (first < 0) return samples;
+    var keep = Math.round(rate * 0.2);
+    return samples.subarray(Math.max(0, first * frame - keep), Math.min(samples.length, (last + 1) * frame + keep));
+  }
+
   function recognizeAudio(chunks, sampleRate, cb) {
-    var wav = pcmChunksToWav(chunks, sampleRate || 16000);
+    var samples = trimSilence(resampleTo16k(mergeChunks(chunks), sampleRate || 16000), 16000);
+    sampleRate = 16000;
+    var wav = pcmChunksToWav([samples], sampleRate);
     var base64 = arrayBufferToBase64(wav);
 
     var headers = { 'Content-Type': 'application/json' };
@@ -1573,7 +1625,7 @@
     // state === 'idle' — 开始录音
     sendDebugLog('[START] user clicked to start');
     state = 'recording';
-    showBubble('正在聆听...', false);
+    showBubble('准备中…', false);
     btnEl.classList.add('voice-btn--listening');
     micEl.classList.add('voice-btn__mic--listening');
 
