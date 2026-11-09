@@ -21,11 +21,14 @@
   h2 {
     font-family: var(--font-display);
   }
-  /* 没写底色的原生表单控件也跟随主题（深色主题下避免浏览器默认的灰底） */
+  /* 没写底色的原生表单控件也跟随主题（深色主题下避免浏览器默认的灰底）。
+     底色用 :where() 把优先级降为 0，组件自己写的 bg-transparent 等类名才能生效 */
+  :where(input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']), select, textarea) {
+    background-color: rgb(var(--c-surface));
+  }
   input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
   select,
   textarea {
-    background-color: rgb(var(--c-surface));
     color: rgb(var(--c-fg));
   }
   /* 勾选框、单选框、日期框弹出的日历等原生控件的强调色跟随主题（替代浏览器默认蓝） */
