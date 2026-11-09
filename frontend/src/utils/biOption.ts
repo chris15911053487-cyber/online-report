@@ -527,6 +527,20 @@ export function waterfallSteps(enc: BiEncoding, rows: BiRow[]): WaterfallStep[] 
   return steps
 }
 
+/**
+ * 最后一行像「期末」结果却没设成小计时返回它的项目名（编辑器提示用），否则返回 ''：
+ * 该行数值不为 0 且等于它前面各步的累计（如 期初 + 各项发生 = 期末余额）——这样的行按增减项画会翻倍。
+ * 分栏、从 0 画起、少于 3 行时不判断。
+ */
+export function waterfallClosingRow(enc: BiEncoding, rows: BiRow[]): string {
+  if (enc.series || enc.fromZero || rows.length < 3) return ''
+  const steps = waterfallSteps({ ...enc, total: undefined }, rows)
+  const last = steps[steps.length - 1]
+  if (last.kind === 'total' || last.value === 0) return ''
+  const before = last.start
+  return Math.abs(last.value - before) <= Math.max(0.005, Math.abs(before) * 1e-6) ? last.name : ''
+}
+
 /** 各类柱子的颜色 token：默认增绿减红；up-bad（成本类）增红减绿；合计用 info（有的主题主色偏红，会和「减少」混淆） */
 export function waterfallColors(trend?: BiEncoding['trend']): Record<WaterfallKind, string> {
   return trend === 'up-bad' ? { up: 'danger', down: 'success', total: 'info' } : { up: 'success', down: 'danger', total: 'info' }

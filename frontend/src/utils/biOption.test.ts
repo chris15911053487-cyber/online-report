@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { alignedAxisRanges, buildChartModel, chartTotals, defaultSumColumns, columnLabel, highlightPoint, labelPlan, MAX_WATERFALL_PANELS, rightAxisColumns, valueColumns, waterfallAxisMin, waterfallColors, waterfallPanels, waterfallSteps } from './biOption'
+import { alignedAxisRanges, buildChartModel, chartTotals, defaultSumColumns, columnLabel, highlightPoint, labelPlan, MAX_WATERFALL_PANELS, rightAxisColumns, valueColumns, waterfallAxisMin, waterfallColors, waterfallClosingRow, waterfallPanels, waterfallSteps } from './biOption'
 import { canDrillFrom, levelView, nextDrillLabel, popDrillTo, pushDrill, rootStack, rowCaption } from './biDrill'
 import type { BiCard, BiEncoding } from './bi'
 
@@ -354,6 +354,25 @@ describe('瀑布图', () => {
     const m = buildChartModel('waterfall', z, pl)
     const series = (m.option as { series: { name: string }[] }).series
     expect(series.map((x) => x.name)).not.toContain('连接线')
+  })
+
+  it('现金流：期末行设成小计后从 0 画到累计（不再当增加额翻倍）', () => {
+    const cash = [
+      { Item: '期初现金余额', Amt: 24101 },
+      { Item: '经营活动流入', Amt: 2171 },
+      { Item: '经营活动流出', Amt: -1374 },
+      { Item: '未分配差额', Amt: -163 },
+      { Item: '期末现金余额', Amt: 24735 },
+    ]
+    const base = { dimension: 'Item', value: 'Amt' }
+    expect(waterfallSteps(base, cash)[4]).toMatchObject({ kind: 'up', start: 24735, end: 49470 })
+    expect(waterfallClosingRow(base, cash)).toBe('期末现金余额')
+    const fixed = { ...base, subtotals: ['期末现金余额'] }
+    expect(waterfallSteps(fixed, cash)[4]).toMatchObject({ kind: 'total', value: 24735, start: 0, end: 24735 })
+    expect(waterfallClosingRow(fixed, cash)).toBe('')
+    // 最后一行是普通增减项、分栏、从 0 画起都不提示
+    expect(waterfallClosingRow(base, cash.slice(0, 4))).toBe('')
+    expect(waterfallClosingRow({ ...base, fromZero: true }, cash)).toBe('')
   })
 
   it('累计跌破 0（亏损）时柱子跨过 0 轴', () => {

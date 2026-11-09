@@ -6,7 +6,7 @@
  * 图表 / 表格卡片可单独全屏：同一个卡片原地铺满视口（不卸载，保留下钻），Esc 退出。
  * 手机上由看板接管全屏（onRequestFullscreen → LandscapeViewer 横屏、左右滑动切换），查看器里的卡片为嵌入模式（embedded）。
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Info, Maximize2, Minimize2, RotateCw } from 'lucide-react'
 import { usePageFullscreen } from '../../hooks/usePageFullscreen'
 import { BI_CARD_HEIGHT, changeRatio, dataBarScale, fillPlaceholders, formatValue, toNumber, withColumnSemantics, type BiCard, type BiColumnDef, type BiColumnSemantic, type BiFilterValues, type BiQueryMeta, type BiTrend } from '../../utils/bi'
@@ -35,6 +35,8 @@ interface Props {
   onRequestFullscreen?: () => void
   /** 嵌入横屏查看器：铺满父容器，全屏按钮变成「退出」 */
   embedded?: { onExit: () => void }
+  /** 顶层（未下钻）取到数据时回调结果行（图表编辑器据此给配置提示） */
+  onRootRows?: (cardId: string, rows: BiRow[]) => void
 }
 
 /** 涨跌颜色：up-good 涨绿跌红、up-bad 涨红跌绿；不写用中性色（主色 / 警示色） */
@@ -51,7 +53,7 @@ const hhmm = (iso?: string) => {
   return Number.isNaN(d.getTime()) ? '' : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-export default function BiCardView({ card, filters, queries, filterText, onPick, onOpenPanel, onOpenTab, selectedRow, onRequestFullscreen, embedded }: Props) {
+export default function BiCardView({ card, filters, queries, filterText, onPick, onOpenPanel, onOpenTab, selectedRow, onRequestFullscreen, embedded, onRootRows }: Props) {
   const [stack, setStack] = useState<DrillFrame[]>(() => rootStack(card))
   const view = levelView(card, stack, filters)
   // 参数变化（筛选、下钻）即取数
@@ -103,6 +105,11 @@ export default function BiCardView({ card, filters, queries, filterText, onPick,
   }
 
   const rows = useMemo(() => (data?.rows ?? []) as BiRow[], [data])
+  const atRoot = stack.length === 1
+  const cardId = card.id
+  useEffect(() => {
+    if (data && atRoot) onRootRows?.(cardId, rows)
+  }, [data, rows, atRoot, cardId, onRootRows])
   // 卡片没写的格式 / 单位 / 列名从查询的列语义继承；view.encoding 直接引用 card 里的对象，引用稳定
   const semantics = meta?.columns
   const resultColumns = data?.columns

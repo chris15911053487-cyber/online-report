@@ -5,13 +5,14 @@
  * 预览时为这些参数临时生成筛选条（期间 → 月份、日期 → 日期），用真实数据（POST /bi/query）。
  * 保存后若引用它的看板对不上，接口返回 warnings，编辑器保持打开并列出。
  */
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useStore } from '../../../store'
 import { apiFetch } from '../../../utils/api'
 import type { BiChartDef, BiDashboard, BiQueryMeta, BiValue } from '../../../utils/bi'
 import { chartPreviewDashboard, chartProblems, type QueryRef } from '../../../utils/biAdmin'
-import { AdminPage, Card, Checkbox, EditorActions, Field, Input, Notice, Section, Textarea } from '../../../ui'
+import { AdminPage, Button, Card, Checkbox, EditorActions, Field, Input, Notice, Section, Textarea } from '../../../ui'
 import { DashboardView } from '../DashboardPanel'
+import { waterfallClosingRow, type BiRow } from '../../../utils/biOption'
 import ChartForm from './ChartForm'
 import { errMsg, type BiChartAdmin, type QueryOption } from './types'
 
@@ -38,6 +39,7 @@ export default function ChartEditor({
   const [savedOnce, setSavedOnce] = useState(false)
   const [saving, setSaving] = useState(false)
   const [warnings, setWarnings] = useState<string[]>([])
+  const [previewRows, setPreviewRows] = useState<BiRow[]>([])
   const patch = (p: Partial<BiChartDef>) => setC((cur) => ({ ...cur, ...p }))
 
   const queryMap = useMemo(() => new Map<string, QueryRef>(availableQueries.map((q) => [q.queryKey, q])), [availableQueries])
@@ -49,6 +51,10 @@ export default function ChartEditor({
     for (const q of availableQueries) queries[q.queryKey] = q
     return chartPreviewDashboard(c, queryMap, queries, previewDefaults)
   }, [c, queryMap, availableQueries, previewDefaults])
+
+  // 瀑布图最后一行像「期末」却没设小计：按增减项画会翻倍，提示一键设为小计
+  const closingRow = c.type === 'waterfall' ? waterfallClosingRow(c.encoding || {}, previewRows) : ''
+  const onCardRows = useCallback((_id: string, rows: BiRow[]) => setPreviewRows(rows), [])
 
   const save = async () => {
     if (problems.length > 0) return showToast(`还有 ${problems.length} 个问题`)
@@ -114,8 +120,23 @@ export default function ChartEditor({
 
         <div className="lg:sticky lg:top-20 flex flex-col gap-2 min-w-0">
           <p className="text-[12px] text-subtle">实时预览（真实数据）。筛选条按未固定的参数临时生成，放进看板后由看板的同名筛选提供。</p>
+          {closingRow && (
+            <Notice tone="warning">
+              <div className="flex items-center justify-between gap-3">
+                <span>最后一行「{closingRow}」等于前面各项的累计，像是期末结果；现在按增减项画，柱子会翻倍。</span>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="shrink-0"
+                  onClick={() => patch({ encoding: { ...c.encoding, subtotals: [...(c.encoding?.subtotals || []), closingRow] } })}
+                >
+                  设为小计
+                </Button>
+              </div>
+            </Notice>
+          )}
           {preview ? (
-            <DashboardView key={JSON.stringify([c.queryKey, c.params, c.type, c.drill, preview.filters])} dashboard={preview} pcMode showHeader={false} />
+            <DashboardView key={JSON.stringify([c.queryKey, c.params, c.type, c.drill, preview.filters])} dashboard={preview} pcMode showHeader={false} onCardRows={onCardRows} />
           ) : (
             <Card className="p-6 text-center text-[13px] text-subtle">{availableQueries.length === 0 ? '查询库为空：请先到「查询库」新增查询' : '配置完成后显示预览'}</Card>
           )}

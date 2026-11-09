@@ -14,6 +14,7 @@ import { apiFetch } from '../../utils/api'
 import { openHistoryOverlay, type OverlayHandle } from '../../router'
 import { filterDisplayText, initialFilterValues, type BiCard, type BiDashboard, type BiFilter, type BiFilterValues, type BiOption, type BiValue } from '../../utils/bi'
 import type { BiPick } from '../../utils/biContext'
+import type { BiRow } from '../../utils/biOption'
 import {
   DRILL_PARAM,
   decodeDrillLink,
@@ -196,6 +197,7 @@ export function DashboardView({
   drillLinkKey,
   panelHost,
   initialPanel,
+  onCardRows,
 }: {
   dashboard: BiDashboard
   pcMode: boolean
@@ -210,6 +212,8 @@ export function DashboardView({
   panelHost?: HTMLElement | null
   /** 从地址 ?drill= 还原的面板（DashboardPanel 加载看板时解析） */
   initialPanel?: DrillPanelState
+  /** 卡片顶层取到数据时回调（图表编辑器的配置提示用） */
+  onCardRows?: (cardId: string, rows: BiRow[]) => void
 }) {
   const [localFilters, setLocalFilters] = useState<BiFilterValues>(() => initialFilterValues(dashboard.filters || []))
   const filters = controlled ?? localFilters
@@ -293,6 +297,7 @@ export function DashboardView({
     onOpenPanel: onPick ? (stack: DrillFrame[]) => showPanel(openPanel(card, stack)) : undefined,
     onOpenTab: pcMode && drillLinkKey ? (stack: DrillFrame[]) => openTab(card, stack) : undefined,
     selectedRow: panel?.card.id === card.id ? (panel.stack[panel.base]?.fromRow ?? null) : null,
+    onRootRows: onCardRows,
   })
 
   return (
