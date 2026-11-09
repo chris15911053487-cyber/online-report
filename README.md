@@ -836,7 +836,7 @@ AI 助手（`AiChatView`）和 Agent 对话手机端（`AgentRunView`）输入�
 | `VOICE_ENABLED` | `false` 关闭语音（默认开启） |
 | `BAIDU_ASR_API_KEY` / `BAIDU_ASR_SECRET_KEY` | 百度 ASR 密钥 |
 | `BAIDU_ASR_MODE` | `standard`（默认，标准版 1537）/ `pro`（极速版 80001，需在百度控制台单独开通、按次收费） |
-| `BAIDU_ASR_LM_ID` / `BAIDU_ASR_DEV_PID` | 语音自训练平台的模型 id 与 dev_pid；语料用 `cd server && npm run export-asr-corpus -- asr-corpus.txt` 导出（含客户 / 物料名，不要提交） |
+| `BAIDU_ASR_LM_ID` / `BAIDU_ASR_DEV_PID` | 语音自训练平台（EasyDL 语音识别，短语音只支持极速版，需 `BAIDU_ASR_MODE=pro`）的模型 ID 与基础模型 pid；语料用 `cd server && npm run export-asr-corpus -- ../asr-out` 导出 GBK 热词 / 句篇两个文件（含客户 / 物料名，不要提交） |
 
 ### 识别准确率
 

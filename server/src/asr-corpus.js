@@ -2,7 +2,7 @@
  * 百度「语音自训练平台」语料：让识别模型更偏向本厂常说的话
  * （「看下上个月的数据」而不是「三个月」、物料名、客户名、菜单名、Agent 名…）。
  *
- * 平台要求：UTF-8 文本，一行一句；同一句重复出现即提高权重。
+ * 平台（现名「EasyDL 语音识别」）要求：txt、GBK 编码、单文件 ≤5MB；热词一行一个词，句篇一行一句。
  * 由 scripts/export-asr-corpus.js 取库里的词后调用 buildCorpus 生成。
  */
 
@@ -38,6 +38,9 @@ function cleanWords(list, maxLen = 30) {
 }
 
 /**
+ * 拆成平台的两种语料：热词（一行一个词）、句篇（一行一句）。
+ * 平台说明「少量关键文本即可有训练效果」，权重只做轻度重复（最多 3 次）。
+ *
  * @param {object} src
  * @param {string[]} [src.menus]      菜单名
  * @param {string[]} [src.agents]     Agent 名
@@ -45,43 +48,73 @@ function cleanWords(list, maxLen = 30) {
  * @param {string[]} [src.customers]  客户名
  * @param {string[]} [src.items]      物料名
  * @param {string[]} [src.corrected]  用户改过的语音输入（改后的整句）
- * @returns {string[]} 语料行
+ * @returns {{ hotwords: string[], sentences: string[] }}
  */
 function buildCorpus(src = {}) {
-  const lines = [];
+  const sentences = [];
   const push = (line, times = 1) => {
-    for (let i = 0; i < times; i++) lines.push(line);
+    for (let i = 0; i < Math.min(3, times); i++) sentences.push(line);
   };
 
   for (const [t, w] of TIME_PHRASES) {
-    push(t, w);
+    const times = w >= 6 ? 3 : w >= 3 ? 2 : 1;
     for (const s of SUBJECTS) {
-      for (const tpl of TEMPLATES) push(tpl(t, s), w);
+      for (const tpl of TEMPLATES) push(tpl(t, s), times);
     }
   }
 
-  for (const m of cleanWords(src.menus)) {
-    push(m, 2);
-    push(`打开${m}`);
-  }
-  for (const a of cleanWords(src.agents)) {
-    push(a, 2);
-    push(`问问${a}`);
-  }
-  for (const q of cleanWords(src.questions, 60)) push(q, 2);
-
+  const menus = cleanWords(src.menus);
+  const agents = cleanWords(src.agents);
   const customers = cleanWords(src.customers);
-  customers.forEach((c, i) => {
-    push(c, 2);
-    // 常用客户多造几句带时间的
-    if (i < 100) push(`看下${c}上个月的销售`);
-  });
-  for (const it of cleanWords(src.items)) push(it, 2);
-
-  // 真实说法最有价值：改后的整句多给权重
+  const items = cleanWords(src.items);
+  for (const m of menus) push(`打开${m}`);
+  for (const a of agents) push(`问问${a}`);
+  for (const q of cleanWords(src.questions, 60)) push(q);
+  // 常用客户造几句带时间的
+  customers.slice(0, 100).forEach((c) => push(`看下${c}上个月的销售`));
+  // 真实说法最有价值
   for (const q of cleanWords(src.corrected, 120)) push(q, 3);
 
-  return lines;
+  const hotwords = cleanWords([
+    ...TIME_PHRASES.map(([t]) => t),
+    ...menus,
+    ...agents,
+    ...customers,
+    ...items,
+  ]);
+
+  return { hotwords, sentences };
 }
 
-module.exports = { buildCorpus, cleanWords, TIME_PHRASES };
+/** 平台要求 GBK 编码、单个文件不超过 5MB */
+const MAX_FILE_BYTES = 5 * 1024 * 1024;
+
+/**
+ * 编码成 GBK 文本：GBK 表示不了的行（emoji、生僻字）丢掉，超过 5MB 截断。
+ * @returns {{ buffer: Buffer, kept: number, dropped: number, truncated: boolean }}
+ */
+function encodeGbkLines(lines, maxBytes = MAX_FILE_BYTES) {
+  const iconv = require('iconv-lite');
+  const parts = [];
+  let size = 0;
+  let kept = 0;
+  let dropped = 0;
+  let truncated = false;
+  for (const line of lines) {
+    const buf = iconv.encode(line + '\r\n', 'gbk');
+    if (iconv.decode(buf, 'gbk') !== line + '\r\n') {
+      dropped += 1;
+      continue;
+    }
+    if (size + buf.length > maxBytes) {
+      truncated = true;
+      break;
+    }
+    parts.push(buf);
+    size += buf.length;
+    kept += 1;
+  }
+  return { buffer: Buffer.concat(parts), kept, dropped, truncated };
+}
+
+module.exports = { buildCorpus, cleanWords, encodeGbkLines, TIME_PHRASES };
