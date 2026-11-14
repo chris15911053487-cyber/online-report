@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { alignedAxisRanges, buildChartModel, chartTotals, defaultSumColumns, columnLabel, highlightPoint, labelPlan, MAX_WATERFALL_PANELS, rightAxisColumns, valueColumns, waterfallAxisMin, waterfallColors, waterfallClosingRow, waterfallPanels, waterfallSteps } from './biOption'
+import { alignedAxisRanges, buildChartModel, chartTotals, defaultSumColumns, columnLabel, highlightPoint, labelPlan, MAX_WATERFALL_PANELS, rightAxisColumns, topRows, valueColumns, waterfallAxisMin, waterfallColors, waterfallClosingRow, waterfallPanels, waterfallSteps } from './biOption'
 import { canDrillFrom, levelView, nextDrillLabel, popDrillTo, pushDrill, rootStack, rowCaption } from './biDrill'
 import type { BiCard, BiEncoding } from './bi'
 
@@ -31,6 +31,27 @@ describe('buildChartModel', () => {
     expect(o.yAxis.inverse).toBe(true)
     expect(o.yAxis.data).toEqual(['甲', '乙'])
     expect(m.plotted).toBe(2)
+  })
+
+  it('长表多系列 topN：取前 N 个类目，各系列都保留（不按行截）', () => {
+    // 按年份排序：按行截前 2 行只剩去年的 1、2 月，今年整条系列没了
+    const long = [
+      { M: '1月', Y: '去年', V: 1 },
+      { M: '2月', Y: '去年', V: 2 },
+      { M: '3月', Y: '去年', V: 3 },
+      { M: '1月', Y: '今年', V: 4 },
+      { M: '2月', Y: '今年', V: 5 },
+      { M: '3月', Y: '今年', V: 6 },
+    ]
+    const enc = { dimension: 'M', value: 'V', series: 'Y', topN: 2 }
+    const m = buildChartModel('bar', enc, long)
+    const o = m.option as { xAxis: Axis; series: Series[] }
+    expect(o.xAxis.data).toEqual(['1月', '2月'])
+    expect(o.series.map((s) => [s.name, s.data])).toEqual([['去年', [1, 2]], ['今年', [4, 5]]])
+    expect(m.plotted).toBe(4)
+    // 没有系列列 / 饼图：仍按行截
+    expect(topRows('bar', { ...enc, series: undefined }, long)).toHaveLength(2)
+    expect(topRows('pie', enc, long)).toHaveLength(2)
   })
 
   it('多数值列 → 多系列 + 图例，系列名取 columns 里的 label', () => {
@@ -185,6 +206,12 @@ describe('柱/线数值标签', () => {
     expect(s.data.slice(0, 2)).toEqual([1200000, 800000])
     expect(s.data[2]).toMatchObject({ value: 50000, label: { show: true } })
     expect(m.rowAt(2)?.CardCode).toBe('C3')
+  })
+
+  it('折线末尾是空值（本月还没数据）：标最后一个有值的点', () => {
+    const s = (buildChartModel('line', { dimension: 'CardName', value: 'Prev' }, rows).option as { series: LSeries[] }).series[0]
+    expect(s.data[1]).toMatchObject({ value: 900000, label: { show: true } })
+    expect(s.data[2]).toBeNull()
   })
 })
 
@@ -478,6 +505,28 @@ describe('瀑布图', () => {
     expect(m.pickIndex?.([5000, 0])).toBeNull()
   })
 
+  it('同一栏里重名的项目都画出来（按第几次出现对齐各栏）', () => {
+    const rows = [
+      { Y: '2024', Item: '收入', Amt: 1000 },
+      { Y: '2024', Item: '其他', Amt: -100 },
+      { Y: '2024', Item: '其他', Amt: 50 },
+      { Y: '2025', Item: '收入', Amt: 1200 },
+      { Y: '2025', Item: '其他', Amt: -200 },
+    ]
+    const m = buildChartModel('waterfall', { dimension: 'Item', value: 'Amt', series: 'Y', horizontal: true }, rows)
+    const o = m.option as { yAxis: { data: string[] }; series: { name: string; data: unknown[][] }[] }
+    expect(o.yAxis.data).toEqual(['收入', '其他', '其他'])
+    expect(m.rowAt(2)).toBe(rows[2])
+    expect(m.rowAt(4)).toBe(rows[4])
+    expect(m.rowAt(5)).toBeNull()
+    // 连接线：2024 收入→其他→其他（第 2 个），2025 收入→其他
+    expect(o.series.find((s) => s.name === '连接线')!.data.map((d) => [d[0], d[2]])).toEqual([[0, 1], [1, 2], [0, 1]])
+    // 不分栏也一样
+    const single = buildChartModel('waterfall', { dimension: 'Item', value: 'Amt' }, rows.slice(0, 3))
+    expect((single.option as { xAxis: { data: string[] } }).xAxis.data).toEqual(['收入', '其他', '其他'])
+    expect(single.rowAt(2)).toBe(rows[2])
+  })
+
   it(`分栏最多 ${MAX_WATERFALL_PANELS} 栏`, () => {
     const rows = Array.from({ length: 9 }, (_, i) => ({ Y: String(2017 + i), Item: '收入', Amt: 1 }))
     expect(waterfallPanels({ dimension: 'Item', value: 'Amt', series: 'Y', horizontal: true }, rows)).toHaveLength(MAX_WATERFALL_PANELS)
@@ -559,7 +608,7 @@ describe('合计', () => {
       { M: '2月', Y: '去年', V: 6 },
       { M: '3月', Y: '前年', V: 99 },
     ]
-    const totals = chartTotals('bar', { dimension: 'M', value: 'V', series: 'Y', topN: 4, sumMode: 'legend' }, long)
+    const totals = chartTotals('bar', { dimension: 'M', value: 'V', series: 'Y', topN: 2, sumMode: 'legend' }, long)
     expect(totals.map((t) => [t.name, t.value])).toEqual([['今年', 30], ['去年', 14]])
   })
 

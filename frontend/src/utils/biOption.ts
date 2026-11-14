@@ -61,6 +61,21 @@ function columnFormat(enc: BiEncoding, col: string): Pick<BiEncoding, 'format' |
   return f && f !== enc.format ? { format: f } : enc
 }
 
+/**
+ * topN 截断：一般取前 N 行；长表多系列（series，饼图除外）取前 N 个类目，每个类目的各系列都保留
+ * （按行截会把后面的系列整条截掉，或只剩几个类目）。
+ */
+export function topRows(type: BiChartType, enc: BiEncoding, rows: BiRow[]): BiRow[] {
+  if (!enc.topN) return rows
+  if (!enc.series || type === 'pie') return rows.slice(0, enc.topN)
+  const keep = new Set<string>()
+  for (const r of rows) {
+    if (keep.size >= enc.topN) break
+    keep.add(str(r[enc.dimension || '']))
+  }
+  return rows.filter((r) => keep.has(str(r[enc.dimension || ''])))
+}
+
 /** 默认参与合计的列：左轴（不含右轴折线）上不是百分比的数值列；长表多系列只有第一个数值列 */
 export function defaultSumColumns(type: BiChartType, enc: BiEncoding): string[] {
   const cols = valueColumns(enc)
@@ -81,7 +96,7 @@ export function chartTotals(type: BiChartType, enc: BiEncoding, allRows: BiRow[]
   if (enc.series && type !== 'pie') {
     const col = cols[0]
     if (!col || !wanted.includes(col)) return []
-    const plotted = new Set((enc.topN ? allRows.slice(0, enc.topN) : allRows).map((r) => str(r[enc.series!])))
+    const plotted = new Set(topRows(type, enc, allRows).map((r) => str(r[enc.series!])))
     const groups = new Map<string, BiRow[]>()
     for (const r of allRows) {
       const k = str(r[enc.series])
@@ -237,7 +252,7 @@ export function buildChartModel(
 ): ChartModel {
   if (type === 'waterfall') return buildWaterfallModel(enc, allRows, opts)
   const cursor = opts.clickable ? 'pointer' : 'default'
-  const rows = enc.topN ? allRows.slice(0, enc.topN) : allRows
+  const rows = topRows(type, enc, allRows)
   const dim = enc.dimension || ''
   const cols = valueColumns(enc)
   const tooltipValue = (v: unknown) => formatValue(v, enc)
@@ -392,8 +407,10 @@ export function buildChartModel(
     }
     if (p === 'all') s.label = l
     if (p === 'last') {
+      // 最后一个有值的点（本月还没数据时末尾是空值）
       const data = s.data as (number | null)[]
-      const last = data.length - 1
+      let last = data.length - 1
+      while (last >= 0 && data[last] == null) last--
       s.data = data.map((v, j) => (j === last && v != null ? { value: v, label: l } : v))
     }
   })
@@ -617,11 +634,21 @@ function buildWaterfallModel(enc: BiEncoding, allRows: BiRow[], opts: { clickabl
   const horizontal = !!enc.horizontal
   const panels = waterfallPanels(enc, allRows)
   const multi = horizontal && !!enc.series
-  // 各栏项目取并集（按首次出现的顺序）；某年缺的项目留空
-  const categories: string[] = []
-  for (const p of panels) for (const s of p.steps) if (!categories.includes(s.name)) categories.push(s.name)
-  const n = categories.length
-  const at: (WaterfallStep | null)[] = panels.flatMap((p) => categories.map((c) => p.steps.find((s) => s.name === c) ?? null))
+  // 各栏项目取并集（按首次出现的顺序）；某年缺的项目留空。
+  // 同一栏里重名的项目按第几次出现区分（第 2 个「其他」对上别的栏的第 2 个「其他」），不会只画第一个
+  const stepKeys = panels.map((p) => {
+    const seen = new Map<string, number>()
+    return p.steps.map((s) => {
+      const k = seen.get(s.name) ?? 0
+      seen.set(s.name, k + 1)
+      return `${s.name}\u0000${k}`
+    })
+  })
+  const keys: string[] = []
+  for (const ks of stepKeys) for (const k of ks) if (!keys.includes(k)) keys.push(k)
+  const categories = keys.map((k) => k.slice(0, k.lastIndexOf('\u0000')))
+  const n = keys.length
+  const at: (WaterfallStep | null)[] = panels.flatMap((p, pi) => keys.map((k) => p.steps[stepKeys[pi].indexOf(k)] ?? null))
   const all = panels.flatMap((p) => p.steps)
 
   // 分栏时第 p 栏平移 offset(p)：每栏宽 = 全部栏的数值范围 + 两侧留给数值标签的空白
@@ -690,7 +717,7 @@ function buildWaterfallModel(enc: BiEncoding, allRows: BiRow[], opts: { clickabl
   // 相邻柱子之间的连接虚线：画在上一步的累计处，连到同一栏的下一根柱子。数据：[本柱类目, 累计, 下一柱类目]
   // 每项从 0 画起时柱子不衔接，不画
   const links = fromZero ? [] : panels.flatMap((p, pi) =>
-    p.steps.slice(0, -1).map((s, k) => [categories.indexOf(s.name), s.end + offset(pi), categories.indexOf(p.steps[k + 1].name)]),
+    p.steps.slice(0, -1).map((s, k) => [keys.indexOf(stepKeys[pi][k]), s.end + offset(pi), keys.indexOf(stepKeys[pi][k + 1])]),
   )
   if (links.length > 0) {
     series.push({
