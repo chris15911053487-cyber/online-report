@@ -13,9 +13,9 @@ const { coerceParam } = require('./bi-params');
 const CHART_KEY_RE = /^[a-z][a-z0-9_-]{0,63}$/;
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 const COLUMN_RE = /^[^\s[\]"'`;]{1,128}$/;
-const CARD_TYPES = new Set(['kpi', 'bar', 'line', 'pie', 'waterfall', 'table']);
+const CARD_TYPES = new Set(['kpi', 'bar', 'line', 'pie', 'waterfall', 'sankey', 'table']);
 /** 有维度 + 数值列的图表类型 */
-const CHART_TYPES = new Set(['bar', 'line', 'pie', 'waterfall']);
+const CHART_TYPES = new Set(['bar', 'line', 'pie', 'waterfall', 'sankey']);
 const FORMATS = new Set(['number', 'money', 'percent', 'integer']);
 const MAX_DRILL = 5;
 
@@ -134,10 +134,19 @@ function waterfallProblem(enc, type) {
   return '';
 }
 
+/** 桑基图的结构问题（与前端 utils/biAdmin.ts 的 sankeyProblem 一致）；没有问题返回 '' */
+function sankeyProblem(enc, type) {
+  if (type !== 'sankey') return enc.target ? '只有桑基图能设置去向列' : '';
+  if (!enc.target) return '桑基图须设置去向列';
+  if (enc.target === enc.dimension) return '桑基图的来源列和去向列不能是同一列';
+  if (enc.values && enc.values.length > 1) return '桑基图只能选一个数值列';
+  return '';
+}
+
 function normalizeEncoding(input, type, where) {
   const e = isPlainObject(input) ? input : {};
   const out = {};
-  for (const f of ['dimension', 'value', 'compare', 'series', 'label']) {
+  for (const f of ['dimension', 'target', 'value', 'compare', 'series', 'label']) {
     const c = column(e[f], where, f);
     if (!c.ok) return c;
     if (c.value) out[f] = c.value;
@@ -245,6 +254,8 @@ function normalizeEncoding(input, type, where) {
   if (sm) return fail(`${where} ${sm}`);
   const wp = waterfallProblem(out, type);
   if (wp) return fail(`${where} ${wp}`);
+  const kp = sankeyProblem(out, type);
+  if (kp) return fail(`${where} ${kp}`);
   return { ok: true, value: out };
 }
 
@@ -270,7 +281,7 @@ function normalizeDrill(input, knownQueries, where) {
     const pm = normalizeParamMap(d.params, null, w);
     if (!pm.ok) return pm;
     const type = str(d.type || 'table', 16).toLowerCase();
-    if (!CARD_TYPES.has(type) || type === 'kpi') return fail(`${w} type 须为 bar / line / pie / waterfall / table`);
+    if (!CARD_TYPES.has(type) || type === 'kpi') return fail(`${w} type 须为 bar / line / pie / waterfall / sankey / table`);
     const enc = normalizeEncoding(d.encoding, type, w);
     if (!enc.ok) return enc;
     const level = { queryKey, label: str(d.label || queryKey, 32), bind: outBind, params: pm.value, type, encoding: enc.value };
@@ -284,13 +295,15 @@ function normalizeDrill(input, knownQueries, where) {
   return { ok: true, value: out };
 }
 
-/** 按类型的默认宽度（12 栅格）：KPI 1/4；折线 / 表格整行；饼图 1/3；柱状半宽；瀑布图 2/3（与前端 defaultChartSize 一致） */
-const DEFAULT_WIDTH = { kpi: 3, line: 12, table: 12, pie: 4, bar: 6, waterfall: 8 };
+/** 按类型的默认宽度（12 栅格）：KPI 1/4；折线 / 表格 / 桑基图整行；饼图 1/3；柱状半宽；瀑布图 2/3（与前端 defaultChartSize 一致） */
+const DEFAULT_WIDTH = { kpi: 3, line: 12, table: 12, pie: 4, bar: 6, waterfall: 8, sankey: 12 };
+/** 默认高度档位：桑基图节点多、要高一档，其余 2 */
+const DEFAULT_HEIGHT = { sankey: 3 };
 
 function normalizeSize(input, type) {
   const s = isPlainObject(input) ? input : {};
   const w = Math.min(12, Math.max(1, Math.floor(Number(s.w) || DEFAULT_WIDTH[type] || 6)));
-  const h = type === 'kpi' ? 1 : Math.min(4, Math.max(1, Math.floor(Number(s.h) || 2)));
+  const h = type === 'kpi' ? 1 : Math.min(4, Math.max(1, Math.floor(Number(s.h) || DEFAULT_HEIGHT[type] || 2)));
   return { w, h };
 }
 
@@ -348,7 +361,7 @@ function validateChartInput(input, knownQueries) {
 /** encoding 里引用的全部列名 */
 function encodingColumns(enc) {
   const cols = [];
-  for (const f of ['dimension', 'value', 'compare', 'series', 'label']) if (enc[f]) cols.push(enc[f]);
+  for (const f of ['dimension', 'target', 'value', 'compare', 'series', 'label']) if (enc[f]) cols.push(enc[f]);
   for (const v of enc.values || []) cols.push(v);
   for (const v of enc.rightAxis || []) cols.push(v);
   for (const v of enc.deltaColumns || []) cols.push(v);

@@ -4,6 +4,7 @@ import {
   chartProblems,
   rightAxisProblem,
   waterfallProblem,
+  sankeyProblem,
   stackProblem,
   sumProblem,
   suggestRightAxis,
@@ -255,6 +256,24 @@ describe('图表与看板引用（与后端 bi-charts.js 一致）', () => {
     expect(effectiveSource(top, { id: 'a', chartKey: 'top_cust' }, { ...chart, params: {} }, filters)).toEqual({ kind: 'default', value: 20 })
     expect(effectiveSource(period, { id: 'a', chartKey: 'top_cust', params: { period: 'x' } }, chart, filters)).toEqual({ kind: 'override', value: 'x' })
     expect(effectiveSource(period, { id: 'a', chartKey: 'top_cust' }, chart, [])).toEqual({ kind: 'none' })
+  })
+})
+
+describe('桑基图（与后端 bi-charts.js 的 sankeyProblem 一致）', () => {
+  it('默认取前两个维度列为来源 / 去向；切换类型时去掉无关字段', () => {
+    const cols: BiColumnSemantic[] = [{ column: '来源', role: 'dimension' }, { column: '去向', role: 'dimension' }, { column: '金额', role: 'measure' }]
+    expect(defaultEncoding('sankey', cols)).toEqual({ dimension: '来源', target: '去向', value: '金额' })
+    expect(cleanEncoding('sankey', { dimension: '来源', target: '去向', values: ['金额', '去年'], topN: 5, sumMode: 'header', stack: 'normal' })).toEqual({ dimension: '来源', target: '去向', value: '金额' })
+    expect(cleanEncoding('bar', { dimension: '来源', target: '去向', value: '金额' })).toEqual({ dimension: '来源', value: '金额' })
+  })
+
+  it('结构问题', () => {
+    expect(sankeyProblem({ dimension: '来源', target: '去向', value: '金额' }, 'sankey')).toBe('')
+    expect(sankeyProblem({ dimension: '来源', value: '金额' }, 'sankey')).toMatch(/去向列/)
+    expect(sankeyProblem({ dimension: '来源', target: '来源', value: '金额' }, 'sankey')).toMatch(/同一列/)
+    expect(sankeyProblem({ dimension: '来源', target: '去向', values: ['金额', '去年'] }, 'sankey')).toMatch(/一个数值列/)
+    expect(sankeyProblem({ dimension: '来源', target: '去向' }, 'bar')).toMatch(/只有桑基图/)
+    expect(sumProblem({ sumMode: 'header' }, 'sankey')).toBe('该类型不能设置合计')
   })
 })
 

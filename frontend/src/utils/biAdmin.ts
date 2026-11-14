@@ -3,7 +3,7 @@
  * 图表默认配置、看板引用展开、引用完整性检查。
  * 与后端 bi-queries.js / bi-charts.js / bi-dashboards.js 的规则保持一致。
  */
-import { defaultChartSize, sumModesFor } from './bi'
+import { defaultChartSize, isChartType, sumModesFor } from './bi'
 import type {
   BiCard,
   BiCardRef,
@@ -460,10 +460,17 @@ export function defaultEncoding(type: BiCardType, cols: BiColumnSemantic[], curr
   if (type === 'kpi') {
     if (!enc.value && measure) enc.value = measure
     delete enc.dimension
-  } else if (type === 'bar' || type === 'line' || type === 'pie' || type === 'waterfall') {
+  } else if (type === 'sankey') {
+    // 来源 / 去向：前两个维度列
+    const dims = cols.filter((c) => c.role === 'dimension' || c.role === 'attr').map((c) => c.column)
+    if (!enc.dimension) enc.dimension = dims[0]
+    if (!enc.target) enc.target = dims.find((c) => c !== enc.dimension)
+    if (!enc.value && measure) enc.value = measure
+  } else if (isChartType(type)) {
     if (!enc.dimension) enc.dimension = firstOf(cols, type === 'line' ? ['time', 'dimension', 'attr'] : ['dimension', 'time', 'attr'])
     if (!enc.value && !enc.values?.length && measure) enc.value = measure
   }
+  if (!enc.target) delete enc.target
   if (!enc.dimension) delete enc.dimension
   if (!enc.value) delete enc.value
   return enc
@@ -483,7 +490,9 @@ export function cleanEncoding(type: BiCardType, enc: BiEncoding): BiEncoding {
         ? ['columns', 'dimension', 'deltaColumns', 'trend', 'barColumns', 'barShared', 'sumMode', 'sumColumns']
         : type === 'waterfall'
           ? ['dimension', 'value', 'horizontal', 'series', 'total', 'subtotals', 'fromZero', 'trend', 'format', 'unit', 'scale', 'labels', 'columns']
-          : ['dimension', 'value', 'values', 'series', 'format', 'unit', 'scale', 'topN', 'horizontal', 'stack', 'labels', 'columns', 'rightAxis', 'sumMode', 'sumColumns']
+          : type === 'sankey'
+            ? ['dimension', 'target', 'value', 'format', 'unit', 'scale', 'labels', 'columns']
+            : ['dimension', 'value', 'values', 'series', 'format', 'unit', 'scale', 'topN', 'horizontal', 'stack', 'labels', 'columns', 'rightAxis', 'sumMode', 'sumColumns']
   for (const k of keep) {
     const v = enc[k]
     if (v === undefined || v === '' || (Array.isArray(v) && v.length === 0)) continue
@@ -497,8 +506,8 @@ export function cleanEncoding(type: BiCardType, enc: BiEncoding): BiEncoding {
   const pieLabels = out.labels === 'value' || out.labels === 'both'
   if (out.labels === 'auto' || (type === 'pie' ? out.labels === 'show' : pieLabels)) delete out.labels
   if (type === 'pie') delete out.rightAxis
-  // 瀑布图只有一个数值列：多选时取第一个
-  if (type === 'waterfall' && !out.value && enc.values?.length) out.value = enc.values[0]
+  // 瀑布图 / 桑基图只有一个数值列：多选时取第一个
+  if ((type === 'waterfall' || type === 'sankey') && !out.value && enc.values?.length) out.value = enc.values[0]
   if (type === 'table' && !out.barColumns?.length) delete out.barShared
   // 合计：该类型不支持的方式去掉（如柱图切成饼图时的「图例」），不显示合计时不留列
   if (out.sumMode && !sumModesFor(type).includes(out.sumMode)) delete out.sumMode
@@ -514,6 +523,15 @@ export function waterfallProblem(enc: BiEncoding, type: BiCardType): string {
   }
   if ((enc.values?.length ?? 0) > 1) return '瀑布图只能选一个数值列'
   if (enc.series && !enc.horizontal) return '瀑布图按分栏列拆开（如每年一栏）需要选横向'
+  return ''
+}
+
+/** 桑基图的结构问题（与后端 bi-charts.js 的 sankeyProblem 一致）；没有问题返回 '' */
+export function sankeyProblem(enc: BiEncoding, type: BiCardType): string {
+  if (type !== 'sankey') return enc.target ? '只有桑基图能设置去向列' : ''
+  if (!enc.target) return '桑基图须设置去向列'
+  if (enc.target === enc.dimension) return '桑基图的来源列和去向列不能是同一列'
+  if ((enc.values?.length ?? 0) > 1) return '桑基图只能选一个数值列'
   return ''
 }
 
@@ -533,7 +551,7 @@ export function rightAxisProblem(enc: BiEncoding, type: BiCardType): string {
 /** 合计的结构问题（与后端 bi-charts.js 的 sumProblem 一致）；没有问题返回 '' */
 export function sumProblem(enc: BiEncoding, type: BiCardType): string {
   if (!enc.sumMode) return ''
-  if (!sumModesFor(type).includes(enc.sumMode)) return type === 'kpi' || type === 'waterfall' ? '该类型不能设置合计' : `该类型的合计方式须为 ${sumModesFor(type).join(' / ')}`
+  if (!sumModesFor(type).includes(enc.sumMode)) return !sumModesFor(type).length ? '该类型不能设置合计' : `该类型的合计方式须为 ${sumModesFor(type).join(' / ')}`
   const cols = enc.sumColumns || []
   if (!cols.length) return ''
   if (type === 'table') {
@@ -583,7 +601,7 @@ export interface QueryRef {
 
 function encodingColumns(enc: BiEncoding): string[] {
   const cols: string[] = []
-  for (const f of ['dimension', 'value', 'compare', 'series', 'label'] as const) if (enc[f]) cols.push(enc[f] as string)
+  for (const f of ['dimension', 'target', 'value', 'compare', 'series', 'label'] as const) if (enc[f]) cols.push(enc[f] as string)
   for (const v of enc.values || []) cols.push(v)
   for (const v of enc.rightAxis || []) cols.push(v)
   for (const v of enc.deltaColumns || []) cols.push(v)
@@ -639,11 +657,13 @@ export function cardProblems(
     const cols = colSet(target)
     if (cols) for (const c of encodingColumns(enc)) if (!cols.has(c)) problems.push(`${where}列「${c}」不在查询的输出列中`)
     if (type === 'kpi' && !enc.value) problems.push(`${where}KPI 需要选择数值列`)
-    const isChart = type === 'bar' || type === 'line' || type === 'pie' || type === 'waterfall'
+    const isChart = isChartType(type)
     if (isChart && !enc.dimension) problems.push(`${where}图表需要选择维度列`)
     if (isChart && !enc.value && !enc.values?.length) problems.push(`${where}图表需要选择数值列`)
     const wf = waterfallProblem(enc, type)
     if (wf) problems.push(`${where}${wf}`)
+    const sk = sankeyProblem(enc, type)
+    if (sk) problems.push(`${where}${sk}`)
     const ra = rightAxisProblem(enc, type)
     if (ra) problems.push(`${where}${ra}`)
     const sp = stackProblem(enc, type)

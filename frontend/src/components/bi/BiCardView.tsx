@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Info, Maximize2, Minimize2, RotateCw } from 'lucide-react'
 import { usePageFullscreen } from '../../hooks/usePageFullscreen'
-import { BI_CARD_HEIGHT, changeRatio, dataBarScale, fillPlaceholders, formatValue, toNumber, withColumnSemantics, type BiCard, type BiColumnDef, type BiColumnSemantic, type BiFilterValues, type BiQueryMeta, type BiTrend } from '../../utils/bi'
+import { BI_CARD_HEIGHT, changeRatio, dataBarScale, fillPlaceholders, formatValue, isChartType, toNumber, withColumnSemantics, type BiCard, type BiColumnDef, type BiColumnSemantic, type BiFilterValues, type BiQueryMeta, type BiTrend } from '../../utils/bi'
 import { summableColumns, sumColumns } from '../../utils/biTable'
 import { buildChartModel, columnLabel, highlightPoint, sameRow, type BiRow } from '../../utils/biOption'
 import { canDrillFrom, levelView, nextDrillLabel, nextOpensInPanel, popDrillTo, pushDrill, rootStack, type DrillFrame } from '../../utils/biDrill'
@@ -119,7 +119,7 @@ export default function BiCardView({ card, filters, queries, filterText, onPick,
   }, [view.encoding, semantics, resultColumns, vars])
   const chart = useMemo(
     () =>
-      view.type === 'bar' || view.type === 'line' || view.type === 'pie' || view.type === 'waterfall'
+      isChartType(view.type)
         ? buildChartModel(view.type, encoding, rows, { clickable })
         : null,
     [rows, view.type, encoding, clickable],
@@ -237,12 +237,13 @@ export default function BiCardView({ card, filters, queries, filterText, onPick,
             {view.type === 'kpi' && <KpiBody title={title} enc={encoding} row={rows[0]} onClick={(x, y, newTab) => pick(rows[0], x, y, newTab)} clickable={!!onPick} />}
             {(chart || view.type === 'table') && (
               <div className={fullscreen ? 'flex-1 min-h-0' : undefined}>
-                {chart && (
+                {chart?.problem && <p className="text-[12px] text-danger py-3">{chart.problem}</p>}
+                {chart && !chart.problem && (
                   <BiChart
                     option={chartOption ?? chart.option}
                     height={bodyHeight}
                     ariaLabel={`${title}图表，共 ${chart.plotted} 项`}
-                    onPick={clickable ? (e) => pick(chart.rowAt(e.dataIndex, e.seriesName), e.x, e.y, e.newTab) : undefined}
+                    onPick={clickable ? (e) => pick(chart.rowAt(e.dataIndex, e.seriesName, e.dataType), e.x, e.y, e.newTab) : undefined}
                     pickIndex={chart.pickIndex}
                   />
                 )}

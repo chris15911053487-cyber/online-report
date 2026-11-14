@@ -192,6 +192,24 @@ test('图表校验：瀑布图一个数值列，可设末尾合计 / 小计；�
   assert.match(run({ dimension: '项目', value: 'Ghost' }).error, /Ghost/, '数值列须在输出列中');
 });
 
+test('图表校验：桑基图须有来源 / 去向 / 一个数值列；去向列只用于桑基图', () => {
+  const q = new Map([['flow', {
+    queryKey: 'flow', label: '利润流向', params: [],
+    columns: [{ column: '来源', role: 'dimension' }, { column: '去向', role: 'dimension' }, { column: '金额', role: 'measure' }, { column: '去年', role: 'measure' }],
+  }]]);
+  const base = { chartKey: 'pl_sankey', label: '利润流向', type: 'sankey', queryKey: 'flow', params: {} };
+  const run = (encoding, type = 'sankey') => validateChartInput({ ...base, type, encoding }, q);
+  const ok = run({ dimension: '来源', target: '去向', value: '金额' });
+  assert.equal(ok.ok, true, ok.error);
+  assert.equal(ok.value.encoding.target, '去向');
+  assert.deepEqual(ok.value.size, { w: 12, h: 3 }, '默认整行、高一档');
+  assert.match(run({ dimension: '来源', value: '金额' }).error, /去向列/);
+  assert.match(run({ dimension: '来源', target: '来源', value: '金额' }).error, /不能是同一列/);
+  assert.match(run({ dimension: '来源', target: '去向', values: ['金额', '去年'] }).error, /只能选一个数值列/);
+  assert.match(run({ dimension: '来源', target: 'Ghost', value: '金额' }).error, /Ghost/, '去向列须在输出列中');
+  assert.match(run({ dimension: '来源', target: '去向', value: '金额' }, 'bar').error, /只有桑基图/);
+});
+
 test('图表校验：表格数据条列（可设各列同一比例）；引用检查包含数据条列', () => {
   const t = validateChartInput({ ...chartInput, type: 'table', drill: [], encoding: { barColumns: ['Amount', 'Amount'], barShared: 1 } }, queries);
   assert.equal(t.ok, true, t.error);

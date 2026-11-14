@@ -67,6 +67,7 @@ export function pointFields(pick: BiPick, dims: { column: string; label?: string
     for (const c of pick.columns) add(c)
   } else {
     add(enc.dimension)
+    add(enc.target)
     add(enc.series)
     for (const c of valueColumns(enc)) add(c)
     add(enc.compare)

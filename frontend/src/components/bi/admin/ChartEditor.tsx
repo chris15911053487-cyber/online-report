@@ -12,7 +12,7 @@ import type { BiChartDef, BiDashboard, BiQueryMeta, BiValue } from '../../../uti
 import { chartPreviewDashboard, chartProblems, type QueryRef } from '../../../utils/biAdmin'
 import { AdminPage, Button, Card, Checkbox, EditorActions, Field, Input, Notice, Section, Textarea } from '../../../ui'
 import { DashboardView } from '../DashboardPanel'
-import { waterfallClosingRow, type BiRow } from '../../../utils/biOption'
+import { sankeyProblems, waterfallClosingRow, type BiRow } from '../../../utils/biOption'
 import ChartForm from './ChartForm'
 import { errMsg, type BiChartAdmin, type QueryOption } from './types'
 
@@ -54,6 +54,8 @@ export default function ChartEditor({
 
   // 瀑布图最后一行像「期末」却没设小计：按增减项画会翻倍，提示一键设为小计
   const closingRow = c.type === 'waterfall' ? waterfallClosingRow(c.encoding || {}, previewRows) : ''
+  // 桑基图：中间节点流入 ≠ 流出（拆分漏了项 / 口径不一致）、循环流向
+  const flowProblems = useMemo(() => (c.type === 'sankey' ? sankeyProblems(c.encoding || {}, previewRows) : []), [c.type, c.encoding, previewRows])
   const onCardRows = useCallback((_id: string, rows: BiRow[]) => setPreviewRows(rows), [])
 
   const save = async () => {
@@ -133,6 +135,16 @@ export default function ChartEditor({
                   设为小计
                 </Button>
               </div>
+            </Notice>
+          )}
+          {flowProblems.length > 0 && (
+            <Notice tone="warning">
+              <p>数据对不上，请检查查询：</p>
+              <ul className="list-disc pl-5 mt-1">
+                {flowProblems.map((p) => (
+                  <li key={p}>{p}</li>
+                ))}
+              </ul>
             </Notice>
           )}
           {preview ? (

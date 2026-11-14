@@ -14,7 +14,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight, Columns2, Copy, Download, ExternalLink, Loader2, PanelRight, RotateCw, Sparkles, X } from 'lucide-react'
 import { useStore } from '../../store'
 import { apiUrl, authHeaders } from '../../utils/api'
-import { fillPlaceholders, withColumnSemantics, type BiColumnDef, type BiFilter, type BiFilterValues, type BiQueryMeta } from '../../utils/bi'
+import { fillPlaceholders, isChartType, withColumnSemantics, type BiColumnDef, type BiFilter, type BiFilterValues, type BiQueryMeta } from '../../utils/bi'
 import { buildChartModel, columnLabel, type BiRow } from '../../utils/biOption'
 import { canDrillFrom, levelView, nextDrillLabel, popDrillTo, pushDrill, type DrillFrame, type DrillPanelState } from '../../utils/biDrill'
 import type { BiPick } from '../../utils/biContext'
@@ -109,7 +109,7 @@ export default function DrillPanel(props: Props) {
   const drillLabel = nextDrillLabel(card, stack)
   const chart = useMemo(
     () =>
-      view.type === 'bar' || view.type === 'line' || view.type === 'pie' || view.type === 'waterfall'
+      isChartType(view.type)
         ? buildChartModel(view.type, encoding, rows, { clickable: canDrill || !!onPick })
         : null,
     [view.type, encoding, rows, canDrill, onPick],
@@ -355,12 +355,14 @@ export default function DrillPanel(props: Props) {
         {data && !error && chart && (
           rows.length === 0 ? (
             <p className="text-[12px] text-subtle py-6 text-center">暂无数据</p>
+          ) : chart.problem ? (
+            <p className="text-[12px] text-danger py-3">{chart.problem}</p>
           ) : (
             <BiChart
               option={chart.option}
               height={chartHeight}
               ariaLabel={`${title}图表，共 ${chart.plotted} 项`}
-              onPick={canDrill || onPick ? (e) => pickRow(chart.rowAt(e.dataIndex, e.seriesName), e.x, e.y, e.newTab) : undefined}
+              onPick={canDrill || onPick ? (e) => pickRow(chart.rowAt(e.dataIndex, e.seriesName, e.dataType), e.x, e.y, e.newTab) : undefined}
               pickIndex={chart.pickIndex}
             />
           )

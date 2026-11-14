@@ -12,12 +12,12 @@
 import { formatValue, sumModesFor, toNumber, type BiEncoding, type BiFormat } from './bi'
 
 export type BiRow = Record<string, unknown>
-export type BiChartType = 'bar' | 'line' | 'pie' | 'waterfall'
+export type BiChartType = 'bar' | 'line' | 'pie' | 'waterfall' | 'sankey'
 
 export interface ChartModel {
   option: Record<string, unknown>
-  /** 点击事件 → 对应的结果行；找不到返回 null */
-  rowAt: (dataIndex: number, seriesName?: string) => BiRow | null
+  /** 点击事件 → 对应的结果行；找不到返回 null。dataType：桑基图点中的是节点还是连线 */
+  rowAt: (dataIndex: number, seriesName?: string, dataType?: 'node' | 'edge') => BiRow | null
   /** 实际参与绘图的行数（topN 截断后） */
   plotted: number
   /** 点在图形之间的空白处：坐标轴上的值 [x, y] → dataIndex（不写 = 按类目序号）；找不到返回 null */
@@ -26,6 +26,8 @@ export interface ChartModel {
   indexOf?: (row: BiRow) => ChartPoint | null
   /** 合计（encoding.sumMode 为 legend / header 时）：每个系列或数值列一项，按全部行合计 */
   totals: ChartTotal[]
+  /** 数据画不出来时的说明（如桑基图有循环流向）；有值时不渲染图表，显示这段文字 */
+  problem?: string
 }
 
 export interface ChartTotal {
@@ -251,6 +253,7 @@ export function buildChartModel(
   opts: { clickable?: boolean } = {},
 ): ChartModel {
   if (type === 'waterfall') return buildWaterfallModel(enc, allRows, opts)
+  if (type === 'sankey') return buildSankeyModel(enc, allRows, opts)
   const cursor = opts.clickable ? 'pointer' : 'default'
   const rows = topRows(type, enc, allRows)
   const dim = enc.dimension || ''
@@ -824,6 +827,210 @@ function buildWaterfallModel(enc: BiEncoding, allRows: BiRow[], opts: { clickabl
       xAxis: horizontal ? valueAxis : categoryAxis,
       yAxis: horizontal ? categoryAxis : valueAxis,
       series,
+    },
+  }
+}
+
+// ─── 桑基图 ──────────────────────────────────────────────────────────────────
+
+export interface SankeyNode {
+  name: string
+  /** 流入、流出合计（取绝对值后） */
+  inflow: number
+  outflow: number
+  /** 第几列（0 = 最左） */
+  depth: number
+}
+
+export interface SankeyLink {
+  source: string
+  target: string
+  value: number
+  row: BiRow
+}
+
+export interface SankeyGraph {
+  /** 按在结果里第一次出现的顺序（同一列里从上到下就是这个顺序） */
+  nodes: SankeyNode[]
+  links: SankeyLink[]
+  /** 有循环流向时的路径，如 ['A', 'B', 'A']；没有为 null */
+  cycle: string[] | null
+}
+
+/**
+ * 结果行 → 桑基图：每行一条「来源 → 去向」的流向，数值取绝对值（成本在利润表里常是负数，方向由来源 → 去向表达）。
+ * 来源 / 去向为空、数值为空的行跳过。
+ *
+ * 分列：有流入的节点排在它所有来源的右边一列（最长路径）；只有流出的起点节点紧挨在它最靠左的去向左边
+ * ——这样「服务 → 营收」的服务和「iPhone → 产品 → 营收」的产品在同一列，而不是都挤到最左边。
+ */
+export function sankeyGraph(enc: BiEncoding, rows: BiRow[]): SankeyGraph {
+  const src = enc.dimension || ''
+  const tgt = enc.target || ''
+  const col = valueColumns(enc)[0] || ''
+  const byName = new Map<string, SankeyNode>()
+  const node = (name: string) => {
+    let n = byName.get(name)
+    if (!n) byName.set(name, (n = { name, inflow: 0, outflow: 0, depth: 0 }))
+    return n
+  }
+  const links: SankeyLink[] = []
+  for (const r of rows) {
+    const a = str(r[src]).trim()
+    const b = str(r[tgt]).trim()
+    const v = toNumber(r[col])
+    if (!a || !b || v == null) continue
+    const value = Math.abs(v)
+    node(a).outflow += value
+    node(b).inflow += value
+    links.push({ source: a, target: b, value, row: r })
+  }
+  const nodes = [...byName.values()]
+  const outs = new Map<string, string[]>()
+  for (const l of links) outs.set(l.source, [...(outs.get(l.source) ?? []), l.target])
+
+  // 找循环（深度优先，灰 = 在当前路径上）
+  const state = new Map<string, 'gray' | 'black'>()
+  const path: string[] = []
+  const visit = (name: string): string[] | null => {
+    state.set(name, 'gray')
+    path.push(name)
+    for (const next of outs.get(name) ?? []) {
+      if (state.get(next) === 'gray') return [...path.slice(path.indexOf(next)), next]
+      if (!state.has(next)) {
+        const c = visit(next)
+        if (c) return c
+      }
+    }
+    path.pop()
+    state.set(name, 'black')
+    return null
+  }
+  let cycle: string[] | null = null
+  for (const n of nodes) if (!state.has(n.name) && (cycle = visit(n.name))) break
+  if (cycle) return { nodes, links, cycle }
+
+  // 最长路径分列（拓扑序），再把起点节点往右挪到去向的左边一列
+  const indeg = new Map(nodes.map((n) => [n.name, 0]))
+  for (const l of links) indeg.set(l.target, indeg.get(l.target)! + 1)
+  const queue = nodes.filter((n) => indeg.get(n.name) === 0)
+  for (let i = 0; i < queue.length; i++) {
+    const n = queue[i]
+    for (const t of outs.get(n.name) ?? []) {
+      const m = byName.get(t)!
+      m.depth = Math.max(m.depth, n.depth + 1)
+      indeg.set(t, indeg.get(t)! - 1)
+      if (indeg.get(t) === 0) queue.push(m)
+    }
+  }
+  const hasIn = new Set(links.map((l) => l.target))
+  for (const n of nodes) {
+    if (hasIn.has(n.name) || !outs.has(n.name)) continue
+    n.depth = Math.max(0, Math.min(...outs.get(n.name)!.map((t) => byName.get(t)!.depth)) - 1)
+  }
+  return { nodes, links, cycle: null }
+}
+
+/** 节点流入 ≠ 流出时允许的误差（四舍五入） */
+const sankeyTolerance = (a: number, b: number) => Math.max(0.005, Math.max(a, b) * 1e-6)
+
+/**
+ * 桑基图数据的问题（编辑器提示用）：循环流向；中间节点（既有流入又有流出）流入 ≠ 流出（利润表拆分漏项 / 口径不一致）。
+ * 最多返回 limit 条。
+ */
+export function sankeyProblems(enc: BiEncoding, rows: BiRow[], limit = 3): string[] {
+  const g = sankeyGraph(enc, rows)
+  if (g.cycle) return [`有循环流向：${g.cycle.join(' → ')}，桑基图画不出来`]
+  const fmt = (v: number) => formatValue(v, enc)
+  return g.nodes
+    .filter((n) => n.inflow > 0 && n.outflow > 0 && Math.abs(n.inflow - n.outflow) > sankeyTolerance(n.inflow, n.outflow))
+    .slice(0, limit)
+    .map((n) => `「${n.name}」流入 ${fmt(n.inflow)}，流出 ${fmt(n.outflow)}，相差 ${fmt(Math.abs(n.inflow - n.outflow))}`)
+}
+
+/** 估算标签文字宽度（px）：中文按一个字号宽，其余按 0.6 个 */
+function textWidth(s: string, fontSize: number): number {
+  let w = 0
+  for (const ch of s) w += ch.charCodeAt(0) < 0x100 ? fontSize * 0.6 : fontSize
+  return w
+}
+
+/**
+ * 桑基图：节点按查询结果里第一次出现的顺序从上到下排（不自动重排，SQL 的行顺序决定「毛利在上、成本在下」）；
+ * 颜色按节点轮流取主题系列色，连线取来源节点的颜色调淡。最左一列的标签在节点左边，其余在右边。
+ *
+ * 点连线 = 那一行；点节点 = 以该节点为来源和去向的一行（数值为节点流量），下钻按来源列或去向列取值都是节点名。
+ */
+function buildSankeyModel(enc: BiEncoding, allRows: BiRow[], opts: { clickable?: boolean }): ChartModel {
+  const g = sankeyGraph(enc, allRows)
+  const src = enc.dimension || ''
+  const tgt = enc.target || ''
+  const col = valueColumns(enc)[0] || ''
+  const base = { plotted: g.links.length, totals: [] as ChartTotal[] }
+  if (g.cycle) return { ...base, option: {}, rowAt: () => null, problem: `数据里有循环流向（${g.cycle.join(' → ')}），桑基图画不出来，请检查查询的来源 / 去向` }
+
+  const nodeValue = (n: SankeyNode) => Math.max(n.inflow, n.outflow)
+  // 标签与瀑布图同样：金额不显示小数位
+  const labelFmt = (v: unknown) => formatValue(v, { ...enc, format: enc.format === 'money' ? 'number' : enc.format })
+  const showValue = enc.labels !== 'hide'
+  const fontSize = 11
+  const maxDepth = Math.max(0, ...g.nodes.map((n) => n.depth))
+  const labelText = (n: SankeyNode) => (showValue ? [n.name, labelFmt(nodeValue(n))] : [n.name])
+  const margin = (ns: SankeyNode[]) => Math.min(160, Math.max(24, ...ns.map((n) => Math.max(...labelText(n).map((t) => textWidth(t, fontSize))) + 10)))
+  const firstCol = g.nodes.filter((n) => n.depth === 0)
+  const lastCol = g.nodes.filter((n) => n.depth === maxDepth && maxDepth > 0)
+
+  const nodeRow = (n: SankeyNode): BiRow => {
+    const sample = g.links.find((l) => l.target === n.name)?.row ?? g.links.find((l) => l.source === n.name)?.row ?? {}
+    return { ...sample, [src]: n.name, [tgt]: n.name, [col]: nodeValue(n) }
+  }
+
+  return {
+    ...base,
+    rowAt: (i, _s, dataType) => {
+      if (dataType === 'node') return g.nodes[i] ? nodeRow(g.nodes[i]) : null
+      return g.links[i]?.row ?? null
+    },
+    option: {
+      tooltip: {
+        trigger: 'item',
+        formatter: (p: { dataType?: string; dataIndex: number; marker?: string }) => {
+          if (p.dataType === 'edge') {
+            const l = g.links[p.dataIndex]
+            return l ? `${escapeHtml(l.source)} → ${escapeHtml(l.target)}&nbsp;&nbsp;<b>${escapeHtml(formatValue(l.value, enc))}</b>` : ''
+          }
+          const n = g.nodes[p.dataIndex]
+          if (!n) return ''
+          const lines = [`${p.marker ?? ''}${escapeHtml(n.name)}&nbsp;&nbsp;<b>${escapeHtml(formatValue(nodeValue(n), enc))}</b>`]
+          // 流入流出对不上时两个都写出来
+          if (n.inflow > 0 && n.outflow > 0 && Math.abs(n.inflow - n.outflow) > sankeyTolerance(n.inflow, n.outflow)) {
+            lines.push(`流入&nbsp;&nbsp;${escapeHtml(formatValue(n.inflow, enc))}`, `流出&nbsp;&nbsp;${escapeHtml(formatValue(n.outflow, enc))}`)
+          }
+          return lines.join('<br/>')
+        },
+      },
+      series: [
+        {
+          type: 'sankey',
+          left: firstCol.length ? margin(firstCol) : 8,
+          right: lastCol.length ? margin(lastCol) : 8,
+          top: 8,
+          bottom: 8,
+          nodeWidth: 12,
+          nodeGap: 10,
+          nodeAlign: 'left',
+          layoutIterations: 0,
+          draggable: false,
+          cursor: opts.clickable ? 'pointer' : 'default',
+          emphasis: { focus: 'adjacency' },
+          label: { fontSize, formatter: (p: { dataIndex: number }) => (g.nodes[p.dataIndex] ? labelText(g.nodes[p.dataIndex]).join('\n') : '') },
+          // 很小的节点（如「其他 0」）标签会压到相邻节点上：重叠的藏起来，悬停仍有提示
+          labelLayout: { hideOverlap: true },
+          lineStyle: { color: 'source', opacity: 0.35, curveness: 0.5 },
+          data: g.nodes.map((n) => ({ name: n.name, value: nodeValue(n), depth: n.depth, ...(n.depth === 0 && maxDepth > 0 ? { label: { position: 'left' } } : {}) })),
+          links: g.links.map((l) => ({ source: l.source, target: l.target, value: l.value })),
+        },
+      ],
     },
   }
 }

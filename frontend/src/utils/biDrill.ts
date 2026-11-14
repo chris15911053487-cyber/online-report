@@ -73,6 +73,10 @@ function scalar(v: unknown): BiScalar {
 
 /** 点中的行在当前级上的显示名：维度列的值，否则第一个 bind 列的值 */
 export function rowCaption(row: BiRow, enc: BiEncoding, bind?: Record<string, string>): string {
+  // 桑基图的连线：来源 → 去向（点节点时两列都是节点名）
+  if (enc.dimension && enc.target && row[enc.dimension] != null && row[enc.target] != null && row[enc.dimension] !== row[enc.target]) {
+    return `${row[enc.dimension]} → ${row[enc.target]}`
+  }
   if (enc.dimension && row[enc.dimension] != null) return String(row[enc.dimension])
   const firstCol = bind ? Object.values(bind)[0] : undefined
   if (firstCol && row[firstCol] != null) return String(row[firstCol])

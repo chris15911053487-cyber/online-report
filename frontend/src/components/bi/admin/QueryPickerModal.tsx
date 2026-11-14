@@ -13,7 +13,7 @@ import { cn } from '../../../ui/classes'
 import { DashboardView } from '../DashboardPanel'
 import type { QueryOption } from './types'
 
-const TYPE_LABEL: Record<BiCardType, string> = { kpi: 'KPI', bar: '柱状', line: '折线', pie: '饼图', waterfall: '瀑布', table: '表格' }
+const TYPE_LABEL: Record<BiCardType, string> = { kpi: 'KPI', bar: '柱状', line: '折线', pie: '饼图', waterfall: '瀑布', sankey: '桑基', table: '表格' }
 
 /** 用查询临时拼一张图表做预览 */
 function previewChart(q: QueryOption, type: BiCardType): BiChartDef {

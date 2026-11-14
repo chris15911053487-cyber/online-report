@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { alignedAxisRanges, buildChartModel, chartTotals, defaultSumColumns, columnLabel, highlightPoint, labelPlan, MAX_WATERFALL_PANELS, rightAxisColumns, topRows, valueColumns, waterfallAxisMin, waterfallColors, waterfallClosingRow, waterfallPanels, waterfallSteps } from './biOption'
+import { alignedAxisRanges, buildChartModel, chartTotals, defaultSumColumns, columnLabel, highlightPoint, labelPlan, MAX_WATERFALL_PANELS, rightAxisColumns, sankeyGraph, sankeyProblems, topRows, valueColumns, waterfallAxisMin, waterfallColors, waterfallClosingRow, waterfallPanels, waterfallSteps } from './biOption'
 import { canDrillFrom, levelView, nextDrillLabel, popDrillTo, pushDrill, rootStack, rowCaption } from './biDrill'
 import type { BiCard, BiEncoding } from './bi'
 
@@ -169,6 +169,9 @@ describe('下钻栈', () => {
     expect(rowCaption({ CardName: '甲' }, { dimension: 'CardName' })).toBe('甲')
     expect(rowCaption({ CardCode: 'C1', X: 1 }, {}, { cardCode: 'CardCode' })).toBe('C1')
     expect(rowCaption({ A: null, B: 5 }, {})).toBe('5')
+    // 桑基图：连线写「来源 → 去向」，节点（两列同值）写节点名
+    expect(rowCaption({ S: '营收', T: '毛利' }, { dimension: 'S', target: 'T' })).toBe('营收 → 毛利')
+    expect(rowCaption({ S: '营收', T: '营收' }, { dimension: 'S', target: 'T' })).toBe('营收')
   })
 })
 
@@ -617,5 +620,68 @@ describe('合计', () => {
     expect((m.option as { title?: { text: string } }).title?.text).toBe('7,800')
     expect(chartTotals('pie', { dimension: 'M', value: 'Amt', sumMode: 'legend' }, months)).toEqual([])
     expect(buildChartModel('waterfall', { dimension: 'M', value: 'Amt', sumMode: 'header' }, months).totals).toEqual([])
+  })
+})
+
+describe('桑基图', () => {
+  // 截图里的苹果 2025 财年利润表（十亿美元），成本 / 费用写成负数也按绝对值画。
+  // 原图四舍五入后对不上（产品 210+34+28+36=308 ≠ 307、营业费用 35+28=63 ≠ 62），这里把 iPhone、研发各减 1
+  const flows = [
+    ['iPhone', '产品', 209], ['Mac', '产品', 34], ['iPad', '产品', 28], ['可穿戴设备及配件', '产品', 36],
+    ['产品', '营收', 307], ['服务', '营收', 109],
+    ['营收', '毛利', 195], ['营收', '营业成本', -221],
+    ['毛利', '营业利润', 133], ['毛利', '营业费用', -62],
+    ['营业利润', '净利润', 112], ['营业利润', '税费', -21], ['营业利润', '其他', 0],
+    ['营业费用', '研发费用', -34], ['营业费用', '销售与管理费用', -28],
+    ['营业成本', '产品成本', -194], ['营业成本', '服务成本', -27],
+  ].map(([S, T, V]) => ({ S, T, V }))
+  const enc: BiEncoding = { dimension: 'S', target: 'T', value: 'V' }
+
+  it('分列：起点节点挨着去向（服务和产品同一列），汇点各在自己那一列', () => {
+    const g = sankeyGraph(enc, flows)
+    const depth = Object.fromEntries(g.nodes.map((n) => [n.name, n.depth]))
+    expect(depth).toMatchObject({ iPhone: 0, 产品: 1, 服务: 1, 营收: 2, 毛利: 3, 营业成本: 3, 营业利润: 4, 营业费用: 4, 产品成本: 4, 净利润: 5, 研发费用: 5 })
+    // 顺序 = 第一次出现的顺序：毛利在营业成本上面
+    expect(g.nodes.map((n) => n.name).indexOf('毛利')).toBeLessThan(g.nodes.map((n) => n.name).indexOf('营业成本'))
+    expect(g.links[7].value).toBe(221)
+    expect(g.cycle).toBeNull()
+  })
+
+  it('option：节点带层级与数值、不自动重排；最左一列标签在左边；点击映射回行', () => {
+    const m = buildChartModel('sankey', enc, flows, { clickable: true })
+    type N = { name: string; value: number; depth: number; label?: { position: string } }
+    const s = (m.option as { series: { type: string; layoutIterations: number; data: N[]; links: unknown[]; label: { formatter: (p: { dataIndex: number }) => string } }[] }).series[0]
+    expect(s.type).toBe('sankey')
+    expect(s.layoutIterations).toBe(0)
+    expect(s.links).toHaveLength(17)
+    const rev = s.data.find((n) => n.name === '营收')!
+    expect(rev).toMatchObject({ value: 416, depth: 2 })
+    expect(rev.label).toBeUndefined()
+    expect(s.data[0].label?.position).toBe('left')
+    expect(s.label.formatter({ dataIndex: s.data.indexOf(rev) })).toBe('营收\n416')
+    expect(m.plotted).toBe(17)
+    // 连线 = 那一行；节点 = 来源 / 去向都是节点名、数值为节点流量
+    expect(m.rowAt(6, undefined, 'edge')).toBe(flows[6])
+    expect(m.rowAt(s.data.indexOf(rev), undefined, 'node')).toMatchObject({ S: '营收', T: '营收', V: 416 })
+    expect(m.rowAt(99, undefined, 'node')).toBeNull()
+  })
+
+  it('不显示数值时只标名称；空的来源 / 去向 / 数值跳过', () => {
+    const m = buildChartModel('sankey', { ...enc, labels: 'hide' }, [...flows, { S: '', T: 'x', V: 1 }, { S: 'a', T: 'b', V: null }])
+    const s = (m.option as { series: { data: { name: string }[]; label: { formatter: (p: { dataIndex: number }) => string } }[] }).series[0]
+    expect(s.data.map((n) => n.name)).not.toContain('x')
+    expect(s.label.formatter({ dataIndex: 0 })).toBe('iPhone')
+  })
+
+  it('数据问题：中间节点流入 ≠ 流出；循环流向不画图、给出说明', () => {
+    expect(sankeyProblems(enc, flows)).toEqual([])
+    const off = flows.map((r) => (r.T === '服务成本' ? { ...r, V: -20 } : r))
+    expect(sankeyProblems(enc, off)).toEqual(['「营业成本」流入 221，流出 214，相差 7'])
+    const loop = [...flows, { S: '净利润', T: '营收', V: 1 }]
+    expect(sankeyProblems(enc, loop)[0]).toMatch(/循环流向：营收 → 毛利 → 营业利润 → 净利润 → 营收/)
+    const m = buildChartModel('sankey', enc, loop)
+    expect(m.problem).toMatch(/循环流向/)
+    expect(m.option).toEqual({})
+    expect(sankeyGraph(enc, [{ S: 'a', T: 'a', V: 1 }]).cycle).toEqual(['a', 'a'])
   })
 })

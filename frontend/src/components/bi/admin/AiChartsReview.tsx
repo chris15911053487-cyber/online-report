@@ -13,7 +13,7 @@ import { DashboardView } from '../DashboardPanel'
 import ChartEditor from './ChartEditor'
 import { errMsg, type QueryOption } from './types'
 
-const TYPE_LABEL: Record<string, string> = { kpi: 'KPI', bar: '柱状', line: '折线', pie: '饼图', waterfall: '瀑布', table: '表格' }
+const TYPE_LABEL: Record<string, string> = { kpi: 'KPI', bar: '柱状', line: '折线', pie: '饼图', waterfall: '瀑布', sankey: '桑基', table: '表格' }
 
 type Item = { chart: BiChartDef; include: boolean; saved: boolean; error?: string }
 

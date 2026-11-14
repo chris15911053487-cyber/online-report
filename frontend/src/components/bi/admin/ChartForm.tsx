@@ -31,6 +31,7 @@ const CARD_TYPES: { value: BiCardType; label: string }[] = [
   { value: 'line', label: '折线' },
   { value: 'pie', label: '饼图' },
   { value: 'waterfall', label: '瀑布' },
+  { value: 'sankey', label: '桑基' },
   { value: 'table', label: '表格' },
 ]
 const STACK_MODES: { value: BiStackMode | 'none'; label: string }[] = [
@@ -449,6 +450,34 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
         </Row>
         <Row label="显示数值" hint={`自动：16 项以内在柱子上标${enc.fromZero ? '本项数值' : '增减额'}`}>
           <Segmented size="sm" options={LABEL_MODES} value={enc.labels || 'auto'} onChange={(v) => set({ labels: v === 'auto' ? undefined : v })} />
+        </Row>
+        {formatRows}
+      </div>
+    )
+  }
+
+  if (type === 'sankey') {
+    return (
+      <div className="flex flex-col gap-2">
+        <Row label="来源列" hint="每行一条流向：从来源流到去向，如「产品 → 营收」「营收 → 营业成本」">
+          <ColumnSelect ariaLabel="来源列" columns={columns} prefer={['dimension', 'attr']} value={enc.dimension} onChange={(v) => set({ dimension: v })} />
+        </Row>
+        <Row label="去向列">
+          <ColumnSelect ariaLabel="去向列" columns={columns} prefer={['dimension', 'attr']} value={enc.target} onChange={(v) => set({ target: v })} />
+        </Row>
+        <Row label="数值列" hint="流量，按绝对值画（成本写成负数也可以）；同一列里的节点按查询结果第一次出现的顺序从上到下排">
+          <ColumnSelect ariaLabel="数值列" columns={columns} prefer={['measure']} value={enc.value ?? enc.values?.[0]} onChange={(v) => set({ value: v, values: undefined })} />
+        </Row>
+        <Row label="显示数值" hint="节点名下面标流量；不显示时只标名称">
+          <Segmented
+            size="sm"
+            options={[
+              { value: 'auto', label: '显示' },
+              { value: 'hide', label: '不显示' },
+            ]}
+            value={enc.labels === 'hide' ? 'hide' : 'auto'}
+            onChange={(v) => set({ labels: v === 'hide' ? 'hide' : undefined })}
+          />
         </Row>
         {formatRows}
       </div>

@@ -4,17 +4,19 @@
  */
 import { useCallback, useEffect, useRef } from 'react'
 import * as echarts from 'echarts/core'
-import { BarChart, CustomChart, LineChart, PieChart } from 'echarts/charts'
+import { BarChart, CustomChart, LineChart, PieChart, SankeyChart } from 'echarts/charts'
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { useThemeChange } from '../../theme'
 import { themedChartOption } from '../../utils/chartTheme'
 
-echarts.use([BarChart, CustomChart, LineChart, PieChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
+echarts.use([BarChart, CustomChart, LineChart, PieChart, SankeyChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer])
 
 export interface BiChartClick {
   dataIndex: number
   seriesName?: string
+  /** 桑基图：点中的是节点还是连线（dataIndex 分别是节点 / 连线的序号） */
+  dataType?: 'node' | 'edge'
   x: number
   y: number
   /** 按住 Ctrl / ⌘ 点击：在新标签页打开 */
@@ -36,6 +38,7 @@ interface EchartsClickParams {
   componentType?: string
   dataIndex?: number
   seriesName?: string
+  dataType?: string
   event?: { event?: { clientX?: number; clientY?: number; ctrlKey?: boolean; metaKey?: boolean } }
 }
 
@@ -67,6 +70,7 @@ export default function BiChart({ option, height, onPick, pickIndex, ariaLabel }
       onPickRef.current({
         dataIndex: p.dataIndex,
         seriesName: p.seriesName,
+        dataType: p.dataType === 'node' || p.dataType === 'edge' ? p.dataType : undefined,
         x: native?.clientX ?? rect.left + rect.width / 2,
         y: native?.clientY ?? rect.top + rect.height / 2,
         newTab: !!(native?.ctrlKey || native?.metaKey),

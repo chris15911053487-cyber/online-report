@@ -3,7 +3,15 @@
  * 与后端 server/src/bi-dashboards.js 的结构保持一致。
  */
 
-export type BiCardType = 'kpi' | 'bar' | 'line' | 'pie' | 'waterfall' | 'table'
+export type BiCardType = 'kpi' | 'bar' | 'line' | 'pie' | 'waterfall' | 'sankey' | 'table'
+
+/** 画成 ECharts 图的类型（有维度 + 数值列；与后端 bi-charts.js 的 CHART_TYPES 一致） */
+export const BI_CHART_TYPES = ['bar', 'line', 'pie', 'waterfall', 'sankey'] as const
+export type BiChartKind = (typeof BI_CHART_TYPES)[number]
+export const isChartType = (t: BiCardType): t is BiChartKind => (BI_CHART_TYPES as readonly string[]).includes(t)
+
+/** 类型的中文名（管理页列表、选择器用） */
+export const BI_TYPE_LABEL: Record<BiCardType, string> = { kpi: 'KPI', bar: '柱状', line: '折线', pie: '饼图', waterfall: '瀑布', sankey: '桑基', table: '表格' }
 export type BiFormat = 'number' | 'money' | 'percent' | 'integer'
 export type BiScalar = string | number | boolean | null
 /** 参数 / 筛选值：多选参数与多选筛选是一组值 */
@@ -16,7 +24,10 @@ export interface BiColumnDef {
 }
 
 export interface BiEncoding {
+  /** 维度列；桑基图为来源列 */
   dimension?: string
+  /** 桑基图：去向列（每行一条「来源 → 去向」的流向，数值列为流量） */
+  target?: string
   value?: string
   values?: string[]
   compare?: string
@@ -218,12 +229,13 @@ export type BiFilterValues = Record<string, BiValue>
 /** 卡片高度档位（layout.h 1~4）对应的图表内容高度（px） */
 export const BI_CARD_HEIGHT: Record<number, number> = { 1: 170, 2: 260, 3: 360, 4: 460 }
 
-/** 按图表类型的默认尺寸（12 栅格）：KPI 1/4 矮；折线 / 表格整行；柱状半宽；饼图 1/3；瀑布图 2/3 */
+/** 按图表类型的默认尺寸（12 栅格）：KPI 1/4 矮；折线 / 表格整行；柱状半宽；饼图 1/3；瀑布图 2/3；桑基图整行、高一档 */
 export function defaultChartSize(type: BiCardType): { w: number; h: number } {
   if (type === 'kpi') return { w: 3, h: 1 }
   if (type === 'line' || type === 'table') return { w: 12, h: 2 }
   if (type === 'pie') return { w: 4, h: 2 }
   if (type === 'waterfall') return { w: 8, h: 2 }
+  if (type === 'sankey') return { w: 12, h: 3 }
   return { w: 6, h: 2 }
 }
 
