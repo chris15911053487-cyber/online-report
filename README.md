@@ -259,7 +259,7 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 
 **SAP 自定义表（@ 开头）**：表名写成 `[@U_OHEC]` 或 `"@U_OHEC"`，方括号 / 双引号里的 `@` 不会被识别成参数。不加括号（`FROM @U_OHEC`、`JOIN dbo.@U_OHEC`）时，查询编辑器在 SQL 下方提示改写、不把它放进参数表，服务端拒绝保存与试运行并给出正确写法（SQL Server 本身也会把它当表变量报错）。实现 `bi-queries.js` / `utils/biAdmin.ts` 的 `bareTableRefs`。
 
-**关系图**：第四个页签，React Flow 画布（`@xyflow/react`，缩放 / 平移 / 小地图 / 可拖动节点，页签按需加载）画血缘 查询 → 图表 → 看板 → 使用方（Agent / 首页工作台）。`utils/biLineage.ts` 由三张表的管理列表拼出节点、连线与孤立 / 断链 / 停用标记；`utils/biLineageLayout.ts` 用 elkjs 分层排版（四类强制分列，跑在 Web Worker，`elk-worker.min.js` 单独一个文件、打开关系图才下载）；`components/bi/admin/LineageGraph.tsx` 自定义节点（每层一色 + 图表类型图标）与连线（高亮链路流动光点、断链图标），悬停预览、点击锁定、只看这条链（重新排版）、搜索、只看有问题的、双击打开编辑；主题色经 `lineage.css` 映射到 React Flow 的 `--xy-*` 变量。Agent 名称来自 `GET /admin/bi/dashboards` 的 `agentLabels`。
+**关系图**：第四个页签，React Flow 画布（`@xyflow/react`，缩放 / 平移 / 小地图 / 可拖动节点，页签按需加载）画血缘 查询 → 图表 → 看板 → 使用方（Agent / 首页工作台）。`utils/biLineage.ts` 由三张表的管理列表拼出节点、连线与孤立 / 断链 / 停用标记；`utils/biLineageLayout.ts` 用 elkjs 分层排版（四类强制分列，跑在 Web Worker，`elk-worker.min.js` 单独一个文件、打开关系图才下载）；`components/bi/admin/LineageGraph.tsx` 自定义节点（每层一色 + 图表类型图标）与连线（高亮链路流动光点、断链图标），悬停预览、点击锁定、只看这条链（重新排版）、搜索、只看有问题的、双击打开编辑、全屏（Fullscreen API，不支持时铺满窗口）；节点示意缩略图（`utils/biLineageThumb.ts` 只按配置：图表类型 / 横向 / 堆叠 / 系列数，看板按 12 栅格真实排版拼块（`packDashboard` 与 `DashboardPanel` 一致），查询列名；画法 `LineageThumbs.tsx`，可开关，存 localStorage `bi_lineage_thumbs`），缩放 < 0.5 时节点只显示大号名称；主题色经 `lineage.css` 映射到 React Flow 的 `--xy-*` 变量。Agent 名称来自 `GET /admin/bi/dashboards` 的 `agentLabels`。
 
 **管理列表**：三个页签上方有搜索（名称 / 标识 / 描述等）、状态、操作人、排序（默认最近修改在前）筛选（`utils/biAdminList.ts`）；每行显示「最后修改：时间 · 操作人」。三张表的 `updated_by` / `updated_by_name`（`migrate-bi.sql` 幂等补列）在保存时由 `routes/bi.js` 的 `operatorOf(request)` 写入 JWT 的用户代码与显示名，旧数据为空。
 

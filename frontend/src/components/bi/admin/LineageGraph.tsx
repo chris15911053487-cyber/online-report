@@ -5,6 +5,8 @@
  * 悬停预览上下游，点击锁定（其余变淡、链路上有流动光点），「只看这条链」重新排版只留相关项；
  * 搜索 / 只看问题时连带显示命中项的上下游。双击或「打开编辑」进入对应编辑器。
  * 高亮状态经 context 传给自定义节点 / 连线，不重建节点数组，拖动过的位置不丢。
+ * 节点可显示示意缩略图（LineageThumbs.tsx，只按配置画），缩小到看不清细节时自动只显示大号名称；
+ * 「全屏」用浏览器全屏 API，不支持时铺满窗口。
  */
 import { createContext, createElement, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -22,6 +24,7 @@ import {
   getNodesBounds,
   useNodesState,
   useReactFlow,
+  useStore,
   type Edge,
   type EdgeProps,
   type Node,
@@ -29,11 +32,14 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import './lineage.css'
-import { BarChart3, Bot, ChartColumnStacked, ChartLine, ChartPie, Database, Gauge, GitFork, House, LayoutDashboard, Link2Off, Pencil, Search, Table2, X, type LucideIcon } from 'lucide-react'
+import { BarChart3, Bot, ChartColumnStacked, ChartLine, ChartPie, Database, Gauge, GitFork, House, Image as ImageIcon, LayoutDashboard, Link2Off, Maximize2, Minimize2, Pencil, Search, Table2, X, type LucideIcon } from 'lucide-react'
 import { Button, Card, EmptyState, Input, Segmented } from '../../../ui'
 import { cn } from '../../../ui/classes'
 import { HOME_ID, buildLineage, lineageStats, relatedIds, visibleIds, type Lineage, type LineageInput, type LineageKind, type LineageNode } from '../../../utils/biLineage'
-import { NODE_H, NODE_W, layoutLineage } from '../../../utils/biLineageLayout'
+import { NODE_H, NODE_H_THUMB, NODE_W, layoutLineage } from '../../../utils/biLineageLayout'
+import { chartThumb, dashboardThumb, queryThumb, type Thumb } from '../../../utils/biLineageThumb'
+import { ThumbView } from './LineageThumbs'
+import type { BiChartAdmin, BiDashboardAdmin, BiQueryAdmin } from './types'
 
 const KIND_LABEL: Record<LineageKind, string> = {
   query: '查询',
@@ -72,13 +78,19 @@ function iconOf(n: LineageNode & { chartType?: string }): LucideIcon {
 interface HighlightState {
   related: Set<string> | null
   locked: string | null
+  thumbs: boolean
 }
 const HighlightCtx = createContext<HighlightState>({
   related: null,
   locked: null,
+  thumbs: false,
 })
 
-type NodeData = { node: LineageNode & { chartType?: string }; caption: string }
+/** 缩放低于这个值时节点只显示大号名称（细节看不清了） */
+const LOW_ZOOM = 0.5
+const THUMBS_PREF = 'bi_lineage_thumbs'
+
+type NodeData = { node: LineageNode & { chartType?: string }; caption: string; thumb?: Thumb }
 type LineageFlowNode = Node<NodeData, 'lineage'>
 type EdgeData = {
   kind: 'main' | 'drill' | 'card' | 'use'
@@ -87,19 +99,28 @@ type EdgeData = {
 }
 type LineageFlowEdge = Edge<EdgeData, 'flow'>
 
+const HANDLE = '!w-1.5 !h-1.5 !min-w-0 !min-h-0 !border-0 !bg-line-strong'
+
 const LineageNodeView = memo(function LineageNodeView({ id, data }: NodeProps<LineageFlowNode>) {
-  const { related, locked } = useContext(HighlightCtx)
+  const { related, locked, thumbs } = useContext(HighlightCtx)
+  const lowZoom = useStore((st) => st.transform[2] < LOW_ZOOM)
   const n = data.node
   const danger = n.issues.some((i) => i.tone === 'danger')
   const dim = !!related && !related.has(id)
   const selected = locked === id
   const tip = [n.label, n.key ? `标识：${n.key}` : '', data.caption, ...n.issues.map((i) => `⚠ ${i.text}`)].filter(Boolean).join('\n')
+  const icon = (size: string, box: string) => (
+    <span className={cn('shrink-0 rounded-lg grid place-items-center', box, n.missing ? 'bg-danger-soft text-danger' : TONE[n.kind].box, !n.enabled && !n.missing && 'opacity-60')}>
+      {createElement(iconOf(n), { className: size, strokeWidth: 2 })}
+    </span>
+  )
+  const labelCls = n.missing ? 'text-danger' : n.enabled ? 'text-fg' : 'text-muted line-through'
   return (
     <div
       title={tip}
-      style={{ width: NODE_W, height: NODE_H }}
+      style={{ width: NODE_W, height: thumbs ? NODE_H_THUMB : NODE_H }}
       className={cn(
-        'relative flex items-center gap-2.5 rounded-xl border bg-surface px-2.5 shadow-sm cursor-pointer',
+        'relative flex flex-col rounded-xl border bg-surface shadow-sm cursor-pointer',
         'transition-[opacity,box-shadow,border-color,transform] duration-200 ease-out hover:-translate-y-px hover:shadow-md',
         n.missing ? 'border-dashed border-danger' : danger ? 'border-danger/60' : 'border-line',
         selected && 'border-primary ring-[3px] ring-primary/25',
@@ -107,17 +128,29 @@ const LineageNodeView = memo(function LineageNodeView({ id, data }: NodeProps<Li
         !n.enabled && !n.missing && 'bg-surface-2',
       )}
     >
-      <Handle type="target" position={Position.Left} isConnectable={false} className="!w-1.5 !h-1.5 !min-w-0 !min-h-0 !border-0 !bg-line-strong" />
-      <span className={cn('shrink-0 w-9 h-9 rounded-lg grid place-items-center', n.missing ? 'bg-danger-soft text-danger' : TONE[n.kind].box, !n.enabled && !n.missing && 'opacity-60')}>
-        {createElement(iconOf(n), {
-          className: 'w-[18px] h-[18px]',
-          strokeWidth: 2,
-        })}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className={cn('block text-[13px] font-medium leading-tight truncate', n.missing ? 'text-danger' : n.enabled ? 'text-fg' : 'text-muted line-through')}>{n.label}</span>
-        <span className="block text-[11px] text-muted leading-tight mt-0.5 truncate">{data.caption}</span>
-      </span>
+      <Handle type="target" position={Position.Left} isConnectable={false} className={HANDLE} />
+      {lowZoom ? (
+        // 缩得很小：只留大图标 + 大号名称，远看也认得出
+        <div className="flex-1 flex items-center gap-3 px-3 min-h-0">
+          {icon('w-7 h-7', 'w-12 h-12')}
+          <span className={cn('min-w-0 text-[22px] font-semibold leading-tight line-clamp-2 break-all', labelCls)}>{n.label}</span>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center gap-2.5 px-2.5 shrink-0" style={{ height: NODE_H - 2 }}>
+            {icon('w-[18px] h-[18px]', 'w-9 h-9')}
+            <span className="min-w-0 flex-1">
+              <span className={cn('block text-[13px] font-medium leading-tight truncate', labelCls)}>{n.label}</span>
+              <span className="block text-[11px] text-muted leading-tight mt-0.5 truncate">{data.caption}</span>
+            </span>
+          </div>
+          {thumbs && (
+            <div className="mx-2 mb-2 flex-1 min-h-0 rounded-lg bg-surface-2 overflow-hidden grid place-items-center">
+              <ThumbView thumb={data.thumb} missing={n.missing} consumer={n.kind === 'consumer' ? (n.id === HOME_ID ? 'home' : 'agent') : undefined} />
+            </div>
+          )}
+        </>
+      )}
       {n.issues.length > 0 && (
         <span
           className={cn('absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full grid place-items-center text-[11px] font-bold text-white shadow-sm', danger ? 'bg-danger' : 'bg-warning')}
@@ -125,7 +158,7 @@ const LineageNodeView = memo(function LineageNodeView({ id, data }: NodeProps<Li
           {n.issues.length > 1 ? n.issues.length : '!'}
         </span>
       )}
-      <Handle type="source" position={Position.Right} isConnectable={false} className="!w-1.5 !h-1.5 !min-w-0 !min-h-0 !border-0 !bg-line-strong" />
+      <Handle type="source" position={Position.Right} isConnectable={false} className={HANDLE} />
     </div>
   )
 })
@@ -205,7 +238,10 @@ function captions(lineage: Lineage) {
   return cap
 }
 
-interface Props extends LineageInput {
+interface Props extends Omit<LineageInput, 'queries' | 'charts' | 'dashboards'> {
+  queries: BiQueryAdmin[]
+  charts: BiChartAdmin[]
+  dashboards: BiDashboardAdmin[]
   onOpen: (kind: 'query' | 'chart' | 'dashboard', key: string) => void
 }
 
@@ -250,6 +286,31 @@ function LineageCanvas({ onOpen, ...input }: Props) {
     [queries, charts, dashboards, agentLabels, formatRoles, typeLabel],
   )
   const chartTypes = useMemo(() => new Map(charts.map((c) => [c.chartKey, c.type])), [charts])
+  const thumbOf = useMemo(() => {
+    const m = new Map<string, Thumb>()
+    const chartMap = new Map(charts.map((c) => [c.chartKey, c]))
+    for (const q of queries) m.set(`q:${q.queryKey}`, queryThumb(q))
+    for (const c of charts) m.set(`c:${c.chartKey}`, chartThumb(c))
+    for (const d of dashboards) m.set(`d:${d.dashboardKey}`, dashboardThumb(d, chartMap))
+    return m
+  }, [queries, charts, dashboards])
+  const [thumbs, setThumbs] = useState(() => {
+    try {
+      return localStorage.getItem(THUMBS_PREF) !== '0'
+    } catch {
+      return true
+    }
+  })
+  const toggleThumbs = () =>
+    setThumbs((v) => {
+      try {
+        localStorage.setItem(THUMBS_PREF, v ? '0' : '1')
+      } catch {
+        /* 无痕模式等：只在本次生效 */
+      }
+      return !v
+    })
+  const nodeH = thumbs ? NODE_H_THUMB : NODE_H
   const caps = useMemo(() => captions(lineage), [lineage])
   const stats = useMemo(() => lineageStats(lineage), [lineage])
   const [keyword, setKeyword] = useState('')
@@ -297,7 +358,7 @@ function LineageCanvas({ onOpen, ...input }: Props) {
     (ns: LineageFlowNode[], duration: number) => {
       const box = boxRef.current
       if (!box || ns.length === 0) return
-      const b = getNodesBounds(ns.map((n) => ({ ...n, width: NODE_W, height: NODE_H })))
+      const b = getNodesBounds(ns.map((n) => ({ ...n, width: NODE_W, height: nodeH })))
       const W = box.clientWidth
       const H = box.clientHeight
       const pad = 32
@@ -306,12 +367,12 @@ function LineageCanvas({ onOpen, ...input }: Props) {
       const y = b.height * zoom <= H - pad * 2 ? (H - b.height * zoom) / 2 - b.y * zoom : pad - b.y * zoom
       void setViewport({ x, y, zoom }, { duration })
     },
-    [setViewport],
+    [setViewport, nodeH],
   )
   useEffect(() => {
     let alive = true
     const shown = visibleKey === '*' ? null : new Set(visibleKey.split('|').filter(Boolean))
-    layoutLineage(lineage, shown).then((pos) => {
+    layoutLineage(lineage, shown, { height: nodeH }).then((pos) => {
       if (!alive) return
       const animate = !firstLayout.current
       firstLayout.current = false
@@ -326,6 +387,7 @@ function LineageCanvas({ onOpen, ...input }: Props) {
             chartType: chartTypes.get(lineage.nodes.get(id)!.key),
           },
           caption: caps.get(id) || '',
+          thumb: thumbOf.get(id),
         },
       }))
       setNodes(next)
@@ -335,7 +397,7 @@ function LineageCanvas({ onOpen, ...input }: Props) {
     return () => {
       alive = false
     }
-  }, [lineage, visibleKey, caps, chartTypes, setNodes, frame])
+  }, [lineage, visibleKey, caps, chartTypes, thumbOf, nodeH, setNodes, frame])
 
   const edges = useMemo<LineageFlowEdge[]>(() => {
     const shown = new Set(nodes.map((n) => n.id))
@@ -352,7 +414,46 @@ function LineageCanvas({ onOpen, ...input }: Props) {
       }))
   }, [lineage, nodes])
 
-  const highlight = useMemo(() => ({ related, locked }), [related, locked])
+  const highlight = useMemo(() => ({ related, locked, thumbs }), [related, locked, thumbs])
+
+  // ---- 全屏：优先浏览器全屏（Esc 由浏览器退出），不支持时铺满窗口 ----
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [full, setFull] = useState(false)
+  const nodesRef = useRef(nodes)
+  useEffect(() => {
+    nodesRef.current = nodes
+  }, [nodes])
+  const toggleFull = () => {
+    if (full) {
+      if (document.fullscreenElement) void document.exitFullscreen().catch(() => {})
+      setFull(false)
+      return
+    }
+    setFull(true)
+    const el = rootRef.current
+    if (el?.requestFullscreen) void el.requestFullscreen().catch(() => {})
+  }
+  useEffect(() => {
+    const onChange = () => {
+      if (!document.fullscreenElement) setFull(false)
+    }
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
+  useEffect(() => {
+    if (!full) return
+    // 铺满窗口模式下 Esc 退出（有锁定时先取消锁定）
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !document.fullscreenElement && !locked) setFull(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [full, locked])
+  // 画布尺寸变了，重新取景
+  useEffect(() => {
+    const t = setTimeout(() => frame(nodesRef.current, 300), 150)
+    return () => clearTimeout(t)
+  }, [full, frame])
 
   if (lineage.nodes.size === 0) {
     return (
@@ -374,7 +475,7 @@ function LineageCanvas({ onOpen, ...input }: Props) {
   const canOpen = (n: LineageNode) => n.kind !== 'consumer' && !n.missing
 
   return (
-    <div className="space-y-3">
+    <div ref={rootRef} className={cn(full ? 'fixed inset-0 z-50 bg-bg p-4 flex flex-col gap-3' : 'space-y-3')}>
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative flex-1 min-w-[14rem] max-w-sm">
           <Search className="w-4 h-4 text-subtle absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -394,8 +495,14 @@ function LineageCanvas({ onOpen, ...input }: Props) {
           ]}
         />
         {stats.danger > 0 && <span className="text-xs text-danger">{stats.danger} 处引用断了</span>}
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-3">
           <Legend />
+          <Button size="sm" variant={thumbs ? 'soft' : 'ghost'} icon={<ImageIcon className="w-3.5 h-3.5" />} onClick={toggleThumbs} aria-pressed={thumbs}>
+            缩略图
+          </Button>
+          <Button size="sm" variant="ghost" icon={full ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />} onClick={toggleFull}>
+            {full ? '退出全屏' : '全屏'}
+          </Button>
         </div>
       </div>
 
@@ -425,7 +532,7 @@ function LineageCanvas({ onOpen, ...input }: Props) {
         )}
       </div>
 
-      <div ref={boxRef} className={cn('lineage-flow h-[calc(100vh-20rem)] min-h-[32rem] rounded-xl border border-line bg-surface overflow-hidden', relayout && 'is-relayout')}>
+      <div ref={boxRef} className={cn('lineage-flow rounded-xl border border-line bg-surface overflow-hidden', full ? 'flex-1 min-h-0' : 'h-[calc(100vh-20rem)] min-h-[32rem]', relayout && 'is-relayout')}>
         <HighlightCtx.Provider value={highlight}>
           <ReactFlow
             nodes={nodes}

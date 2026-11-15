@@ -9,6 +9,8 @@ import type { Lineage, LineageKind } from './biLineage'
 
 export const NODE_W = 216
 export const NODE_H = 58
+/** 显示缩略图时的节点高度（标题行 + 缩略图） */
+export const NODE_H_THUMB = 136
 
 const PARTITION: Record<LineageKind, number> = { query: 0, chart: 1, dashboard: 2, consumer: 3 }
 
@@ -18,13 +20,14 @@ function defaultElk(): Promise<ElkInstance> {
   return workerElk
 }
 
-export async function layoutLineage(lineage: Lineage, visible: Set<string> | null, elkInstance?: ElkInstance): Promise<Map<string, { x: number; y: number }>> {
-  const elk = elkInstance ?? (await defaultElk())
+export async function layoutLineage(lineage: Lineage, visible: Set<string> | null, opts: { elk?: ElkInstance; height?: number } = {}): Promise<Map<string, { x: number; y: number }>> {
+  const elk = opts.elk ?? (await defaultElk())
+  const height = opts.height ?? NODE_H
   const show = (id: string) => !visible || visible.has(id)
   const children = (['query', 'chart', 'dashboard', 'consumer'] as LineageKind[]).flatMap((k) =>
     lineage.columns[k]
       .filter((n) => show(n.id))
-      .map((n) => ({ id: n.id, width: NODE_W, height: NODE_H, layoutOptions: { 'elk.partitioning.partition': String(PARTITION[k]) } })),
+      .map((n) => ({ id: n.id, width: NODE_W, height, layoutOptions: { 'elk.partitioning.partition': String(PARTITION[k]) } })),
   )
   const edges = lineage.edges.filter((e) => show(e.from) && show(e.to)).map((e, i) => ({ id: `e${i}`, sources: [e.from], targets: [e.to] }))
   const res = await elk.layout({
