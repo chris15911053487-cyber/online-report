@@ -259,6 +259,8 @@ cd frontend && npm run lint:colors    # 检查是否有写死的颜色（主题�
 
 **SAP 自定义表（@ 开头）**：表名写成 `[@U_OHEC]` 或 `"@U_OHEC"`，方括号 / 双引号里的 `@` 不会被识别成参数。不加括号（`FROM @U_OHEC`、`JOIN dbo.@U_OHEC`）时，查询编辑器在 SQL 下方提示改写、不把它放进参数表，服务端拒绝保存与试运行并给出正确写法（SQL Server 本身也会把它当表变量报错）。实现 `bi-queries.js` / `utils/biAdmin.ts` 的 `bareTableRefs`。
 
+**关系图**：第四个页签，四列血缘图 查询 → 图表 → 看板 → 使用方（Agent / 首页工作台），由三张表的管理列表在前端拼出（`utils/biLineage.ts`：节点、连线、孤立 / 断链 / 停用标记、按重心来回扫减少交叉；`components/bi/admin/LineageGraph.tsx`：悬停预览上下游、点击锁定、只看这条链、搜索、只看有问题的、双击打开编辑）；Agent 名称来自 `GET /admin/bi/dashboards` 的 `agentLabels`。
+
 **管理列表**：三个页签上方有搜索（名称 / 标识 / 描述等）、状态、操作人、排序（默认最近修改在前）筛选（`utils/biAdminList.ts`）；每行显示「最后修改：时间 · 操作人」。三张表的 `updated_by` / `updated_by_name`（`migrate-bi.sql` 幂等补列）在保存时由 `routes/bi.js` 的 `operatorOf(request)` 写入 JWT 的用户代码与显示名，旧数据为空。
 
 **配置流程**（管理后台 →「BI 看板管理」，全部表单化，看板另可切到 JSON）：

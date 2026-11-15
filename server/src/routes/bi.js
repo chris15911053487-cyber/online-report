@@ -375,6 +375,8 @@ async function biRoutes(fastify) {
         ...d,
         usedByAgents: agents.filter((a) => a.dashboardKey === d.dashboardKey).map((a) => a.agentKey),
       })),
+      // 关系图里显示 Agent 名称
+      agentLabels: Object.fromEntries(agents.map((a) => [a.agentKey, a.label || a.agentKey])),
       // 看板编辑器：可选图表（含完整定义，用于展开预览与参数来源提示）+ 查询公开元数据
       availableCharts: charts,
       availableQueries: queryOptions(queries),

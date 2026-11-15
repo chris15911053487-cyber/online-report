@@ -1,6 +1,8 @@
 /**
  * BI 看板管理：查询库（语义层）→ 图表 → 看板，三个页签。
  *
+ * 第四个页签「关系图」把三层的引用关系画成四列血缘图（components/bi/admin/LineageGraph.tsx）。
+ *
  * 配置顺序：先在查询库登记查询（SQL → 参数 → 试运行识别输出列 → 列语义 → 示例问法），
  * 再用查询做图表（类型、列从下拉选、下钻，实时预览；可被多个看板复用），
  * 最后在看板里选图表、设筛选、排版（同名参数自动跟随筛选）。
@@ -17,6 +19,7 @@ import { confirmDelete } from '../ui/confirm'
 import QueryEditor from '../components/bi/admin/QueryEditor'
 import ChartEditor from '../components/bi/admin/ChartEditor'
 import DashboardEditor from '../components/bi/admin/DashboardEditor'
+import LineageGraph from '../components/bi/admin/LineageGraph'
 import AiDraftModal, { type BiDraft } from '../components/bi/admin/AiDraftModal'
 import AiChartsReview from '../components/bi/admin/AiChartsReview'
 import { EMPTY_DASHBOARD, EMPTY_QUERY, errMsg, type BiChartAdmin, type BiDashboardAdmin, type BiQueryAdmin, type QueryOption } from '../components/bi/admin/types'
@@ -25,7 +28,7 @@ import HelpDocPanel from '../components/HelpDocPanel'
 import { clearPendingPin, readPendingPin } from '../utils/biPin'
 import { DEFAULT_LIST_FILTER, NO_OPERATOR, filterAdminList, formatUpdatedAt, operatorsOf, type AdminListItem, type ListFilter } from '../utils/biAdminList'
 
-type Tab = 'queries' | 'charts' | 'dashboards'
+type Tab = 'queries' | 'charts' | 'dashboards' | 'lineage'
 const TYPE_LABEL: Record<string, string> = { kpi: 'KPI', bar: '柱状', line: '折线', pie: '饼图', waterfall: '瀑布', sankey: '桑基', table: '表格' }
 
 /** 查询被哪些图表用到（主查询或下钻） */
@@ -95,6 +98,7 @@ export default function BiAdminView() {
   const [charts, setCharts] = useState<BiChartAdmin[]>([])
   const [availableRoles, setAvailableRoles] = useState<string[]>([])
   const [dashboards, setDashboards] = useState<BiDashboardAdmin[]>([])
+  const [agentLabels, setAgentLabels] = useState<Record<string, string>>({})
   const [availableQueries, setAvailableQueries] = useState<QueryOption[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -127,6 +131,7 @@ export default function BiAdminView() {
         setAvailableRoles(Array.isArray(q?.availableRoles) ? q.availableRoles : [])
         setCharts(Array.isArray(c?.items) ? c.items.map((x: BiChartAdmin) => ({ ...newChart(), ...x })) : [])
         setDashboards(Array.isArray(d?.items) ? d.items : [])
+        setAgentLabels(d?.agentLabels && typeof d.agentLabels === 'object' ? d.agentLabels : {})
         setAvailableQueries(Array.isArray(d?.availableQueries) ? d.availableQueries.map((x: QueryOption) => ({ ...x, columns: x.columns || [] })) : [])
       })
       .catch((err) => {
@@ -151,7 +156,7 @@ export default function BiAdminView() {
     () => filterAdminList(dashboards, listFilter, (d) => d.dashboardKey, (d) => `${d.description}\n${d.filters.map((f) => f.label).join('\n')}`),
     [dashboards, listFilter],
   )
-  const tabItems: AdminListItem[] = tab === 'queries' ? queries : tab === 'charts' ? charts : dashboards
+  const tabItems: AdminListItem[] = tab === 'queries' ? queries : tab === 'charts' ? charts : tab === 'dashboards' ? dashboards : []
   const shownCount = tab === 'queries' ? shownQueries.length : tab === 'charts' ? shownCharts.length : shownDashboards.length
 
   const remove = async (url: string, label: string) => {
@@ -243,6 +248,19 @@ export default function BiAdminView() {
   const openQuery = (q: BiQueryAdmin) => setEditQuery({ draft: structuredClone(q), isNew: false })
   const openChart = (c: BiChartAdmin) => setEditChart({ draft: structuredClone(c), isNew: false })
   const openDashboard = (d: BiDashboardAdmin) => setEditDashboard({ draft: structuredClone(d), isNew: false })
+  /** 关系图里点「打开编辑」 */
+  const openFromLineage = (kind: 'query' | 'chart' | 'dashboard', key: string) => {
+    if (kind === 'query') {
+      const q = queries.find((x) => x.queryKey === key)
+      if (q) openQuery(q)
+    } else if (kind === 'chart') {
+      const c = charts.find((x) => x.chartKey === key)
+      if (c) openChart(c)
+    } else {
+      const d = dashboards.find((x) => x.dashboardKey === key)
+      if (d) openDashboard(d)
+    }
+  }
 
   return (
     <AdminPage
@@ -253,14 +271,16 @@ export default function BiAdminView() {
           <Button variant="ghost" icon={<BookOpen className="w-4 h-4" />} onClick={() => setHelpOpen(true)}>
             使用说明
           </Button>
-          {tab !== 'dashboards' && (
+          {(tab === 'queries' || tab === 'charts') && (
             <Button variant="soft" icon={<Sparkles className="w-4 h-4" />} onClick={() => setAiOpen(true)}>
               AI 起草
             </Button>
           )}
-          <Button icon={<Plus className="w-4 h-4" />} onClick={openNew}>
-            {tab === 'queries' ? '新增查询' : tab === 'charts' ? '新增图表' : '新增看板'}
-          </Button>
+          {tab !== 'lineage' && (
+            <Button icon={<Plus className="w-4 h-4" />} onClick={openNew}>
+              {tab === 'queries' ? '新增查询' : tab === 'charts' ? '新增图表' : '新增看板'}
+            </Button>
+          )}
         </div>
       }
     >
@@ -292,6 +312,7 @@ export default function BiAdminView() {
           { value: 'queries', label: `① 查询库（${queries.length}）` },
           { value: 'charts', label: `② 图表（${charts.length}）` },
           { value: 'dashboards', label: `③ 看板（${dashboards.length}）` },
+          { value: 'lineage', label: '关系图' },
         ]}
       />
 
@@ -301,6 +322,10 @@ export default function BiAdminView() {
 
       {loading && <Skeleton className="h-40" />}
       {!loading && error && <Notice tone="danger">{error}</Notice>}
+
+      {!loading && !error && tab === 'lineage' && (
+        <LineageGraph queries={queries} charts={charts} dashboards={dashboards} agentLabels={agentLabels} formatRoles={formatRoles} typeLabel={TYPE_LABEL} onOpen={openFromLineage} />
+      )}
 
       {!loading && !error && tab === 'queries' && (
         <Card className="overflow-hidden">

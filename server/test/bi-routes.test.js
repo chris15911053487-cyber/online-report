@@ -264,6 +264,7 @@ test('图表 + 看板 + Agent 关联：校验、按角色裁剪、门禁、删�
   assert.match(delDash.body.error, /财务分析/);
   const list = await call('GET', '/admin/bi/dashboards', 'admin');
   assert.deepEqual(list.body.items[0].usedByAgents, ['finance-analysis']);
+  assert.equal(typeof list.body.agentLabels['finance-analysis'], 'string');
 
   // 未关联看板的 Agent
   db.agents.set('plain', { ...db.agents.get('finance-analysis'), agent_key: 'plain', dashboard_key: null });
