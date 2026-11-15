@@ -1,0 +1,31 @@
+/* BI 关系图（React Flow）主题：颜色全部取自 themes.css 的语义变量，六套主题自动跟随 */
+.lineage-flow {
+  --xy-background-color: transparent;
+  --xy-background-pattern-color: rgb(var(--c-line-strong));
+  --xy-minimap-background-color: rgb(var(--c-surface));
+  --xy-minimap-mask-background-color: rgb(var(--c-bg) / 0.65);
+  --xy-minimap-mask-stroke-color: rgb(var(--c-line-strong));
+  --xy-controls-button-background-color: rgb(var(--c-surface));
+  --xy-controls-button-background-color-hover: rgb(var(--c-surface-2));
+  --xy-controls-button-color: rgb(var(--c-fg-2));
+  --xy-controls-button-color-hover: rgb(var(--c-fg));
+  --xy-controls-button-border-color: rgb(var(--c-line));
+  --xy-controls-box-shadow: var(--shadow-card);
+  --xy-attribution-background-color: transparent;
+  --xy-edge-stroke: rgb(var(--c-line-strong));
+}
+.lineage-flow .react-flow__minimap {
+  border: 1px solid rgb(var(--c-line));
+  border-radius: var(--radius-control);
+  overflow: hidden;
+}
+.lineage-flow .react-flow__attribution a {
+  color: rgb(var(--c-subtle));
+}
+/* 重新排版（搜索 / 只看这条链 / 只看问题）时节点平滑移动；拖动时不加，避免发涩 */
+.lineage-flow.is-relayout .react-flow__node {
+  transition: transform 420ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.lineage-flow .react-flow__edge-path {
+  transition: stroke-opacity 200ms ease-out, stroke-width 200ms ease-out, stroke 200ms ease-out;
+}

@@ -1,121 +1,256 @@
 /**
- * BI 关系图：查询库 → 图表 → 看板 → 使用方，四列 + 贝塞尔连线。
+ * BI 关系图：查询库 → 图表 → 看板 → 使用方，React Flow 画布（缩放 / 平移 / 小地图 / 可拖动节点）。
  *
- * 悬停预览某个对象的上下游，点击锁定（其余变淡），「只看这条链」隐藏无关节点；
+ * 关系计算在 utils/biLineage.ts，排版在 utils/biLineageLayout.ts（elkjs 分层）。
+ * 悬停预览上下游，点击锁定（其余变淡、链路上有流动光点），「只看这条链」重新排版只留相关项；
  * 搜索 / 只看问题时连带显示命中项的上下游。双击或「打开编辑」进入对应编辑器。
- * 关系计算在 utils/biLineage.ts；连线按节点实际位置画（ResizeObserver 重算）。
+ * 高亮状态经 context 传给自定义节点 / 连线，不重建节点数组，拖动过的位置不丢。
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { BarChart3, Bot, Database, Home, LayoutDashboard, Pencil, Search, X } from 'lucide-react'
+import { createContext, createElement, memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Background,
+  BackgroundVariant,
+  BaseEdge,
+  Controls,
+  EdgeLabelRenderer,
+  Handle,
+  MiniMap,
+  Position,
+  ReactFlow,
+  ReactFlowProvider,
+  getBezierPath,
+  getNodesBounds,
+  useNodesState,
+  useReactFlow,
+  type Edge,
+  type EdgeProps,
+  type Node,
+  type NodeProps,
+} from '@xyflow/react'
+import '@xyflow/react/dist/style.css'
+import './lineage.css'
+import { BarChart3, Bot, ChartColumnStacked, ChartLine, ChartPie, Database, Gauge, GitFork, House, LayoutDashboard, Link2Off, Pencil, Search, Table2, X, type LucideIcon } from 'lucide-react'
 import { Button, Card, EmptyState, Input, Segmented } from '../../../ui'
 import { cn } from '../../../ui/classes'
-import { HOME_ID, buildLineage, lineageStats, relatedIds, visibleIds, type LineageInput, type LineageKind, type LineageNode } from '../../../utils/biLineage'
+import { HOME_ID, buildLineage, lineageStats, relatedIds, visibleIds, type Lineage, type LineageInput, type LineageKind, type LineageNode } from '../../../utils/biLineage'
+import { NODE_H, NODE_W, layoutLineage } from '../../../utils/biLineageLayout'
 
-const COLUMNS: { kind: LineageKind; title: string; icon: typeof Database; empty: string }[] = [
-  { kind: 'query', title: '① 查询库', icon: Database, empty: '暂无查询' },
-  { kind: 'chart', title: '② 图表', icon: BarChart3, empty: '暂无图表' },
-  { kind: 'dashboard', title: '③ 看板', icon: LayoutDashboard, empty: '暂无看板' },
-  { kind: 'consumer', title: '使用方', icon: Bot, empty: '还没有看板关联 Agent 或首页' },
-]
-const KIND_LABEL: Record<LineageKind, string> = { query: '查询', chart: '图表', dashboard: '看板', consumer: '使用方' }
+const KIND_LABEL: Record<LineageKind, string> = {
+  query: '查询',
+  chart: '图表',
+  dashboard: '看板',
+  consumer: '使用方',
+}
 
-type Pos = { l: number; r: number; y: number }
+/** 每层一种颜色：图标底色 / 小地图 / 图例 */
+const TONE: Record<LineageKind, { box: string; token: string }> = {
+  query: { box: 'bg-info-soft text-info', token: 'info' },
+  chart: { box: 'bg-primary-soft text-primary', token: 'primary' },
+  dashboard: { box: 'bg-accent-soft text-accent', token: 'accent' },
+  consumer: { box: 'bg-success-soft text-success', token: 'success' },
+}
+const CHART_ICON: Record<string, LucideIcon> = {
+  bar: BarChart3,
+  line: ChartLine,
+  pie: ChartPie,
+  kpi: Gauge,
+  waterfall: ChartColumnStacked,
+  sankey: GitFork,
+  table: Table2,
+}
+const color = (token: string, alpha?: number) => (alpha == null ? `rgb(var(--c-${token}))` : `rgb(var(--c-${token}) / ${alpha})`)
+
+function iconOf(n: LineageNode & { chartType?: string }): LucideIcon {
+  if (n.missing) return Link2Off
+  if (n.kind === 'query') return Database
+  if (n.kind === 'chart') return CHART_ICON[n.chartType || ''] || BarChart3
+  if (n.kind === 'dashboard') return LayoutDashboard
+  return n.id === HOME_ID ? House : Bot
+}
+
+/** 高亮状态：节点 / 连线组件从这里读，避免为了悬停重建整个节点数组 */
+interface HighlightState {
+  related: Set<string> | null
+  locked: string | null
+}
+const HighlightCtx = createContext<HighlightState>({
+  related: null,
+  locked: null,
+})
+
+type NodeData = { node: LineageNode & { chartType?: string }; caption: string }
+type LineageFlowNode = Node<NodeData, 'lineage'>
+type EdgeData = {
+  kind: 'main' | 'drill' | 'card' | 'use'
+  broken: boolean
+  count: number
+}
+type LineageFlowEdge = Edge<EdgeData, 'flow'>
+
+const LineageNodeView = memo(function LineageNodeView({ id, data }: NodeProps<LineageFlowNode>) {
+  const { related, locked } = useContext(HighlightCtx)
+  const n = data.node
+  const danger = n.issues.some((i) => i.tone === 'danger')
+  const dim = !!related && !related.has(id)
+  const selected = locked === id
+  const tip = [n.label, n.key ? `标识：${n.key}` : '', data.caption, ...n.issues.map((i) => `⚠ ${i.text}`)].filter(Boolean).join('\n')
+  return (
+    <div
+      title={tip}
+      style={{ width: NODE_W, height: NODE_H }}
+      className={cn(
+        'relative flex items-center gap-2.5 rounded-xl border bg-surface px-2.5 shadow-sm cursor-pointer',
+        'transition-[opacity,box-shadow,border-color,transform] duration-200 ease-out hover:-translate-y-px hover:shadow-md',
+        n.missing ? 'border-dashed border-danger' : danger ? 'border-danger/60' : 'border-line',
+        selected && 'border-primary ring-[3px] ring-primary/25',
+        dim && 'opacity-20',
+        !n.enabled && !n.missing && 'bg-surface-2',
+      )}
+    >
+      <Handle type="target" position={Position.Left} isConnectable={false} className="!w-1.5 !h-1.5 !min-w-0 !min-h-0 !border-0 !bg-line-strong" />
+      <span className={cn('shrink-0 w-9 h-9 rounded-lg grid place-items-center', n.missing ? 'bg-danger-soft text-danger' : TONE[n.kind].box, !n.enabled && !n.missing && 'opacity-60')}>
+        {createElement(iconOf(n), {
+          className: 'w-[18px] h-[18px]',
+          strokeWidth: 2,
+        })}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className={cn('block text-[13px] font-medium leading-tight truncate', n.missing ? 'text-danger' : n.enabled ? 'text-fg' : 'text-muted line-through')}>{n.label}</span>
+        <span className="block text-[11px] text-muted leading-tight mt-0.5 truncate">{data.caption}</span>
+      </span>
+      {n.issues.length > 0 && (
+        <span
+          className={cn('absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full grid place-items-center text-[11px] font-bold text-white shadow-sm', danger ? 'bg-danger' : 'bg-warning')}
+        >
+          {n.issues.length > 1 ? n.issues.length : '!'}
+        </span>
+      )}
+      <Handle type="source" position={Position.Right} isConnectable={false} className="!w-1.5 !h-1.5 !min-w-0 !min-h-0 !border-0 !bg-line-strong" />
+    </div>
+  )
+})
+
+function FlowEdgeView({ id, source, target, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data }: EdgeProps<LineageFlowEdge>) {
+  const { related } = useContext(HighlightCtx)
+  const [path, labelX, labelY] = getBezierPath({
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+    curvature: 0.35,
+  })
+  const on = !!related && related.has(source) && related.has(target)
+  const broken = !!data?.broken
+  const stroke = broken ? color('danger') : on ? color('primary') : color('line-strong')
+  const opacity = related ? (on ? 1 : 0.1) : broken ? 0.9 : 0.75
+  return (
+    <>
+      <BaseEdge
+        id={id}
+        path={path}
+        style={{
+          stroke,
+          strokeOpacity: opacity,
+          strokeWidth: on ? 2.25 : 1.5,
+          strokeDasharray: data?.kind === 'drill' || broken ? '6 4' : undefined,
+        }}
+      />
+      {on && !broken && (
+        <>
+          {[0, 0.9].map((begin) => (
+            <circle key={begin} r={3.2} style={{ fill: color('primary') }}>
+              <animateMotion dur="1.8s" begin={`${begin}s`} repeatCount="indefinite" path={path} />
+            </circle>
+          ))}
+        </>
+      )}
+      {broken && (
+        <EdgeLabelRenderer>
+          <span
+            style={{
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+            }}
+            className="absolute pointer-events-none w-5 h-5 rounded-full bg-surface border border-danger text-danger grid place-items-center"
+            title="引用断了"
+          >
+            <Link2Off className="w-3 h-3" />
+          </span>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  )
+}
+
+const nodeTypes = { lineage: LineageNodeView }
+const edgeTypes = { flow: FlowEdgeView }
+
+/** 节点第二行：查询 = 被几个图表用，图表 = 类型，看板 = 几张卡片，使用方 = Agent / 首页角色 */
+function captions(lineage: Lineage) {
+  const outs = new Map<string, number>()
+  const cards = new Map<string, number>()
+  for (const e of lineage.edges) {
+    outs.set(e.from, (outs.get(e.from) || 0) + 1)
+    if (e.kind === 'card') cards.set(e.to, (cards.get(e.to) || 0) + e.count)
+  }
+  const cap = new Map<string, string>()
+  for (const n of lineage.nodes.values()) {
+    if (n.missing) cap.set(n.id, `${KIND_LABEL[n.kind]}已删除`)
+    else if (n.kind === 'query') cap.set(n.id, outs.get(n.id) ? `${outs.get(n.id)} 个图表使用` : '查询 · 未被使用')
+    else if (n.kind === 'chart') cap.set(n.id, `${n.sub || '图表'}${outs.get(n.id) ? ` · ${outs.get(n.id)} 个看板` : ''}`)
+    else if (n.kind === 'dashboard') cap.set(n.id, `看板 · ${cards.get(n.id) || 0} 张卡片`)
+    else cap.set(n.id, n.id === HOME_ID ? `首页 · ${n.sub || ''}` : 'Agent')
+  }
+  return cap
+}
 
 interface Props extends LineageInput {
   onOpen: (kind: 'query' | 'chart' | 'dashboard', key: string) => void
 }
 
-function NodeCard({ node, selected, dim, onEnter, onLeave, onClick, onOpen, refFn }: { node: LineageNode; selected: boolean; dim: boolean; onEnter: () => void; onLeave: () => void; onClick: () => void; onOpen?: () => void; refFn: (el: HTMLElement | null) => void }) {
-  const danger = node.issues.some((i) => i.tone === 'danger')
-  const issue = node.issues[0]
-  const Icon = node.id === HOME_ID ? Home : node.kind === 'consumer' ? Bot : null
-  return (
-    <div
-      ref={refFn}
-      role="button"
-      tabIndex={0}
-      onMouseEnter={onEnter}
-      onMouseLeave={onLeave}
-      onClick={(e) => {
-        e.stopPropagation()
-        onClick()
-      }}
-      onDoubleClick={(e) => {
-        e.stopPropagation()
-        onOpen?.()
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault()
-          onClick()
-        }
-      }}
-      className={cn(
-        'group relative z-10 rounded-lg border bg-surface px-3 py-2 text-left cursor-pointer select-none',
-        'transition-[opacity,border-color,box-shadow,background-color] duration-200 ease-out',
-        node.missing ? 'border-dashed border-danger' : danger ? 'border-danger/60' : 'border-line hover:border-primary/60',
-        selected && 'border-primary ring-2 ring-primary/30 bg-primary-soft',
-        dim && 'opacity-25',
-        !node.enabled && !node.missing && 'bg-surface-2',
-      )}
-    >
-      <div className="flex items-center gap-1.5 min-w-0">
-        {Icon && <Icon className="w-3.5 h-3.5 text-muted shrink-0" />}
-        <span className={cn('text-[13px] font-medium truncate', node.missing ? 'text-danger' : node.enabled ? 'text-fg' : 'text-muted')} title={node.label}>
-          {node.label}
-        </span>
-        {node.sub && node.kind === 'chart' && <span className="ml-auto shrink-0 text-[11px] text-muted">{node.sub}</span>}
-        {onOpen && (
-          <button
-            type="button"
-            aria-label="打开编辑"
-            title="打开编辑"
-            onClick={(e) => {
-              e.stopPropagation()
-              onOpen()
-            }}
-            className={cn('shrink-0 rounded p-0.5 text-muted hover:text-primary transition-opacity', node.sub && node.kind === 'chart' ? '' : 'ml-auto', selected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100')}
-          >
-            <Pencil className="w-3.5 h-3.5" />
-          </button>
-        )}
-      </div>
-      <div className="flex items-center gap-1.5 mt-0.5 min-w-0 text-[11px]">
-        {node.key && !node.missing && <span className="font-mono text-subtle truncate">{node.key}</span>}
-        {node.kind === 'consumer' && node.sub && node.id === HOME_ID && <span className="text-muted truncate">{node.sub}</span>}
-        {issue && (
-          <span className={cn('ml-auto shrink-0 flex items-center gap-1', issue.tone === 'danger' ? 'text-danger' : 'text-warning')} title={node.issues.map((i) => i.text).join('；')}>
-            <span className={cn('w-1.5 h-1.5 rounded-full', issue.tone === 'danger' ? 'bg-danger' : 'bg-warning')} />
-            {issue.text}
-            {node.issues.length > 1 && ` +${node.issues.length - 1}`}
-          </span>
-        )}
-      </div>
-    </div>
-  )
-}
-
 function Legend() {
-  const line = (cls: string, dash?: string) => (
-    <svg width="22" height="8" className="shrink-0" aria-hidden>
-      <line x1="1" y1="4" x2="21" y2="4" className={cls} strokeWidth="2" strokeDasharray={dash} />
+  const dot = (k: LineageKind, label: string) => (
+    <span className="flex items-center gap-1">
+      <span className="w-2.5 h-2.5 rounded-sm" style={{ background: color(TONE[k].token) }} />
+      {label}
+    </span>
+  )
+  const line = (token: string, dash?: string) => (
+    <svg width="20" height="8" className="shrink-0" aria-hidden>
+      <line x1="1" y1="4" x2="19" y2="4" style={{ stroke: color(token) }} strokeWidth="2" strokeDasharray={dash} />
     </svg>
   )
   return (
-    <div className="flex items-center gap-3 text-xs text-muted">
-      <span className="flex items-center gap-1">{line('stroke-line-strong')}引用</span>
-      <span className="flex items-center gap-1">{line('stroke-line-strong', '4 3')}下钻</span>
-      <span className="flex items-center gap-1">{line('stroke-danger')}引用断了</span>
+    <div className="flex items-center gap-3 text-xs text-muted flex-wrap">
+      {dot('query', '查询')}
+      {dot('chart', '图表')}
+      {dot('dashboard', '看板')}
+      {dot('consumer', '使用方')}
+      <span className="w-px h-3 bg-line" />
+      <span className="flex items-center gap-1">{line('line-strong')}引用</span>
+      <span className="flex items-center gap-1">{line('line-strong', '5 3')}下钻</span>
+      <span className="flex items-center gap-1">{line('danger', '5 3')}断了</span>
     </div>
   )
 }
 
-export default function LineageGraph({ onOpen, ...input }: Props) {
+function LineageCanvas({ onOpen, ...input }: Props) {
   const { queries, charts, dashboards, agentLabels, formatRoles, typeLabel } = input
   const lineage = useMemo(
-    () => buildLineage({ queries, charts, dashboards, agentLabels, formatRoles, typeLabel }),
+    () =>
+      buildLineage({
+        queries,
+        charts,
+        dashboards,
+        agentLabels,
+        formatRoles,
+        typeLabel,
+      }),
     [queries, charts, dashboards, agentLabels, formatRoles, typeLabel],
   )
+  const chartTypes = useMemo(() => new Map(charts.map((c) => [c.chartKey, c.type])), [charts])
+  const caps = useMemo(() => captions(lineage), [lineage])
   const stats = useMemo(() => lineageStats(lineage), [lineage])
   const [keyword, setKeyword] = useState('')
   const [onlyIssues, setOnlyIssues] = useState(false)
@@ -127,8 +262,16 @@ export default function LineageGraph({ onOpen, ...input }: Props) {
   const active = hovered ?? (lockedNode ? locked : null)
   const related = useMemo(() => (active ? relatedIds(lineage, active) : null), [lineage, active])
   const lockedRelated = useMemo(() => (lockedNode ? relatedIds(lineage, lockedNode.id) : null), [lineage, lockedNode])
-  const visible = useMemo(() => visibleIds(lineage, { keyword, onlyIssues, focus: focusOnly && lockedNode ? lockedNode.id : null }), [lineage, keyword, onlyIssues, focusOnly, lockedNode])
-  const isVisible = useCallback((id: string) => !visible || visible.has(id) || id === locked, [visible, locked])
+  const visible = useMemo(() => {
+    const v = visibleIds(lineage, {
+      keyword,
+      onlyIssues,
+      focus: focusOnly && lockedNode ? lockedNode.id : null,
+    })
+    if (v && locked) v.add(locked)
+    return v
+  }, [lineage, keyword, onlyIssues, focusOnly, lockedNode, locked])
+  const visibleKey = visible ? [...visible].sort().join('|') : '*'
 
   const clearLock = useCallback(() => {
     setLocked(null)
@@ -143,52 +286,75 @@ export default function LineageGraph({ onOpen, ...input }: Props) {
     return () => window.removeEventListener('keydown', onKey)
   }, [locked, clearLock])
 
-  // ---- 连线位置：按节点实际位置量，容器尺寸变化时重算 ----
+  // ---- 排版：可见集合变化时 elk 重新排，节点平滑移动后 fitView ----
+  const [nodes, setNodes, onNodesChange] = useNodesState<LineageFlowNode>([])
+  const [relayout, setRelayout] = useState(false)
+  const { setViewport } = useReactFlow()
   const boxRef = useRef<HTMLDivElement>(null)
-  const nodeEls = useRef(new Map<string, HTMLElement>())
-  const [layout, setLayout] = useState<{ w: number; h: number; pos: Map<string, Pos> }>({ w: 0, h: 0, pos: new Map() })
-  const measure = useCallback(() => {
-    const box = boxRef.current
-    if (!box) return
-    const b = box.getBoundingClientRect()
-    const pos = new Map<string, Pos>()
-    for (const [id, el] of nodeEls.current) {
-      const r = el.getBoundingClientRect()
-      pos.set(id, { l: r.left - b.left, r: r.right - b.left, y: r.top - b.top + r.height / 2 })
-    }
-    setLayout((prev) => {
-      if (prev.w === b.width && prev.h === b.height && prev.pos.size === pos.size) {
-        let same = true
-        for (const [id, p] of pos) {
-          const o = prev.pos.get(id)
-          if (!o || o.l !== p.l || o.r !== p.r || o.y !== p.y) {
-            same = false
-            break
-          }
-        }
-        if (same) return prev
-      }
-      return { w: b.width, h: b.height, pos }
-    })
-  }, [])
-  useLayoutEffect(measure, [measure, lineage, visible, locked])
-  useEffect(() => {
-    const box = boxRef.current
-    if (!box || typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(() => measure())
-    ro.observe(box)
-    return () => ro.disconnect()
-  }, [measure])
-  const refFor = useCallback(
-    (id: string) => (el: HTMLElement | null) => {
-      if (el) nodeEls.current.set(id, el)
-      else nodeEls.current.delete(id)
+  const firstLayout = useRef(true)
+  /** 放得下就整体居中；放不下时缩放不低于可读的 0.7，横向居中、从顶部开始看 */
+  const frame = useCallback(
+    (ns: LineageFlowNode[], duration: number) => {
+      const box = boxRef.current
+      if (!box || ns.length === 0) return
+      const b = getNodesBounds(ns.map((n) => ({ ...n, width: NODE_W, height: NODE_H })))
+      const W = box.clientWidth
+      const H = box.clientHeight
+      const pad = 32
+      const zoom = Math.min(1.05, Math.max(0.7, Math.min((W - pad * 2) / b.width, (H - pad * 2) / b.height)))
+      const x = (W - b.width * zoom) / 2 - b.x * zoom
+      const y = b.height * zoom <= H - pad * 2 ? (H - b.height * zoom) / 2 - b.y * zoom : pad - b.y * zoom
+      void setViewport({ x, y, zoom }, { duration })
     },
-    [],
+    [setViewport],
   )
+  useEffect(() => {
+    let alive = true
+    const shown = visibleKey === '*' ? null : new Set(visibleKey.split('|').filter(Boolean))
+    layoutLineage(lineage, shown).then((pos) => {
+      if (!alive) return
+      const animate = !firstLayout.current
+      firstLayout.current = false
+      setRelayout(animate)
+      const next: LineageFlowNode[] = [...pos].map(([id, p]) => ({
+        id,
+        type: 'lineage',
+        position: p,
+        data: {
+          node: {
+            ...lineage.nodes.get(id)!,
+            chartType: chartTypes.get(lineage.nodes.get(id)!.key),
+          },
+          caption: caps.get(id) || '',
+        },
+      }))
+      setNodes(next)
+      requestAnimationFrame(() => frame(next, animate ? 420 : 0))
+      if (animate) setTimeout(() => alive && setRelayout(false), 460)
+    })
+    return () => {
+      alive = false
+    }
+  }, [lineage, visibleKey, caps, chartTypes, setNodes, frame])
 
-  const total = lineage.nodes.size
-  if (total === 0) {
+  const edges = useMemo<LineageFlowEdge[]>(() => {
+    const shown = new Set(nodes.map((n) => n.id))
+    return lineage.edges
+      .filter((e) => shown.has(e.from) && shown.has(e.to))
+      .map((e) => ({
+        id: `${e.from}>${e.to}>${e.kind}`,
+        source: e.from,
+        target: e.to,
+        type: 'flow',
+        data: { kind: e.kind, broken: e.broken, count: e.count },
+        focusable: false,
+        selectable: false,
+      }))
+  }, [lineage, nodes])
+
+  const highlight = useMemo(() => ({ related, locked }), [related, locked])
+
+  if (lineage.nodes.size === 0) {
     return (
       <Card>
         <EmptyState title="还没有可显示的关系" description="先在「查询库」登记查询、做图表、建看板，这里会自动画出它们之间的引用关系" />
@@ -221,7 +387,10 @@ export default function LineageGraph({ onOpen, ...input }: Props) {
           onChange={(v) => setOnlyIssues(v === 'issues')}
           options={[
             { value: 'all', label: <span className="px-2">全部</span> },
-            { value: 'issues', label: <span className="px-2">只看有问题的（{stats.danger + stats.warning}）</span> },
+            {
+              value: 'issues',
+              label: <span className="px-2">只看有问题的（{stats.danger + stats.warning}）</span>,
+            },
           ]}
         />
         {stats.danger > 0 && <span className="text-xs text-danger">{stats.danger} 处引用断了</span>}
@@ -252,70 +421,58 @@ export default function LineageGraph({ onOpen, ...input }: Props) {
             </div>
           </>
         ) : (
-          <span className="text-muted text-xs">鼠标移到任一项上预览它的上下游；点击锁定，双击打开编辑，Esc 取消</span>
+          <span className="text-muted text-xs">鼠标移到任一项上预览它的上下游；点击锁定，双击打开编辑，Esc 取消；滚轮缩放，拖动空白处平移，节点可拖动</span>
         )}
       </div>
 
-      <Card className="overflow-x-auto">
-        <div ref={boxRef} className="relative min-w-[56rem] p-4" onClick={clearLock}>
-          <svg className="absolute inset-0 pointer-events-none" width={layout.w} height={layout.h} aria-hidden>
-            {lineage.edges.map((e) => {
-              const a = layout.pos.get(e.from)
-              const b = layout.pos.get(e.to)
-              if (!a || !b || !isVisible(e.from) || !isVisible(e.to)) return null
-              const on = !!related && related.has(e.from) && related.has(e.to)
-              const x1 = a.r
-              const x2 = b.l
-              const dx = Math.max(24, (x2 - x1) / 2)
-              return (
-                <path
-                  key={`${e.from}>${e.to}>${e.kind}`}
-                  d={`M${x1},${a.y} C${x1 + dx},${a.y} ${x2 - dx},${b.y} ${x2},${b.y}`}
-                  className={cn('fill-none transition-[stroke-opacity,stroke-width] duration-200 ease-out', e.broken ? 'stroke-danger' : on ? 'stroke-primary' : 'stroke-line-strong')}
-                  strokeWidth={on ? 2.25 : 1.25}
-                  strokeOpacity={related ? (on ? 1 : 0.12) : e.broken ? 0.9 : 0.6}
-                  strokeDasharray={e.kind === 'drill' ? '5 4' : undefined}
-                  strokeLinecap="round"
-                />
-              )
-            })}
-          </svg>
-          <div className="relative grid grid-cols-4 gap-x-14">
-            {COLUMNS.map((col) => {
-              const nodes = lineage.columns[col.kind].filter((n) => isVisible(n.id))
-              const Icon = col.icon
-              return (
-                <div key={col.kind} className="min-w-0">
-                  <div className="flex items-center gap-1.5 mb-3 text-xs font-semibold text-muted">
-                    <Icon className="w-3.5 h-3.5" />
-                    {col.title}
-                    <span className="num font-normal text-subtle">{nodes.length}</span>
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    {nodes.length === 0 && <div className="text-xs text-subtle py-2">{visible ? '—' : col.empty}</div>}
-                    {nodes.map((n) => (
-                      <NodeCard
-                        key={n.id}
-                        node={n}
-                        refFn={refFor(n.id)}
-                        selected={n.id === locked}
-                        dim={!!related && !related.has(n.id)}
-                        onEnter={() => setHovered(n.id)}
-                        onLeave={() => setHovered((h) => (h === n.id ? null : h))}
-                        onClick={() => {
-                          if (locked === n.id) clearLock()
-                          else setLocked(n.id)
-                        }}
-                        onOpen={canOpen(n) ? () => onOpen(n.kind as 'query' | 'chart' | 'dashboard', n.key) : undefined}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      </Card>
+      <div ref={boxRef} className={cn('lineage-flow h-[calc(100vh-20rem)] min-h-[32rem] rounded-xl border border-line bg-surface overflow-hidden', relayout && 'is-relayout')}>
+        <HighlightCtx.Provider value={highlight}>
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            onNodesChange={onNodesChange}
+            onNodeMouseEnter={(_, n) => setHovered(n.id)}
+            onNodeMouseLeave={(_, n) => setHovered((h) => (h === n.id ? null : h))}
+            onNodeClick={(_, n) => (locked === n.id ? clearLock() : setLocked(n.id))}
+            onNodeDoubleClick={(_, n) => {
+              const ln = lineage.nodes.get(n.id)
+              if (ln && canOpen(ln)) onOpen(ln.kind as 'query' | 'chart' | 'dashboard', ln.key)
+            }}
+            onPaneClick={clearLock}
+            nodesConnectable={false}
+            elementsSelectable={false}
+            zoomOnDoubleClick={false}
+            minZoom={0.15}
+            maxZoom={1.6}
+          >
+            <Background variant={BackgroundVariant.Dots} gap={20} size={1.2} />
+            <Controls showInteractive={false} position="bottom-left" />
+            <MiniMap
+              pannable
+              style={{ width: 150, height: 96 }}
+              zoomable
+              position="bottom-right"
+              nodeBorderRadius={6}
+              nodeColor={(n) => {
+                const ln = lineage.nodes.get(n.id)
+                if (!ln) return color('line-strong')
+                if (ln.missing) return color('danger')
+                return color(TONE[ln.kind].token, related && !related.has(n.id) ? 0.25 : 0.85)
+              }}
+            />
+          </ReactFlow>
+        </HighlightCtx.Provider>
+      </div>
     </div>
+  )
+}
+
+export default function LineageGraph(props: Props) {
+  return (
+    <ReactFlowProvider>
+      <LineageCanvas {...props} />
+    </ReactFlowProvider>
   )
 }

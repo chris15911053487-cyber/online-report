@@ -1,7 +1,7 @@
 /**
  * BI 看板管理：查询库（语义层）→ 图表 → 看板，三个页签。
  *
- * 第四个页签「关系图」把三层的引用关系画成四列血缘图（components/bi/admin/LineageGraph.tsx）。
+ * 第四个页签「关系图」把三层的引用关系画成血缘图（components/bi/admin/LineageGraph.tsx，React Flow，按需加载）。
  *
  * 配置顺序：先在查询库登记查询（SQL → 参数 → 试运行识别输出列 → 列语义 → 示例问法），
  * 再用查询做图表（类型、列从下拉选、下钻，实时预览；可被多个看板复用），
@@ -9,7 +9,7 @@
  * 看板在「Agent 配置」里关联到某个 Agent，进入该 Agent 即显示。
  * 编辑器在 components/bi/admin/。
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
 import { BookOpen, Pencil, Plus, Search, Sparkles, Trash2 } from 'lucide-react'
 import { useStore } from '../store'
 import { apiFetch } from '../utils/api'
@@ -19,7 +19,6 @@ import { confirmDelete } from '../ui/confirm'
 import QueryEditor from '../components/bi/admin/QueryEditor'
 import ChartEditor from '../components/bi/admin/ChartEditor'
 import DashboardEditor from '../components/bi/admin/DashboardEditor'
-import LineageGraph from '../components/bi/admin/LineageGraph'
 import AiDraftModal, { type BiDraft } from '../components/bi/admin/AiDraftModal'
 import AiChartsReview from '../components/bi/admin/AiChartsReview'
 import { EMPTY_DASHBOARD, EMPTY_QUERY, errMsg, type BiChartAdmin, type BiDashboardAdmin, type BiQueryAdmin, type QueryOption } from '../components/bi/admin/types'
@@ -27,6 +26,9 @@ import { newChart } from '../utils/biAdmin'
 import HelpDocPanel from '../components/HelpDocPanel'
 import { clearPendingPin, readPendingPin } from '../utils/biPin'
 import { DEFAULT_LIST_FILTER, NO_OPERATOR, filterAdminList, formatUpdatedAt, operatorsOf, type AdminListItem, type ListFilter } from '../utils/biAdminList'
+
+// 关系图依赖 React Flow + elkjs，打开页签时才加载
+const LineageGraph = lazy(() => import('../components/bi/admin/LineageGraph'))
 
 type Tab = 'queries' | 'charts' | 'dashboards' | 'lineage'
 const TYPE_LABEL: Record<string, string> = { kpi: 'KPI', bar: '柱状', line: '折线', pie: '饼图', waterfall: '瀑布', sankey: '桑基', table: '表格' }
@@ -324,7 +326,9 @@ export default function BiAdminView() {
       {!loading && error && <Notice tone="danger">{error}</Notice>}
 
       {!loading && !error && tab === 'lineage' && (
-        <LineageGraph queries={queries} charts={charts} dashboards={dashboards} agentLabels={agentLabels} formatRoles={formatRoles} typeLabel={TYPE_LABEL} onOpen={openFromLineage} />
+        <Suspense fallback={<Skeleton className="h-[32rem]" />}>
+          <LineageGraph queries={queries} charts={charts} dashboards={dashboards} agentLabels={agentLabels} formatRoles={formatRoles} typeLabel={TYPE_LABEL} onOpen={openFromLineage} />
+        </Suspense>
       )}
 
       {!loading && !error && tab === 'queries' && (
