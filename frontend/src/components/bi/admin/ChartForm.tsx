@@ -479,6 +479,17 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
             onChange={(v) => set({ labels: v === 'hide' ? 'hide' : undefined })}
           />
         </Row>
+        <Row label="节点排布" hint="居中展开：每列居中，节点靠近与它相连的节点；顶部对齐：每列从顶部依次排下">
+          <Segmented
+            size="sm"
+            options={[
+              { value: 'center', label: '居中展开' },
+              { value: 'top', label: '顶部对齐' },
+            ]}
+            value={enc.flowAlign === 'top' ? 'top' : 'center'}
+            onChange={(v) => set({ flowAlign: v === 'top' ? 'top' : undefined })}
+          />
+        </Row>
         {formatRows}
       </div>
     )

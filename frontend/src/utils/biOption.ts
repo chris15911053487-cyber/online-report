@@ -948,6 +948,101 @@ export function sankeyProblems(enc: BiEncoding, rows: BiRow[], limit = 3): strin
     .map((n) => `「${n.name}」流入 ${fmt(n.inflow)}，流出 ${fmt(n.outflow)}，相差 ${fmt(Math.abs(n.inflow - n.outflow))}`)
 }
 
+export interface SankeyCenterLayout {
+  /** 各节点（同 g.nodes 顺序）顶边的位置，占绘图区高度的比例（0 = 顶，1 = 底），给 ECharts 的 localY */
+  y: number[]
+  /** 每单位流量占绘图区高度的比例 */
+  k: number
+  /** 节点间距（占高度的比例） */
+  gap: number
+}
+
+/**
+ * 桑基图「居中展开」的纵向排布（不依赖画布像素，全部按占高度的比例算）：
+ * 每列先居中，再左右来回几轮把节点拉向与它相连的连线端点（按流量加权），同一列始终保持查询结果里的顺序、互不重叠。
+ * 效果是「营收」居中，「毛利 / 营业成本」在它两侧分开，后面各级跟着自己的上一级走，而不是都挤在顶部。
+ *
+ * 连线在节点上的落点顺序与 ECharts 一致：按另一端节点「从顶部依次排下」时的位置排序（buildSankeyModel 里 nodeGap = 0，
+ * ECharts 内部就是这样堆的），这样连线画出来和这里算的落点对得上。
+ */
+export function sankeyCenterLayout(g: SankeyGraph): SankeyCenterLayout | null {
+  const value = g.nodes.map((n) => Math.max(n.inflow, n.outflow))
+  const index = new Map(g.nodes.map((n, i) => [n.name, i]))
+  const cols: number[][] = []
+  g.nodes.forEach((n, i) => (cols[n.depth] ??= []).push(i))
+  const columns = cols.filter((c) => c?.length)
+  const sums = columns.map((c) => c.reduce((a, i) => a + value[i], 0))
+  const maxSum = Math.max(0, ...sums)
+  if (!(maxSum > 0)) return null
+  const maxN = Math.max(...columns.map((c) => c.length))
+  const gap = maxN > 1 ? Math.min(0.04, 0.3 / (maxN - 1)) : 0
+  // 最满的一列也放得下；且最多占 80% 高度，留出上下展开的空间
+  let k = 0.8 / maxSum
+  columns.forEach((c, ci) => {
+    if (sums[ci] > 0) k = Math.min(k, (1 - (c.length - 1) * gap) / sums[ci])
+  })
+  const h = value.map((v) => v * k)
+
+  // ECharts 内部「从顶部堆」的位置 → 每条连线在两端节点上的落点偏移
+  const stacked: number[] = []
+  for (const c of columns) c.reduce((y, i) => ((stacked[i] = y), y + h[i]), 0)
+  const links = g.links.map((l) => ({ s: index.get(l.source)!, t: index.get(l.target)!, h: l.value * k, sy: 0, ty: 0 }))
+  const outs = g.nodes.map(() => [] as typeof links)
+  const ins = g.nodes.map(() => [] as typeof links)
+  for (const l of links) {
+    outs[l.s].push(l)
+    ins[l.t].push(l)
+  }
+  for (let i = 0; i < g.nodes.length; i++) {
+    outs[i].sort((a, b) => stacked[a.t] - stacked[b.t]).reduce((y, l) => ((l.sy = y), y + l.h), 0)
+    ins[i].sort((a, b) => stacked[a.s] - stacked[b.s]).reduce((y, l) => ((l.ty = y), y + l.h), 0)
+  }
+
+  // 每列居中
+  const y: number[] = []
+  for (const c of columns) {
+    const total = c.reduce((a, i) => a + h[i], 0) + (c.length - 1) * gap
+    c.reduce((top, i) => ((y[i] = top), top + h[i] + gap), (1 - total) / 2)
+  }
+  // 同一列按顺序排开、不出界
+  const resolve = (c: number[]) => {
+    let top = 0
+    for (const i of c) {
+      if (y[i] < top) y[i] = top
+      top = y[i] + h[i] + gap
+    }
+    let bottom = 1
+    for (let j = c.length - 1; j >= 0; j--) {
+      const i = c[j]
+      if (y[i] + h[i] > bottom) y[i] = bottom - h[i]
+      bottom = y[i] - gap
+    }
+  }
+  // 拉向连线另一端的落点（按流量加权）
+  const pull = (i: number, ls: typeof links, other: (l: (typeof links)[number]) => number, alpha: number) => {
+    let w = 0
+    let sum = 0
+    for (const l of ls) {
+      const v = l.h || 1e-9
+      w += v
+      sum += v * other(l)
+    }
+    if (w > 0) y[i] += (sum / w - y[i]) * alpha
+  }
+  for (let it = 0; it < 32; it++) {
+    const alpha = Math.pow(0.99, it)
+    for (const c of columns.slice(1)) {
+      for (const i of c) if (ins[i].length) pull(i, ins[i], (l) => y[l.s] + l.sy - l.ty, alpha)
+      resolve(c)
+    }
+    for (const c of columns.slice(0, -1).reverse()) {
+      for (const i of c) if (outs[i].length) pull(i, outs[i], (l) => y[l.t] + l.ty - l.sy, alpha)
+      resolve(c)
+    }
+  }
+  return { y, k, gap }
+}
+
 /** 估算标签文字宽度（px）：中文按一个字号宽，其余按 0.6 个 */
 function textWidth(s: string, fontSize: number): number {
   let w = 0
@@ -957,6 +1052,7 @@ function textWidth(s: string, fontSize: number): number {
 
 /**
  * 桑基图：节点按查询结果里第一次出现的顺序从上到下排（不自动重排，SQL 的行顺序决定「毛利在上、成本在下」）；
+ * 默认居中展开（sankeyCenterLayout），flowAlign = top 时每列从顶部依次排下；
  * 颜色按节点轮流取主题系列色，连线取来源节点的颜色调淡。最左一列的标签在节点左边，其余在右边。
  *
  * 点连线 = 那一行；点节点 = 以该节点为来源和去向的一行（数值为节点流量），下钻按来源列或去向列取值都是节点名。
@@ -979,6 +1075,16 @@ function buildSankeyModel(enc: BiEncoding, allRows: BiRow[], opts: { clickable?:
   const margin = (ns: SankeyNode[]) => Math.min(160, Math.max(24, ...ns.map((n) => Math.max(...labelText(n).map((t) => textWidth(t, fontSize))) + 10)))
   const firstCol = g.nodes.filter((n) => n.depth === 0)
   const lastCol = g.nodes.filter((n) => n.depth === maxDepth && maxDepth > 0)
+
+  // 居中展开：节点位置自己算好（localY），ECharts 只管横向分列与画连线。
+  // ECharts 按「最满的一列铺满高度」定比例，所以在最左列补一个看不见的占位节点，把比例压到与这里算的一致
+  const center = enc.flowAlign === 'top' ? null : sankeyCenterLayout(g)
+  const col0 = g.nodes.reduce((a, n) => (n.depth === 0 ? a + nodeValue(n) : a), 0)
+  const padding = center ? 1 / center.k - col0 : 0
+  const padNode =
+    padding > 0
+      ? [{ name: '\u0000sankey-padding', value: padding, depth: 0, localY: 2, itemStyle: { opacity: 0 }, label: { show: false }, tooltip: { show: false }, emphasis: { disabled: true } }]
+      : []
 
   const nodeRow = (n: SankeyNode): BiRow => {
     const sample = g.links.find((l) => l.target === n.name)?.row ?? g.links.find((l) => l.source === n.name)?.row ?? {}
@@ -1017,7 +1123,7 @@ function buildSankeyModel(enc: BiEncoding, allRows: BiRow[], opts: { clickable?:
           top: 8,
           bottom: 8,
           nodeWidth: 12,
-          nodeGap: 10,
+          nodeGap: center ? 0 : 10,
           nodeAlign: 'left',
           layoutIterations: 0,
           draggable: false,
@@ -1027,7 +1133,16 @@ function buildSankeyModel(enc: BiEncoding, allRows: BiRow[], opts: { clickable?:
           // 很小的节点（如「其他 0」）标签会压到相邻节点上：重叠的藏起来，悬停仍有提示
           labelLayout: { hideOverlap: true },
           lineStyle: { color: 'source', opacity: 0.35, curveness: 0.5 },
-          data: g.nodes.map((n) => ({ name: n.name, value: nodeValue(n), depth: n.depth, ...(n.depth === 0 && maxDepth > 0 ? { label: { position: 'left' } } : {}) })),
+          data: [
+            ...g.nodes.map((n, i) => ({
+              name: n.name,
+              value: nodeValue(n),
+              depth: n.depth,
+              ...(center ? { localY: center.y[i] } : {}),
+              ...(n.depth === 0 && maxDepth > 0 ? { label: { position: 'left' } } : {}),
+            })),
+            ...padNode,
+          ],
           links: g.links.map((l) => ({ source: l.source, target: l.target, value: l.value })),
         },
       ],

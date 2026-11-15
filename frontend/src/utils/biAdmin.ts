@@ -491,7 +491,7 @@ export function cleanEncoding(type: BiCardType, enc: BiEncoding): BiEncoding {
         : type === 'waterfall'
           ? ['dimension', 'value', 'horizontal', 'series', 'total', 'subtotals', 'fromZero', 'trend', 'format', 'unit', 'scale', 'labels', 'columns']
           : type === 'sankey'
-            ? ['dimension', 'target', 'value', 'format', 'unit', 'scale', 'labels', 'columns']
+            ? ['dimension', 'target', 'value', 'format', 'unit', 'scale', 'labels', 'flowAlign', 'columns']
             : ['dimension', 'value', 'values', 'series', 'format', 'unit', 'scale', 'topN', 'horizontal', 'stack', 'labels', 'columns', 'rightAxis', 'sumMode', 'sumColumns']
   for (const k of keep) {
     const v = enc[k]

@@ -208,6 +208,10 @@ test('图表校验：桑基图须有来源 / 去向 / 一个数值列；去向�
   assert.match(run({ dimension: '来源', target: '去向', values: ['金额', '去年'] }).error, /只能选一个数值列/);
   assert.match(run({ dimension: '来源', target: 'Ghost', value: '金额' }).error, /Ghost/, '去向列须在输出列中');
   assert.match(run({ dimension: '来源', target: '去向', value: '金额' }, 'bar').error, /只有桑基图/);
+  // 节点排布：不写 / center = 居中展开，top = 顶部对齐
+  assert.equal(run({ dimension: '来源', target: '去向', value: '金额', flowAlign: 'top' }).value.encoding.flowAlign, 'top');
+  assert.equal(run({ dimension: '来源', target: '去向', value: '金额', flowAlign: 'center' }).value.encoding.flowAlign, undefined);
+  assert.match(run({ dimension: '来源', target: '去向', value: '金额', flowAlign: 'middle' }).error, /flowAlign/);
 });
 
 test('图表校验：表格数据条列（可设各列同一比例）；引用检查包含数据条列', () => {

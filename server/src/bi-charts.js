@@ -238,6 +238,11 @@ function normalizeEncoding(input, type, where) {
     } else if (!['show', 'hide'].includes(e.labels)) return fail(`${where} encoding.labels 须为 auto / show / hide`);
     out.labels = e.labels;
   }
+  // 桑基图纵向排布：不写 = 居中展开，top = 顶部对齐
+  if (e.flowAlign != null && e.flowAlign !== '' && e.flowAlign !== 'center') {
+    if (e.flowAlign !== 'top') return fail(`${where} encoding.flowAlign 须为 top（顶部对齐），不写为居中展开`);
+    if (type === 'sankey') out.flowAlign = 'top';
+  }
   // 必需字段
   if (type === 'kpi' && !out.value) return fail(`${where} KPI 须设置 encoding.value`);
   if (CHART_TYPES.has(type)) {

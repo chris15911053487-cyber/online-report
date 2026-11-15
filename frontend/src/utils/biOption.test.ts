@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { alignedAxisRanges, buildChartModel, chartTotals, defaultSumColumns, columnLabel, highlightPoint, labelPlan, MAX_WATERFALL_PANELS, rightAxisColumns, sankeyGraph, sankeyProblems, topRows, valueColumns, waterfallAxisMin, waterfallColors, waterfallClosingRow, waterfallPanels, waterfallSteps } from './biOption'
+import { alignedAxisRanges, buildChartModel, chartTotals, defaultSumColumns, columnLabel, highlightPoint, labelPlan, MAX_WATERFALL_PANELS, rightAxisColumns, sankeyCenterLayout, sankeyGraph, sankeyProblems, topRows, valueColumns, waterfallAxisMin, waterfallColors, waterfallClosingRow, waterfallPanels, waterfallSteps } from './biOption'
 import { canDrillFrom, levelView, nextDrillLabel, popDrillTo, pushDrill, rootStack, rowCaption } from './biDrill'
 import type { BiCard, BiEncoding } from './bi'
 
@@ -664,6 +664,41 @@ describe('桑基图', () => {
     expect(m.rowAt(6, undefined, 'edge')).toBe(flows[6])
     expect(m.rowAt(s.data.indexOf(rev), undefined, 'node')).toMatchObject({ S: '营收', T: '营收', V: 416 })
     expect(m.rowAt(99, undefined, 'node')).toBeNull()
+  })
+
+  it('居中展开：同列保持顺序不重叠、不出界，营收居中、毛利 / 营业成本分在两侧；顶部对齐不给位置', () => {
+    const g = sankeyGraph(enc, flows)
+    const L = sankeyCenterLayout(g)!
+    const at = (name: string) => g.nodes.findIndex((n) => n.name === name)
+    const h = (name: string) => Math.max(g.nodes[at(name)].inflow, g.nodes[at(name)].outflow) * L.k
+    for (let d = 0; d <= 5; d++) {
+      const col = g.nodes.map((n, i) => ({ n, i })).filter((x) => x.n.depth === d)
+      col.forEach(({ n, i }, j) => {
+        expect(L.y[i]).toBeGreaterThanOrEqual(-1e-9)
+        expect(L.y[i] + h(n.name)).toBeLessThanOrEqual(1 + 1e-9)
+        if (j) expect(L.y[i]).toBeGreaterThanOrEqual(L.y[col[j - 1].i] + h(col[j - 1].n.name) + L.gap - 1e-9)
+      })
+    }
+    // 营收不贴顶，大致居中；毛利在营收上方展开、营业成本在下方
+    expect(L.y[at('营收')]).toBeGreaterThan(0.05)
+    expect(Math.abs(L.y[at('营收')] + h('营收') / 2 - 0.5)).toBeLessThan(0.1)
+    expect(L.y[at('毛利')]).toBeLessThan(L.y[at('营收')])
+    expect(L.y[at('营业成本')] + h('营业成本')).toBeGreaterThan(L.y[at('营收')] + h('营收'))
+
+    type S = { nodeGap: number; data: { name: string; value: number; localY?: number; depth: number }[] }
+    const s = (buildChartModel('sankey', enc, flows).option as { series: S[] }).series[0]
+    expect(s.nodeGap).toBe(0)
+    expect(s.data[at('营收')].localY).toBeCloseTo(L.y[at('营收')])
+    // 占位节点：最左列合计 = 1 / k，ECharts 按它定比例；放在画布外
+    const pad = s.data[g.nodes.length]
+    const col0 = s.data.filter((n) => n.depth === 0).reduce((a, n) => a + n.value, 0)
+    expect(col0).toBeCloseTo(1 / L.k)
+    expect(pad.localY).toBeGreaterThan(1)
+
+    const top = (buildChartModel('sankey', { ...enc, flowAlign: 'top' }, flows).option as { series: S[] }).series[0]
+    expect(top.nodeGap).toBe(10)
+    expect(top.data).toHaveLength(g.nodes.length)
+    expect(top.data.every((n) => n.localY === undefined)).toBe(true)
   })
 
   it('不显示数值时只标名称；空的来源 / 去向 / 数值跳过', () => {

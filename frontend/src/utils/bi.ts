@@ -43,6 +43,8 @@ export interface BiEncoding {
   stack?: BiStackMode
   /** 柱/线上是否标数值：auto（默认，按规则）/ show / hide；饼图：auto（比例）/ value（金额）/ both（金额 + 比例）/ hide */
   labels?: BiLabelMode
+  /** 桑基图节点的纵向排布：不写 = 居中展开（每列居中，节点靠近与它相连的节点）；top = 每列从顶部依次排下 */
+  flowAlign?: 'top'
   /** 柱/线组合：数值列中画成折线、走右轴的列（如增长率与金额同图） */
   rightAxis?: string[]
   /** 表格：按正负着色并加 ▲▼ 的列（增长率、差额） */
