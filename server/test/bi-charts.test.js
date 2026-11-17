@@ -254,4 +254,8 @@ test('图表校验：合计方式随类型，合计列须是数值列 / 显示�
   assert.match(run({ dimension: '月份', value: '本期', sumMode: 'header', sumColumns: ['对比期'] }).error, /须是数值列之一/);
   assert.match(run({ columns: [{ column: '月份' }], sumMode: 'row', sumColumns: ['本期'] }, 'table').error, /不在表格的显示列中/);
   assert.match(run({ dimension: '月份', value: '本期', sumMode: 'header', sumColumns: ['不存在'] }).error, /须是数值列之一|不在/);
+  const cols = run({ columns: [{ column: '月份' }, { column: '本期', format: 'money', unit: '万元', scale: '10000' }] }, 'table').value.encoding.columns;
+  assert.deepEqual(cols[1], { column: '本期', format: 'money', unit: '万元', scale: 10000 }, '表格列可单独设格式 / 单位 / 缩放');
+  assert.match(run({ columns: [{ column: '本期', scale: -1 }] }, 'table').error, /scale 须为正数/);
 });
+

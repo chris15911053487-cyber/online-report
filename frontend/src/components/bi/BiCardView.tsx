@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, Info, Maximize2, Minimize2, RotateCw } from 'lucide-react'
 import { usePageFullscreen } from '../../hooks/usePageFullscreen'
-import { BI_CARD_HEIGHT, changeRatio, dataBarScale, fillPlaceholders, formatValue, isChartType, toNumber, withColumnSemantics, type BiCard, type BiColumnDef, type BiColumnSemantic, type BiFilterValues, type BiQueryMeta, type BiTrend } from '../../utils/bi'
+import { BI_CARD_HEIGHT, cellFormat, changeRatio, columnHeader, dataBarScale, fillPlaceholders, formatValue, isChartType, toNumber, withColumnSemantics, type BiCard, type BiColumnDef, type BiColumnSemantic, type BiFilterValues, type BiQueryMeta, type BiTrend } from '../../utils/bi'
 import { summableColumns, sumColumns } from '../../utils/biTable'
 import { buildChartModel, columnLabel, highlightPoint, sameRow, type BiRow } from '../../utils/biOption'
 import { canDrillFrom, levelView, nextDrillLabel, nextOpensInPanel, popDrillTo, pushDrill, rootStack, type DrillFrame } from '../../utils/biDrill'
@@ -354,7 +354,7 @@ function TableBody({
           <tr>
             {cols.map((c) => (
               <th key={c.column} scope="col" className="px-2.5 py-1.5 text-left font-medium text-muted whitespace-nowrap">
-                {c.label || columnLabel(encoding, c.column)}
+                {columnHeader(c.label || columnLabel(encoding, c.column), c)}
               </th>
             ))}
           </tr>
@@ -381,7 +381,7 @@ function TableBody({
                 if (c.column in barMax) {
                   const b = toNumber(v)
                   const ratio = b != null && barMax[c.column] > 0 ? Math.abs(b) / barMax[c.column] : 0
-                  const text = delta.has(c.column) && b != null ? `${b > 0 ? '▲ ' : b < 0 ? '▼ ' : ''}${formatValue(Math.abs(b), { format: c.format })}` : formatValue(v, { format: c.format })
+                  const text = delta.has(c.column) && b != null ? `${b > 0 ? '▲ ' : b < 0 ? '▼ ' : ''}${formatValue(Math.abs(b), cellFormat(c))}` : formatValue(v, cellFormat(c))
                   return (
                     <td key={c.column} className="px-2.5 py-1.5 min-w-[10rem]">
                       {/* 条长按 (单元格宽 - 数字宽) × 比例，数字紧跟在条的末端 */}
@@ -401,13 +401,13 @@ function TableBody({
                   return (
                     <td key={c.column} className={`px-2.5 py-1.5 whitespace-nowrap text-right tabular-nums ${deltaTone(n, encoding.trend)}`}>
                       {n > 0 ? '▲ ' : n < 0 ? '▼ ' : ''}
-                      {formatValue(Math.abs(n), { format: c.format })}
+                      {formatValue(Math.abs(n), cellFormat(c))}
                     </td>
                   )
                 }
                 return (
                   <td key={c.column} className={`px-2.5 py-1.5 whitespace-nowrap text-fg-2 ${num ? 'text-right tabular-nums' : ''}`}>
-                    {c.format ? formatValue(v, { format: c.format }) : v == null ? '' : String(v)}
+                    {c.format || c.scale ? formatValue(v, cellFormat(c)) : v == null ? '' : String(v)}
                   </td>
                 )
               })}
@@ -422,7 +422,7 @@ function TableBody({
                   key={c.column}
                   className={`bg-surface-2 border-t border-line px-2.5 py-1.5 whitespace-nowrap font-medium ${c.column in totals ? 'text-right tabular-nums text-fg' : 'text-muted'}`}
                 >
-                  {c.column in totals ? formatValue(totals[c.column], { format: c.format }) : i === 0 ? (truncated ? '合计（已显示的行）' : '合计') : ''}
+                  {c.column in totals ? formatValue(totals[c.column], cellFormat(c)) : i === 0 ? (truncated ? '合计（已显示的行）' : '合计') : ''}
                 </td>
               ))}
             </tr>

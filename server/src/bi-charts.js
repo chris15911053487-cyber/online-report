@@ -174,6 +174,12 @@ function normalizeEncoding(input, type, where) {
           if (!FORMATS.has(c0.format)) return fail(`${where} 列「${c.value}」format 不支持`);
           item.format = c0.format;
         }
+        if (c0.unit) item.unit = str(c0.unit, 16);
+        if (c0.scale != null && c0.scale !== '') {
+          const n = Number(c0.scale);
+          if (!Number.isFinite(n) || n <= 0) return fail(`${where} 列「${c.value}」scale 须为正数（如 10000 表示按万显示）`);
+          item.scale = n;
+        }
       }
       out.columns.push(item);
     }

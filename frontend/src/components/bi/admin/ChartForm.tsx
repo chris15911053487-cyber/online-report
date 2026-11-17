@@ -5,7 +5,7 @@
  */
 import { useState } from 'react'
 import { ArrowDown, ArrowUp, Plus, Search, Trash2 } from 'lucide-react'
-import { defaultChartSize, sumModesFor, withColumnSemantics, type BiCardType, type BiChartDef, type BiColumnRole, type BiColumnSemantic, type BiDrillLevel, type BiDrillOpen, type BiEncoding, type BiFormat, type BiLabelMode, type BiStackMode, type BiSumMode, type BiValue, type BiTrend } from '../../../utils/bi'
+import { defaultChartSize, sumModesFor, withColumnSemantics, type BiCardType, type BiChartDef, type BiColumnDef, type BiColumnRole, type BiColumnSemantic, type BiDrillLevel, type BiDrillOpen, type BiEncoding, type BiFormat, type BiLabelMode, type BiStackMode, type BiSumMode, type BiValue, type BiTrend } from '../../../utils/bi'
 import {
   COLUMN_ROLE_LABEL,
   FORMAT_LABEL,
@@ -350,6 +350,20 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
   }
 
   if (type === 'table') {
+    // 列格式只列显示中的度量列；没选显示列时改格式会把全部列写进 columns（显示不变）
+    const shown = enc.columns?.length ? enc.columns.map((c) => c.column) : columns.map((c) => c.column)
+    const tableMeasures = measures.filter((c) => shown.includes(c.column))
+    const setCol = (column: string, p: Partial<BiColumnDef>) => {
+      const base: BiColumnDef[] = enc.columns?.length ? enc.columns : columns.map((c) => ({ column: c.column }))
+      set({
+        columns: base.map((c) => {
+          if (c.column !== column) return c
+          const next = { ...c, ...p }
+          for (const k of Object.keys(p) as (keyof BiColumnDef)[]) if (next[k] === undefined) delete next[k]
+          return next
+        }),
+      })
+    }
     return (
       <div className="flex flex-col gap-2">
         <Row label="显示列" hint="不选 = 显示全部输出列；列名和格式取自查询">
@@ -363,6 +377,38 @@ function EncodingFields({ type, enc, columns, onChange }: { type: BiCardType; en
             <span className="text-[12px] text-subtle">查询未登记输出列，显示全部列</span>
           )}
         </Row>
+        {tableMeasures.length > 0 && (
+          <Row label="列格式" hint="格式 / 单位 / 缩放，不填继承查询的列语义；单位写在表头，如「收入（万元）」">
+            <div className="flex flex-col gap-1.5">
+              {tableMeasures.map((c) => {
+                const def = enc.columns?.find((x) => x.column === c.column)
+                return (
+                  <div key={c.column} className="grid grid-cols-[minmax(0,1fr)_6.5rem_5rem_5.5rem] gap-1.5 items-center">
+                    <span className="text-[12px] text-fg-2 truncate" title={c.column}>
+                      {c.label || c.column}
+                    </span>
+                    <select aria-label={`${c.label || c.column} 格式`} className={compactInputClass} value={def?.format || ''} onChange={(e) => setCol(c.column, { format: (e.target.value || undefined) as BiFormat | undefined })}>
+                      <option value="">{c.format ? `继承（${FORMAT_LABEL[c.format]}）` : '默认'}</option>
+                      {Object.entries(FORMAT_LABEL).map(([v, l]) => (
+                        <option key={v} value={v}>
+                          {l}
+                        </option>
+                      ))}
+                    </select>
+                    <input aria-label={`${c.label || c.column} 单位`} className={compactInputClass} value={def?.unit || ''} placeholder={c.unit || '单位'} onChange={(e) => setCol(c.column, { unit: e.target.value || undefined })} />
+                    <select aria-label={`${c.label || c.column} 缩放`} className={compactInputClass} value={def?.scale ? String(def.scale) : ''} onChange={(e) => setCol(c.column, { scale: e.target.value ? Number(e.target.value) : undefined })}>
+                      {SCALES.map((sc) => (
+                        <option key={sc.value} value={sc.value}>
+                          {sc.value === '' && c.scale ? `继承（÷${c.scale}）` : sc.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )
+              })}
+            </div>
+          </Row>
+        )}
         <Row label="行标题列" hint="下钻时面包屑显示这一列的值">
           <ColumnSelect ariaLabel="行标题列" columns={columns} prefer={['dimension']} optional value={enc.dimension} onChange={(v) => set({ dimension: v })} />
         </Row>
@@ -749,6 +795,14 @@ export default function ChartForm({
               <Row label="查询">
                 <QuerySelect ariaLabel={`第 ${i + 1} 级下钻查询`} queries={queries} value={d.queryKey} chartType={d.type} onChange={(k) => changeLevelQuery(i, k)} />
               </Row>
+              {q && (
+                <div className="flex flex-col gap-0.5 pt-1">
+                  <span className="text-[12.5px] font-medium text-fg-2">关联条件（参数来源）</span>
+                  <p className="text-[11px] text-subtle">
+                    这一级查询的每个参数从哪里取值：选「上一级点中行的列」就是上下级的关联条件（如 CardCode 取上一级的 CardCode 列），同名列会自动绑上；关联要用但上一级没显示的列（如编码），把它加到上一级查询的输出列即可。
+                  </p>
+                </div>
+              )}
               {q && (
                 <ParamBindings
                   query={q}

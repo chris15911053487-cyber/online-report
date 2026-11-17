@@ -4,7 +4,7 @@
  */
 import { useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, Filter, Search, X } from 'lucide-react'
-import { formatValue, toNumber, type BiColumnDef, type BiColumnSemantic, type BiEncoding, type BiTrend } from '../../utils/bi'
+import { cellFormat, columnHeader, formatValue, toNumber, type BiColumnDef, type BiColumnSemantic, type BiEncoding, type BiTrend } from '../../utils/bi'
 import { columnLabel, sameRow, type BiRow } from '../../utils/biOption'
 import { filterRows, sortRows, sumColumns, summableColumns, toggleSort, type SortKey } from '../../utils/biTable'
 
@@ -107,7 +107,7 @@ export default function DetailTable({ rows, columns, encoding, semantics, onRow,
                       title="点击排序，按住 Shift 追加排序列"
                       onClick={(e) => setSorts((s) => toggleSort(s, c.column, e.shiftKey))}
                     >
-                      {label(c)}
+                      {columnHeader(label(c), c)}
                       {sort && (sort.dir === 'asc' ? <ArrowUp className="w-3 h-3 text-primary" /> : <ArrowDown className="w-3 h-3 text-primary" />)}
                       {sort && sorts.length > 1 && <span className="text-[10px] text-primary num">{si + 1}</span>}
                     </button>
@@ -163,13 +163,13 @@ export default function DetailTable({ rows, columns, encoding, semantics, onRow,
                       return (
                         <td key={c.column} className={`${base} text-right tabular-nums ${deltaTone(n, encoding.trend)}`}>
                           {n > 0 ? '▲ ' : n < 0 ? '▼ ' : ''}
-                          {formatValue(Math.abs(n), { format: c.format })}
+                          {formatValue(Math.abs(n), cellFormat(c))}
                         </td>
                       )
                     }
                     return (
                       <td key={c.column} className={`${base} text-fg-2 ${num ? 'text-right tabular-nums' : ''}`}>
-                        {c.format ? formatValue(v, { format: c.format }) : v == null ? '' : String(v)}
+                        {c.format || c.scale ? formatValue(v, cellFormat(c)) : v == null ? '' : String(v)}
                       </td>
                     )
                   })}
@@ -192,7 +192,7 @@ export default function DetailTable({ rows, columns, encoding, semantics, onRow,
                     key={c.column}
                     className={`bg-surface-2 border-t border-line px-2.5 py-1.5 whitespace-nowrap font-medium ${i === 0 ? sticky0 : ''} ${c.column in totals ? 'text-right tabular-nums text-fg' : 'text-muted'}`}
                   >
-                    {c.column in totals ? formatValue(totals[c.column], { format: c.format }) : i === 0 ? (filtered ? '合计（筛选后）' : '合计') : ''}
+                    {c.column in totals ? formatValue(totals[c.column], cellFormat(c)) : i === 0 ? (filtered ? '合计（筛选后）' : '合计') : ''}
                   </td>
                 ))}
               </tr>

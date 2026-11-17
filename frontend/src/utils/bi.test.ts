@@ -12,6 +12,8 @@ import {
   toJsonText,
   toNumber,
   withColumnSemantics,
+  cellFormat,
+  columnHeader,
 } from './bi'
 
 const NOW = new Date(2026, 0, 15) // 2026-01-15（本地时区）
@@ -128,6 +130,26 @@ describe('withColumnSemantics + 右轴', () => {
     const out = withColumnSemantics({ dimension: 'm', values: ['增长率', '本期'], rightAxis: ['增长率'] }, sem)
     expect(out.format).toBe('money')
     expect(out.unit).toBe('万元')
+  })
+})
+
+describe('withColumnSemantics + 表格列', () => {
+  const sem = [
+    { column: '客户', role: 'dimension' as const, unit: '个' },
+    { column: '收入', role: 'measure' as const, format: 'money' as const, unit: '万元', scale: 10000 },
+  ]
+  it('度量列继承单位 / 缩放，维度列不继承', () => {
+    const out = withColumnSemantics({}, sem)
+    expect(out.columns).toEqual([{ column: '客户' }, { column: '收入', format: 'money', unit: '万元', scale: 10000 }])
+  })
+  it('列上写的覆盖继承；缩放选「原值」= 不缩放', () => {
+    const out = withColumnSemantics({ columns: [{ column: '收入', unit: '元', scale: 1 }] }, sem)
+    expect(out.columns).toEqual([{ column: '收入', format: 'money', unit: '元' }])
+  })
+  it('表头带单位，百分比列不带；单元格按缩放显示', () => {
+    expect(columnHeader('收入', { column: '收入', unit: '万元' })).toBe('收入（万元）')
+    expect(columnHeader('毛利率', { column: '毛利率', unit: '%', format: 'percent' })).toBe('毛利率')
+    expect(formatValue(123456, cellFormat({ column: '收入', format: 'money', unit: '万元', scale: 10000 }))).toBe('12.35')
   })
 })
 

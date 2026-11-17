@@ -179,10 +179,10 @@ describe('列语义继承', () => {
     expect(enc).toMatchObject({ format: 'money', scale: 10000, unit: '元' })
     expect(enc.columns).toEqual([
       { column: 'CardName', label: '客户' },
-      { column: 'Balance', label: '余额', format: 'money' },
+      { column: 'Balance', label: '余额', format: 'money', unit: '万', scale: 10000 },
     ])
     expect(withColumnSemantics({ value: 'X' }, undefined)).toEqual({ value: 'X' })
-    expect(withColumnSemantics({}, sem, ['Balance', 'Extra']).columns).toEqual([{ column: 'Balance', label: '余额', format: 'money' }, { column: 'Extra' }])
+    expect(withColumnSemantics({}, sem, ['Balance', 'Extra']).columns).toEqual([{ column: 'Balance', label: '余额', format: 'money', unit: '万', scale: 10000 }, { column: 'Extra' }])
   })
 })
 

@@ -21,6 +21,10 @@ export interface BiColumnDef {
   column: string
   label?: string
   format?: BiFormat
+  /** 表格：单位写在表头（如「收入（万元）」），百分比列不显示 */
+  unit?: string
+  /** 表格：显示时除以它（10000 = 按万显示） */
+  scale?: number
 }
 
 export interface BiEncoding {
@@ -322,9 +326,14 @@ export function withColumnSemantics(enc: BiEncoding, semantics?: BiColumnSemanti
     const sem = byName.get(c.column)
     const def: BiColumnDef = { column: c.column }
     const label = c.label || sem?.label
-    const format = c.format || (sem?.role === 'measure' ? sem.format : undefined)
+    const measure = sem?.role === 'measure'
+    const format = c.format || (measure ? sem.format : undefined)
+    const unit = c.unit || (measure ? sem.unit : undefined)
+    const scale = c.scale || (measure ? sem.scale : undefined)
     if (label) def.label = label
     if (format) def.format = format
+    if (unit) def.unit = unit
+    if (scale && scale !== 1) def.scale = scale
     return def
   }
   const base: BiColumnDef[] = enc.columns?.length
@@ -378,6 +387,16 @@ export function toNumber(v: unknown): number | null {
     return Number.isFinite(n) ? n : null
   }
   return null
+}
+
+/** 表格单元格 / 合计的数值格式：单位不进单元格，写在表头（见 columnHeader） */
+export function cellFormat(c: BiColumnDef): Pick<BiEncoding, 'format' | 'scale'> {
+  return { format: c.format, scale: c.scale }
+}
+
+/** 表头文字：有单位时加「（万元）」，百分比列不加 */
+export function columnHeader(label: string, c: BiColumnDef): string {
+  return c.unit && c.format !== 'percent' ? `${label}（${c.unit}）` : label
 }
 
 /** 按 encoding 格式化数值：scale（如 10000 → 万）、format、unit */
