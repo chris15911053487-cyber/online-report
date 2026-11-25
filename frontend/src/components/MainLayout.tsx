@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ChevronLeft, ChevronRight, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { useStore } from '../store'
 import BottomNav from './BottomNav'
+import { useKeyboardOpen } from '../hooks/useKeyboardOpen'
 import Sidebar from './Sidebar'
 import { ADMIN_VIEWS } from './adminEntries'
 import CatalogView from '../views/CatalogView'
@@ -165,7 +166,9 @@ export default function MainLayout() {
   const isPc = useIsPc()
   // 使用说明：PC 在侧边栏里，算一级页面；手机从「设置」进入，带返回
   const isRootTab = rootTabs.includes(currentView) || (isPc && currentView === 'help')
-  const showBottomNav = isRootTab && currentView !== 'admin'
+  // 键盘弹出时收起底部 Tab，否则安卓上会被顶到键盘上方
+  const keyboardOpen = useKeyboardOpen() && !isPc
+  const showBottomNav = isRootTab && currentView !== 'admin' && !keyboardOpen
   const title =
     currentView === 'agent-run' && currentAgentLabel
       ? currentAgentLabel

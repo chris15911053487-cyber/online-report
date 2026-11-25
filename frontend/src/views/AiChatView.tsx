@@ -10,9 +10,11 @@ import HoldToTalkPad from '../components/HoldToTalkPad'
 import VoiceModeToggle from '../components/VoiceModeToggle'
 import { useChatVoiceMode } from '../hooks/useChatVoiceMode'
 import { useIsPc } from '../hooks/useMediaQuery'
+import { useKeyboardOpen } from '../hooks/useKeyboardOpen'
 import { useVoiceDraft, voiceSendFields, type VoiceSendFields } from '../hooks/useVoiceDraft'
 import { voiceInputSupported } from '../utils/voiceRecorder'
 import { useStore } from '../store'
+import { cn } from '../ui/classes'
 import { apiFetch, apiUrl, authHeaders } from '../utils/api'
 import { attachToolResults, createLiveFeed, stripActionsBlock, streamAgentChat, type LiveState } from '../utils/agentStream'
 import { runHelpNavAction, type HelpNavAction } from '../utils/helpActions'
@@ -225,6 +227,7 @@ export default function AiChatView() {
   }, [voiceDraft, setVoiceMode])
   const pageVisible = useStore((s) => s.currentView === 'ai')
   const [inputFocused, setInputFocused] = useState(false)
+  const keyboardOpen = useKeyboardOpen()
   const holdPad = voiceOk && !isPc && !loading && !input && !inputFocused
   useEffect(() => {
     if (!pageVisible) return
@@ -846,7 +849,11 @@ export default function AiChatView() {
 
       <div
         // 手机：停在底部 Tab 之上；PC：没有底部 Tab，贴底并让出左侧导航
-        className="fixed left-0 right-0 lg:left-[var(--sidebar-w)] bottom-[calc(4rem+env(safe-area-inset-bottom,0px))] lg:bottom-0 z-40 border-t border-line bg-surface/95 backdrop-blur"
+        // 键盘弹出时底部 Tab 收起（MainLayout），输入栏贴底
+        className={cn(
+          'fixed left-0 right-0 lg:left-[var(--sidebar-w)] lg:bottom-0 z-40 border-t border-line bg-surface/95 backdrop-blur',
+          keyboardOpen ? 'bottom-0' : 'bottom-[calc(4rem+env(safe-area-inset-bottom,0px))]',
+        )}
       >
         <div className="max-w-2xl mx-auto md:max-w-none px-3 py-2">
           {quotedMsg && (
