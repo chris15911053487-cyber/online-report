@@ -26,7 +26,7 @@ import { useStore } from '../store'
 import { tv } from '../theme'
 import { useIsPc } from '../hooks/useMediaQuery'
 import { usePageFullscreen } from '../hooks/usePageFullscreen'
-import HoldToTalk from '../components/HoldToTalk'
+import HoldToTalkPad from '../components/HoldToTalkPad'
 import { useVoiceDraft, type VoiceSendFields } from '../hooks/useVoiceDraft'
 import { voiceInputSupported } from '../utils/voiceRecorder'
 import { apiFetch } from '../utils/api'
@@ -620,9 +620,10 @@ export default function AgentRunView() {
     voiceDraft.mark(logId)
     mobileInputRef.current?.focus()
   }, [voiceDraft])
-  // 学微信：输入框为空时发送钮的位置显示「按住说话」
+  // 学微信：输入框为空且未聚焦时「可按住 转文字」（轻点打字，按住说话）
   const [voiceOk] = useState(voiceInputSupported)
   const voiceInputActive = pageVisible && !isPc && mobileTab === 'chat'
+  const holdPad = voiceOk && !sending && !mobileInput && !mobileInputFocused
   useEffect(() => {
     if (!voiceInputActive) return
     const w = window as Window & { __voiceChatInput?: (text: string) => boolean }
@@ -1423,7 +1424,7 @@ export default function AgentRunView() {
           <div className="px-4 py-3">
             {contextChip}
             <div
-              className="flex items-center gap-2 rounded-2xl px-4 py-2.5 transition-colors"
+              className="relative flex items-center gap-2 rounded-2xl px-4 py-2.5 transition-colors"
               style={{
                 background: tv('bg'),
                 border: `1px solid ${mobileInputFocused ? tv('primary') : 'transparent'}`,
@@ -1442,37 +1443,40 @@ export default function AgentRunView() {
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!sending) void doSend(mobileInput, { voice: voiceDraft.take() }) }
                 }}
-                placeholder={sending ? '思考中…' : agent ? `问问${agent.label}…` : '输入问题…'}
+                placeholder={sending ? '思考中…' : holdPad ? '' : agent ? `问问${agent.label}…` : '输入问题…'}
                 disabled={sending}
                 className="flex-1 bg-transparent outline-none min-w-0 disabled:opacity-50"
                 style={{ fontSize: 14, color: tv('fg') }}
               />
-              {voiceOk && !sending && !mobileInput.trim() ? (
-                <HoldToTalk onText={appendMobileVoice} prominent className="w-9 h-9 -my-0.5 rounded-full" />
-              ) : (
-                <button
-                  onClick={() => sending ? abortRef.current?.abort() : void doSend(mobileInput, { voice: voiceDraft.take() })}
-                  className="w-9 h-9 -my-0.5 rounded-full flex items-center justify-center flex-shrink-0 transition-all"
-                  style={{
-                    background: sending
-                      ? tv('danger-soft')
-                      : mobileInput.trim() ? tv('primary') : tv('subtle'),
-                    color: tv('primary-fg'),
-                    border: 'none',
-                    opacity: (!sending && !mobileInput.trim()) ? 0.5 : 1,
-                  }}
-                >
-                  {sending ? (
-                    <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 14, height: 14 }}>
-                      <rect x="6" y="6" width="12" height="12" rx="2" />
-                    </svg>
-                  ) : (
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
-                      <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
-                    </svg>
-                  )}
-                </button>
+              {holdPad && (
+                <HoldToTalkPad
+                  onText={appendMobileVoice}
+                  onTap={() => mobileInputRef.current?.focus()}
+                  className="inset-y-0 left-0 right-[3.25rem] pl-4 rounded-2xl text-[14px]"
+                />
               )}
+              <button
+                onClick={() => sending ? abortRef.current?.abort() : void doSend(mobileInput, { voice: voiceDraft.take() })}
+                className="w-9 h-9 -my-0.5 rounded-full flex items-center justify-center flex-shrink-0 transition-all"
+                style={{
+                  background: sending
+                    ? tv('danger-soft')
+                    : mobileInput.trim() ? tv('primary') : tv('subtle'),
+                  color: tv('primary-fg'),
+                  border: 'none',
+                  opacity: (!sending && !mobileInput.trim()) ? 0.5 : 1,
+                }}
+              >
+                {sending ? (
+                  <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 14, height: 14 }}>
+                    <rect x="6" y="6" width="12" height="12" rx="2" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
+                    <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+                  </svg>
+                )}
+              </button>
             </div>
           </div>
         </div>

@@ -6,6 +6,8 @@ import PinToDashboard from '../components/bi/PinToDashboard'
 import AgentTracePanel, { parseAgentTrace, type AgentTimings, type AgentToolStep } from '../components/AgentTracePanel'
 import ChatMarkdown, { bareDocUrls } from '../components/ChatMarkdown'
 import HoldToTalk from '../components/HoldToTalk'
+import HoldToTalkPad from '../components/HoldToTalkPad'
+import { useIsPc } from '../hooks/useMediaQuery'
 import { useVoiceDraft, type VoiceSendFields } from '../hooks/useVoiceDraft'
 import { voiceInputSupported } from '../utils/voiceRecorder'
 import { useStore } from '../store'
@@ -212,8 +214,11 @@ export default function AiChatView() {
     inputRef.current?.focus()
   }, [voiceDraft])
   const pageVisible = useStore((s) => s.currentView === 'ai')
-  // 学微信：输入框为空时发送钮的位置显示「按住说话」
+  // 学微信：PC 输入框为空时发送钮的位置显示「按住说话」；手机按住输入框本身转文字（轻点打字）
   const [voiceOk] = useState(voiceInputSupported)
+  const isPc = useIsPc()
+  const [inputFocused, setInputFocused] = useState(false)
+  const holdPad = voiceOk && !isPc && !loading && !input && !inputFocused
   useEffect(() => {
     if (!pageVisible) return
     const w = window as Window & { __voiceChatInput?: (text: string) => boolean }
@@ -867,32 +872,43 @@ export default function AiChatView() {
             </div>
           )}
           <div className="flex gap-2 items-end">
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={(e) => {
-                setInput(e.target.value)
-                if (!e.target.value) voiceDraft.reset()
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  if (showSlashMenu) {
-                    if (slashMatches.length > 0) selectSlashSkill(slashMatches[0])
-                    return
+            <div className="relative flex-1 min-w-0">
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={(e) => {
+                  setInput(e.target.value)
+                  if (!e.target.value) voiceDraft.reset()
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    if (showSlashMenu) {
+                      if (slashMatches.length > 0) selectSlashSkill(slashMatches[0])
+                      return
+                    }
+                    send()
+                  } else if (e.key === 'Escape' && showSlashMenu) {
+                    setInput('')
                   }
-                  send()
-                } else if (e.key === 'Escape' && showSlashMenu) {
-                  setInput('')
-                }
-              }}
-              rows={2}
-              maxLength={8000}
-              placeholder="输入问题；输入 / 调用 Skill（如 /report-query）"
-              disabled={loading}
-              className="flex-1 resize-none rounded-xl border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/25 disabled:bg-surface-2"
-            />
-            {voiceOk && !loading && !input.trim() ? (
+                }}
+                onFocus={() => setInputFocused(true)}
+                onBlur={() => setInputFocused(false)}
+                rows={2}
+                maxLength={8000}
+                placeholder={holdPad ? '' : '输入问题；输入 / 调用 Skill（如 /report-query）'}
+                disabled={loading}
+                className="block w-full resize-none rounded-xl border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/25 disabled:bg-surface-2"
+              />
+              {holdPad && (
+                <HoldToTalkPad
+                  onText={appendVoiceText}
+                  onTap={() => inputRef.current?.focus()}
+                  className="inset-0 px-3 rounded-xl text-sm"
+                />
+              )}
+            </div>
+            {voiceOk && isPc && !loading && !input.trim() ? (
               <HoldToTalk onText={appendVoiceText} prominent className="h-9 w-[3.75rem] rounded-xl" />
             ) : (
               <button
