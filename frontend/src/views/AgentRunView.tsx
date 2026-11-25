@@ -27,7 +27,9 @@ import { tv } from '../theme'
 import { useIsPc } from '../hooks/useMediaQuery'
 import { usePageFullscreen } from '../hooks/usePageFullscreen'
 import HoldToTalkPad from '../components/HoldToTalkPad'
-import { useVoiceDraft, type VoiceSendFields } from '../hooks/useVoiceDraft'
+import VoiceModeToggle from '../components/VoiceModeToggle'
+import { useChatVoiceMode } from '../hooks/useChatVoiceMode'
+import { useVoiceDraft, voiceSendFields, type VoiceSendFields } from '../hooks/useVoiceDraft'
 import { voiceInputSupported } from '../utils/voiceRecorder'
 import { apiFetch } from '../utils/api'
 import { attachToolResults, createLiveFeed, streamAgentChat, type LiveState } from '../utils/agentStream'
@@ -615,13 +617,17 @@ export default function AgentRunView() {
   // 语音填入输入框：手机「对话」页签可见时，悬浮语音钮 / App 原生语音钮识别的文字经 voice.js 填到这里。
   // 页面保活，隐藏时必须注销，否则别的页面的语音指令会被吞掉
   const voiceDraft = useVoiceDraft()
+  // 学微信：左侧切换语音模式（「按住 说话」松开即发）；键盘模式下输入框为空且未聚焦时「可按住 转文字」（轻点打字，按住说话）
+  const [voiceOk] = useState(voiceInputSupported)
+  const [voiceModePref, setVoiceMode] = useChatVoiceMode()
+  const voiceMode = voiceOk && voiceModePref
   const appendMobileVoice = useCallback((text: string, logId?: number | null) => {
+    // 悬浮语音钮在语音模式下说话：切回键盘模式，文字填进输入框
+    setVoiceMode(false)
     setMobileInput((prev) => prev + text)
     voiceDraft.mark(logId)
     mobileInputRef.current?.focus()
-  }, [voiceDraft])
-  // 学微信：输入框为空且未聚焦时「可按住 转文字」（轻点打字，按住说话）
-  const [voiceOk] = useState(voiceInputSupported)
+  }, [voiceDraft, setVoiceMode])
   const voiceInputActive = pageVisible && !isPc && mobileTab === 'chat'
   const holdPad = voiceOk && !sending && !mobileInput && !mobileInputFocused
   useEffect(() => {
@@ -1430,53 +1436,78 @@ export default function AgentRunView() {
                 border: `1px solid ${mobileInputFocused ? tv('primary') : 'transparent'}`,
               }}
             >
-              <input
-                ref={mobileInputRef}
-                type="text"
-                value={mobileInput}
-                onChange={(e) => {
-                  setMobileInput(e.target.value)
-                  if (!e.target.value) voiceDraft.reset()
-                }}
-                onFocus={() => setMobileInputFocused(true)}
-                onBlur={() => setMobileInputFocused(false)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!sending) void doSend(mobileInput, { voice: voiceDraft.take() }) }
-                }}
-                placeholder={sending ? '思考中…' : holdPad ? '' : agent ? `问问${agent.label}…` : '输入问题…'}
-                disabled={sending}
-                className="flex-1 bg-transparent outline-none min-w-0 disabled:opacity-50"
-                style={{ fontSize: 14, color: tv('fg') }}
-              />
-              {holdPad && (
-                <HoldToTalkPad
-                  onText={appendMobileVoice}
-                  onTap={() => mobileInputRef.current?.focus()}
-                  className="inset-y-0 left-0 right-[3.25rem] pl-4 rounded-2xl text-[14px]"
+              {voiceOk && (
+                <VoiceModeToggle
+                  voiceMode={voiceMode}
+                  onChange={(on) => {
+                    setVoiceMode(on)
+                    // 语音模式下输入框卸载，不会触发 onBlur
+                    if (on) setMobileInputFocused(false)
+                    else window.setTimeout(() => mobileInputRef.current?.focus(), 0)
+                  }}
+                  className="-my-0.5 -ml-2"
                 />
               )}
-              <button
-                onClick={() => sending ? abortRef.current?.abort() : void doSend(mobileInput, { voice: voiceDraft.take() })}
-                className="w-9 h-9 -my-0.5 rounded-full flex items-center justify-center flex-shrink-0 transition-all"
-                style={{
-                  background: sending
-                    ? tv('danger-soft')
-                    : mobileInput.trim() ? tv('primary') : tv('subtle'),
-                  color: tv('primary-fg'),
-                  border: 'none',
-                  opacity: (!sending && !mobileInput.trim()) ? 0.5 : 1,
-                }}
-              >
-                {sending ? (
-                  <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 14, height: 14 }}>
-                    <rect x="6" y="6" width="12" height="12" rx="2" />
-                  </svg>
-                ) : (
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
-                    <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
-                  </svg>
-                )}
-              </button>
+              {voiceMode ? (
+                <HoldToTalkPad
+                  instant
+                  disabled={sending}
+                  onText={(text, logId) => void doSend(text, { voice: voiceSendFields(logId) })}
+                  className="flex-1 min-w-0 justify-center h-9 -my-0.5 rounded-xl text-[14px] font-medium"
+                />
+              ) : (
+                <>
+                  <input
+                    ref={mobileInputRef}
+                    type="text"
+                    value={mobileInput}
+                    onChange={(e) => {
+                      setMobileInput(e.target.value)
+                      if (!e.target.value) voiceDraft.reset()
+                    }}
+                    onFocus={() => setMobileInputFocused(true)}
+                    onBlur={() => setMobileInputFocused(false)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!sending) void doSend(mobileInput, { voice: voiceDraft.take() }) }
+                    }}
+                    placeholder={sending ? '思考中…' : holdPad ? '' : agent ? `问问${agent.label}…` : '输入问题…'}
+                    disabled={sending}
+                    className="flex-1 bg-transparent outline-none min-w-0 disabled:opacity-50"
+                    style={{ fontSize: 14, color: tv('fg') }}
+                  />
+                  {holdPad && (
+                    <HoldToTalkPad
+                      onText={appendMobileVoice}
+                      onTap={() => mobileInputRef.current?.focus()}
+                      className="absolute inset-y-0 left-11 right-[3.25rem] pl-2 rounded-2xl text-[14px]"
+                    />
+                  )}
+                </>
+              )}
+              {(!voiceMode || sending) && (
+                <button
+                  onClick={() => sending ? abortRef.current?.abort() : void doSend(mobileInput, { voice: voiceDraft.take() })}
+                  className="w-9 h-9 -my-0.5 rounded-full flex items-center justify-center flex-shrink-0 transition-all"
+                  style={{
+                    background: sending
+                      ? tv('danger-soft')
+                      : mobileInput.trim() ? tv('primary') : tv('subtle'),
+                    color: tv('primary-fg'),
+                    border: 'none',
+                    opacity: (!sending && !mobileInput.trim()) ? 0.5 : 1,
+                  }}
+                >
+                  {sending ? (
+                    <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 14, height: 14 }}>
+                      <rect x="6" y="6" width="12" height="12" rx="2" />
+                    </svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
+                      <line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" />
+                    </svg>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>

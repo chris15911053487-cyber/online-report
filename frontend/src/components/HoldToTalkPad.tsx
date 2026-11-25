@@ -8,20 +8,26 @@ const LONG_PRESS_MS = 300
 const MOVE_TOLERANCE = 10
 
 /**
- * 手机对话输入框「可按住 转文字」（学微信）：盖在空输入框上，
- * 轻点 → onTap（页面聚焦输入框、弹键盘）；按住 → 录音，松开识别，上滑取消。
- * 只在输入框为空且未聚焦时渲染（打了字 / 键盘弹出后按住恢复系统的选字、粘贴）。
- * 用一层 div 盖住而不直接给 input 挂事件：避免长按弹出系统「粘贴 / 全选」菜单、一按就弹键盘。
- * 父元素须 position: relative；输入框自己的 placeholder 由页面在此期间置空。
+ * 手机对话输入框的按住说话（学微信），两种用法：
+ * - 默认「可按住 转文字」：盖在空输入框上，轻点 → onTap（页面聚焦输入框、弹键盘）；按住 → 录音，松开识别，上滑取消。
+ *   只在输入框为空且未聚焦时渲染（打了字 / 键盘弹出后按住恢复系统的选字、粘贴）。
+ *   用一层 div 盖住而不直接给 input 挂事件：避免长按弹出系统「粘贴 / 全选」菜单、一按就弹键盘。
+ *   父元素须 position: relative；输入框自己的 placeholder 由页面在此期间置空。
+ * - instant：语音模式下顶替输入框的「按住 说话」长条，一按就录（页面在 onText 里直接发送）。
  */
 export default function HoldToTalkPad({
   onText,
   onTap,
-  className = 'inset-0',
+  instant,
+  disabled,
+  className = 'absolute inset-0',
 }: {
   onText: (text: string, logId: number | null) => void
-  onTap: () => void
-  /** 位置（覆盖范围）、内边距、圆角、字号；默认 inset-0 */
+  onTap?: () => void
+  /** 一按就开始录音（语音模式长条），没有轻点 */
+  instant?: boolean
+  disabled?: boolean
+  /** 位置（覆盖范围）、内边距、圆角、字号；默认 absolute inset-0 */
   className?: string
 }) {
   const hold = useHoldToTalk(onText)
@@ -43,19 +49,25 @@ export default function HoldToTalkPad({
   const label =
     phase === 'recognizing' ? '识别中…'
       : phase === 'recording' ? (hold.cancelArmed ? '松开 取消' : '松开 结束')
-        : '可按住 转文字'
+        : instant ? '按住 说话' : '可按住 转文字'
 
   return (
     <>
       <div
         role="button"
         tabIndex={-1}
-        aria-label="轻点输入，按住说话转文字"
+        aria-label={instant ? '按住说话，松开发送' : '轻点输入，按住说话转文字'}
+        aria-disabled={disabled || undefined}
         onPointerDown={(e) => {
-          if (phase !== 'idle') return
+          if (disabled || phase !== 'idle') return
           e.preventDefault()
           e.currentTarget.setPointerCapture(e.pointerId)
           startRef.current = { x: e.clientX, y: e.clientY }
+          if (instant) {
+            noTapRef.current = true
+            void hold.begin(e.clientY)
+            return
+          }
           noTapRef.current = false
           setPressing(true)
           const y = e.clientY
@@ -92,14 +104,16 @@ export default function HoldToTalkPad({
         // 聚焦放在 click 里：iOS 只在点击类手势里允许 focus() 弹出键盘
         onClick={() => {
           if (noTapRef.current || phase !== 'idle') return
-          onTap()
+          onTap?.()
         }}
         onContextMenu={(e) => e.preventDefault()}
         className={cn(
-          'absolute flex items-center select-none touch-none cursor-text transition-colors',
+          'flex items-center select-none touch-none transition-colors',
+          instant ? 'cursor-pointer' : 'cursor-text',
+          disabled && 'opacity-50',
           phase === 'recording'
             ? hold.cancelArmed ? 'bg-danger-soft text-danger' : 'bg-primary-soft text-primary'
-            : pressing ? 'bg-surface-2 text-muted' : 'text-subtle',
+            : pressing ? 'bg-surface-2 text-muted' : instant ? 'text-fg' : 'text-subtle',
           className,
         )}
         style={{ WebkitTouchCallout: 'none', WebkitUserSelect: 'none' }}

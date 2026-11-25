@@ -829,7 +829,7 @@ addCmd(['打开消息', '未读消息'], function () {
 
 ### 对话框按住说话
 
-手机端 AI 助手（`AiChatView`）和 Agent 对话（`AgentRunView`）的输入框为空且未聚焦时显示「可按住 转文字」（学微信，`components/HoldToTalkPad.tsx` 盖在输入框上：轻点聚焦打字，按住 300ms 开始录音，按下后先移动超过 10px 视为滑动；打字后 / 键盘弹出时不盖，长按恢复系统选字粘贴）；PC 的 AI 助手仍是输入框为空时发送钮的位置显示麦克风钮（`components/HoldToTalk.tsx`）。录音流程两者共用 `hooks/useHoldToTalk.tsx`：按住录音、松开识别、上滑取消；结果**追加到输入框**，不自动发送。录音 / WAV 编码 / 调 `POST /speech/recognize` 在 `utils/voiceRecorder.ts`（与 `voice.js` 同一套 16k 单声道 WAV），单次最长 60 秒（百度短语音上限），短于 0.5 秒视为误触。App 壳（`window.ReactNativeWebView`）内不显示，走原生语音钮。
+手机端 AI 助手（`AiChatView`）和 Agent 对话（`AgentRunView`）的输入框为空且未聚焦时显示「可按住 转文字」（学微信，`components/HoldToTalkPad.tsx` 盖在输入框上：轻点聚焦打字，按住 300ms 开始录音，按下后先移动超过 10px 视为滑动；打字后 / 键盘弹出时不盖，长按恢复系统选字粘贴）；PC 的 AI 助手仍是输入框为空时发送钮的位置显示麦克风钮（`components/HoldToTalk.tsx`）。手机输入框左侧有「语音 / 键盘」切换钮（`components/VoiceModeToggle.tsx`，选择存本机 localStorage `online_report_chat_voice_mode`，`hooks/useChatVoiceMode.ts`）：语音模式下输入框换成「按住 说话」长条（`HoldToTalkPad` 的 `instant`），松开识别后**直接发送**（带 `inputMode: 'voice'`）；悬浮语音钮在语音模式下说话会切回键盘模式填入输入框。录音流程两者共用 `hooks/useHoldToTalk.tsx`：按住录音、松开识别、上滑取消；结果**追加到输入框**，不自动发送。录音 / WAV 编码 / 调 `POST /speech/recognize` 在 `utils/voiceRecorder.ts`（与 `voice.js` 同一套 16k 单声道 WAV），单次最长 60 秒（百度短语音上限），短于 0.5 秒视为误触。App 壳（`window.ReactNativeWebView`）内不显示，走原生语音钮。
 
 对话页**可见时**注册 `window.__voiceChatInput(text)`（两个页面都保活，隐藏时注销）；`voice.js` 的 `execVoiceText` 发现该钩子就把文字填进输入框，不再做指令匹配——浮动语音钮和 App 原生钮（`__voiceExec`）在对话页里也是填输入框。
 

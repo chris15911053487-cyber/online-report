@@ -7,8 +7,10 @@ import AgentTracePanel, { parseAgentTrace, type AgentTimings, type AgentToolStep
 import ChatMarkdown, { bareDocUrls } from '../components/ChatMarkdown'
 import HoldToTalk from '../components/HoldToTalk'
 import HoldToTalkPad from '../components/HoldToTalkPad'
+import VoiceModeToggle from '../components/VoiceModeToggle'
+import { useChatVoiceMode } from '../hooks/useChatVoiceMode'
 import { useIsPc } from '../hooks/useMediaQuery'
-import { useVoiceDraft, type VoiceSendFields } from '../hooks/useVoiceDraft'
+import { useVoiceDraft, voiceSendFields, type VoiceSendFields } from '../hooks/useVoiceDraft'
 import { voiceInputSupported } from '../utils/voiceRecorder'
 import { useStore } from '../store'
 import { apiFetch, apiUrl, authHeaders } from '../utils/api'
@@ -208,15 +210,20 @@ export default function AiChatView() {
   // 语音输入：按住说话钮，以及悬浮语音钮 / App 原生语音钮（voice.js 经 __voiceChatInput 钩子）识别的文字都填进输入框，不自动发送。
   // 页面保活，只在可见时注册钩子，否则别的页面的语音指令会被吞掉
   const voiceDraft = useVoiceDraft()
+  // 学微信：PC 输入框为空时发送钮的位置显示「按住说话」；
+  // 手机左侧切换语音模式（「按住 说话」松开即发），键盘模式下按住输入框本身转文字（轻点打字）
+  const [voiceOk] = useState(voiceInputSupported)
+  const isPc = useIsPc()
+  const [voiceModePref, setVoiceMode] = useChatVoiceMode()
+  const voiceMode = voiceOk && !isPc && voiceModePref
   const appendVoiceText = useCallback((text: string, logId?: number | null) => {
+    // 悬浮语音钮在语音模式下说话：切回键盘模式，文字填进输入框
+    setVoiceMode(false)
     setInput((prev) => prev + text)
     voiceDraft.mark(logId)
     inputRef.current?.focus()
-  }, [voiceDraft])
+  }, [voiceDraft, setVoiceMode])
   const pageVisible = useStore((s) => s.currentView === 'ai')
-  // 学微信：PC 输入框为空时发送钮的位置显示「按住说话」；手机按住输入框本身转文字（轻点打字）
-  const [voiceOk] = useState(voiceInputSupported)
-  const isPc = useIsPc()
   const [inputFocused, setInputFocused] = useState(false)
   const holdPad = voiceOk && !isPc && !loading && !input && !inputFocused
   useEffect(() => {
@@ -437,6 +444,13 @@ export default function AiChatView() {
       void sendText(input, { voice: voiceDraft.take() })
     }
   }, [input, sendText, quotedMsg, voiceDraft])
+
+  /** 语音模式：松开识别后直接发送（带引用） */
+  const sendVoice = useCallback((text: string, logId: number | null) => {
+    const prefix = quotedMsg ? `> ${quotedMsg.text.slice(0, 100)}${quotedMsg.text.length > 100 ? '…' : ''}\n\n` : ''
+    void sendText(prefix + text, { voice: voiceSendFields(logId) })
+    if (quotedMsg) setQuotedMsg(null)
+  }, [sendText, quotedMsg])
 
   const stop = useCallback(() => {
     abortRef.current?.abort()
@@ -872,43 +886,64 @@ export default function AiChatView() {
             </div>
           )}
           <div className="flex gap-2 items-end">
-            <div className="relative flex-1 min-w-0">
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => {
-                  setInput(e.target.value)
-                  if (!e.target.value) voiceDraft.reset()
+            {voiceOk && !isPc && (
+              <VoiceModeToggle
+                voiceMode={voiceMode}
+                onChange={(on) => {
+                  setVoiceMode(on)
+                  // 语音模式下输入框卸载，不会触发 onBlur
+                  if (on) setInputFocused(false)
+                  else window.setTimeout(() => inputRef.current?.focus(), 0)
                 }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault()
-                    if (showSlashMenu) {
-                      if (slashMatches.length > 0) selectSlashSkill(slashMatches[0])
-                      return
-                    }
-                    send()
-                  } else if (e.key === 'Escape' && showSlashMenu) {
-                    setInput('')
-                  }
-                }}
-                onFocus={() => setInputFocused(true)}
-                onBlur={() => setInputFocused(false)}
-                rows={2}
-                maxLength={8000}
-                placeholder={holdPad ? '' : '输入问题；输入 / 调用 Skill（如 /report-query）'}
-                disabled={loading}
-                className="block w-full resize-none rounded-xl border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/25 disabled:bg-surface-2"
+                className="mb-1.5 -ml-1"
               />
-              {holdPad && (
-                <HoldToTalkPad
-                  onText={appendVoiceText}
-                  onTap={() => inputRef.current?.focus()}
-                  className="inset-0 px-3 rounded-xl text-sm"
+            )}
+            {voiceMode ? (
+              <HoldToTalkPad
+                instant
+                disabled={loading}
+                onText={sendVoice}
+                className="flex-1 min-w-0 justify-center h-12 rounded-xl border border-line text-sm font-medium"
+              />
+            ) : (
+              <div className="relative flex-1 min-w-0">
+                <textarea
+                  ref={inputRef}
+                  value={input}
+                  onChange={(e) => {
+                    setInput(e.target.value)
+                    if (!e.target.value) voiceDraft.reset()
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      if (showSlashMenu) {
+                        if (slashMatches.length > 0) selectSlashSkill(slashMatches[0])
+                        return
+                      }
+                      send()
+                    } else if (e.key === 'Escape' && showSlashMenu) {
+                      setInput('')
+                    }
+                  }}
+                  onFocus={() => setInputFocused(true)}
+                  onBlur={() => setInputFocused(false)}
+                  rows={2}
+                  maxLength={8000}
+                  placeholder={holdPad ? '' : '输入问题；输入 / 调用 Skill（如 /report-query）'}
+                  disabled={loading}
+                  className="block w-full resize-none rounded-xl border border-line px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/25 disabled:bg-surface-2"
                 />
-              )}
-            </div>
-            {voiceOk && isPc && !loading && !input.trim() ? (
+                {holdPad && (
+                  <HoldToTalkPad
+                    onText={appendVoiceText}
+                    onTap={() => inputRef.current?.focus()}
+                    className="absolute inset-0 px-3 rounded-xl text-sm"
+                  />
+                )}
+              </div>
+            )}
+            {voiceMode && !loading ? null : voiceOk && isPc && !loading && !input.trim() ? (
               <HoldToTalk onText={appendVoiceText} prominent className="h-9 w-[3.75rem] rounded-xl" />
             ) : (
               <button

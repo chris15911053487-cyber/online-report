@@ -32,3 +32,8 @@ export function useVoiceDraft() {
 
   return useMemo(() => ({ mark, reset, take }), [mark, reset, take])
 }
+
+/** 语音模式松开即发：直接拼出发送用的语音标记 */
+export function voiceSendFields(logId: number | null): VoiceSendFields {
+  return logId ? { inputMode: 'voice', voiceLogId: logId } : { inputMode: 'voice' }
+}
